@@ -1197,3 +1197,153 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
       );
     `);
 }
+
+/**
+ * Creates isolated storefront & ecommerce tables for a company schema
+ */
+export async function createEcomSchema(
+  client: PoolClient,
+  schema: string,
+  companyId: number
+) {
+  console.log(`Creating ECOM tables for schema: ${schema}, company: ${companyId}`);
+
+  // 1. Create ecom_settings table
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "${schema}".ecom_settings (
+      id SERIAL PRIMARY KEY,
+      company_id INT NOT NULL UNIQUE REFERENCES public.companies(id) ON DELETE CASCADE,
+      payment_mode VARCHAR(20) NOT NULL DEFAULT 'cod_only'
+        CHECK (payment_mode IN ('cod_only','prepaid_only','both')),
+      gateway_provider VARCHAR(30),
+      gateway_key_id TEXT,
+      gateway_key_secret_enc TEXT,
+      serviceable_countries TEXT[] NOT NULL DEFAULT ARRAY['India'],
+      serviceable_states TEXT[],
+      serviceable_pincodes TEXT[],
+      terms_and_conditions TEXT,
+      return_refund_policy TEXT,
+      privacy_policy TEXT,
+      support_email VARCHAR(150),
+      support_phone VARCHAR(20),
+      use_custom_pricing BOOLEAN NOT NULL DEFAULT FALSE,
+      use_custom_discounts BOOLEAN NOT NULL DEFAULT FALSE,
+      setup_status VARCHAR(20) NOT NULL DEFAULT 'incomplete'
+        CHECK (setup_status IN ('incomplete','complete')),
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    );
+  `);
+
+  // 2. Create storefront_config table
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "${schema}".storefront_config (
+      id SERIAL PRIMARY KEY,
+      company_id INT NOT NULL UNIQUE REFERENCES public.companies(id) ON DELETE CASCADE,
+      draft_theme JSONB NOT NULL DEFAULT '{}'::jsonb,
+      published_theme JSONB,
+      version INT NOT NULL DEFAULT 0,
+      published_at TIMESTAMP,
+      published_by VARCHAR(100),
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    );
+  `);
+
+  // 3. Create storefront_products table
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "${schema}".storefront_products (
+      id SERIAL PRIMARY KEY,
+      company_id INT NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
+      variant_id BIGINT NOT NULL REFERENCES "${schema}".product_variants(id) ON DELETE CASCADE,
+      is_selected_draft BOOLEAN NOT NULL DEFAULT FALSE,
+      is_live BOOLEAN NOT NULL DEFAULT FALSE,
+      sort_order INT DEFAULT 0,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(variant_id)
+    );
+  `);
+
+  // 4. Create ecom_price_overrides table
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "${schema}".ecom_price_overrides (
+      id SERIAL PRIMARY KEY,
+      company_id INT NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
+      variant_id BIGINT NOT NULL REFERENCES "${schema}".product_variants(id) ON DELETE CASCADE,
+      ecom_price NUMERIC(12,2) NOT NULL CHECK (ecom_price >= 0),
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(variant_id)
+    );
+  `);
+
+  // 5. Add channel column to discounts table
+  await client.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_schema = '${schema}' AND table_name = 'discounts' AND column_name = 'channel'
+      ) THEN
+        ALTER TABLE "${schema}".discounts
+          ADD COLUMN channel VARCHAR(10) NOT NULL DEFAULT 'both'
+            CHECK (channel IN ('pos','ecom','both'));
+      END IF;
+    END $$;
+  `);
+
+  // 6. Create inventory_reservations table
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "${schema}".inventory_reservations (
+      id BIGSERIAL PRIMARY KEY,
+      variant_id BIGINT NOT NULL REFERENCES "${schema}".product_variants(id) ON DELETE CASCADE,
+      warehouse_id INT REFERENCES "${schema}".warehouses(id) ON DELETE RESTRICT,
+      qty_reserved NUMERIC(12,2) NOT NULL CHECK (qty_reserved > 0),
+      order_ref_id BIGINT,
+      status VARCHAR(20) NOT NULL DEFAULT 'held'
+        CHECK (status IN ('held','converted','released')),
+      expires_at TIMESTAMP NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+  `);
+
+  // 7. Create inventory reservation index
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS idx_inventory_reservations_variant
+      ON "${schema}".inventory_reservations(variant_id) WHERE status = 'held';
+  `);
+
+  // 8. Create ecom_available_stock view
+  await client.query(`
+    CREATE OR REPLACE VIEW "${schema}".ecom_available_stock AS
+    SELECT
+      cs.warehouse_id, cs.locator_id, cs.product_id AS variant_id,
+      cs.current_stock - COALESCE(r.reserved_qty, 0) AS available_qty
+    FROM "${schema}".current_stock cs
+    LEFT JOIN (
+      SELECT variant_id, SUM(qty_reserved) AS reserved_qty
+      FROM "${schema}".inventory_reservations
+      WHERE status = 'held' AND expires_at > NOW()
+      GROUP BY variant_id
+    ) r ON r.variant_id = cs.product_id
+    WHERE cs.current_stock > 0;
+  `);
+
+  // 9. Create customer_ecom_auth table
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "${schema}".customer_ecom_auth (
+      id SERIAL PRIMARY KEY,
+      customer_id INT NOT NULL UNIQUE REFERENCES "${schema}".customers(id) ON DELETE CASCADE,
+      phone VARCHAR(20) NOT NULL UNIQUE,
+      otp_hash TEXT,
+      otp_expires_at TIMESTAMP,
+      otp_attempts INT NOT NULL DEFAULT 0,
+      is_verified BOOLEAN NOT NULL DEFAULT FALSE,
+      last_login TIMESTAMP,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+  `);
+}
+

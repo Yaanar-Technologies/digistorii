@@ -26,6 +26,7 @@ import {
   ArrowsRightLeftIcon,
   Cog6ToothIcon,
   BanknotesIcon,
+  ShoppingCartIcon,
 } from "@heroicons/react/24/outline";
 import { canAccess } from "@/lib/accessControl";
 import { ResponsibilityAccessKey } from "@/lib/userResponsibilities";
@@ -36,6 +37,7 @@ type NavItem = {
   icon: React.ReactNode;
   path?: string;
   permission?: ResponsibilityAccessKey;
+  ecommerce_access?: boolean;
   subItems?: { name: string; path: string; pro?: boolean; new?: boolean }[];
 };
 
@@ -90,6 +92,16 @@ const navItems: NavItem[] = [
     //    {name: "Sales Billing" ,path:"/workspace/transactions/sales",pro:false}
     // ],
     path: "/workspace/transactions/sales",
+  },
+  {
+    name: "E-Commerce",
+    icon: <ShoppingCartIcon className="w-5 h-5" />,
+    ecommerce_access: true,
+    subItems: [
+      { name: "Store Settings", path: "/workspace/ecom-config/settings", pro: false },
+      { name: "Product Catalog", path: "/workspace/ecom-config/products", pro: false },
+      { name: "Theme & Customize", path: "/workspace/ecom-config/theme", pro: false },
+    ],
   },
   {
     name: "Reports",
@@ -206,9 +218,16 @@ const AppSidebar: React.FC = () => {
     }
   }, [openSubmenu]);
 
-  const allowedNavItems = navItems.filter((item) =>
-    item.permission ? canAccess(user?.permissions, item.permission) : true
-  );
+  const allowedNavItems = navItems.filter((item) => {
+    if (item.permission && !canAccess(user?.permissions, item.permission)) {
+      return false;
+    }
+    if (item.ecommerce_access) {
+      //&& !user?.ecommerce_access
+      return false;
+    }
+    return true;
+  });
 
   const renderMenuItems = (navItems: NavItem[], menuType: "main" | "others") => (
     <ul className="flex flex-col gap-4">

@@ -41,8 +41,11 @@ export async function initializeDatabase() {
         status VARCHAR(20) DEFAULT 'ACTIVE',
         created_at TIMESTAMP DEFAULT now(),
         updated_at TIMESTAMP DEFAULT now(),
-        verification_token TEXT UNIQUE
-
+        verification_token TEXT UNIQUE,
+        custom_domain VARCHAR(255) UNIQUE,
+        custom_domain_status VARCHAR(20) NOT NULL DEFAULT 'not_configured'
+          CHECK (custom_domain_status IN ('not_configured','pending_dns','verified','failed')),
+        custom_domain_verified_at TIMESTAMP
       );
     `);
 
@@ -196,6 +199,57 @@ VALUES
     ]'::jsonb,
     1,
     TRUE
+),(
+    'ECOM',1000,10000,'Monthly / Yearly',
+    '[
+        "Dedicated E-Commerce Website",
+        "1 Warehouse + 1 Store Location",
+        "Up to 5 User Accounts",
+        "Inventory, Purchase, Sales & Reports Included",
+        "Online Order & Catalog Management",
+        "Suitable for Businesses Selling Online Only"
+    ]'::jsonb,
+    2,
+    TRUE
+),
+(
+    'BASIC',1500,16500,'Monthly / Yearly',
+    '[
+        "E-Commerce Website + In-Store POS",
+        "1 Warehouse + 1 Store Location",
+        "Up to 5 User Accounts",
+        "Inventory, Purchase, Sales & Reports Included",
+        "Unified Online & Offline Sales Management",
+        "Ideal for Small Businesses"
+    ]'::jsonb,
+    3,
+    TRUE
+),
+(
+    'GROWTH',6000,56000,'Monthly / Yearly',
+    '[
+        "E-Commerce Website + In-Store POS",
+        "Up to 5 Warehouses + 5 Store Locations",
+        "Up to 10 User Accounts",
+        "Inventory, Purchase, Sales & Reports Included",
+        "Multi-Location Business Management",
+        "Designed for Growing Businesses"
+    ]'::jsonb,
+    4,
+    TRUE
+),
+(
+    'ENTERPRISE', 22500,247500,'Monthly / Yearly',
+    '[
+        "E-Commerce Website + In-Store POS",
+        "Unlimited Warehouses + Store Locations",
+        "Unlimited User Accounts",
+        "Inventory, Purchase, Sales & Reports Included",
+        "Advanced Multi-Branch Operations",
+        "Built for Large Enterprise Organizations"
+    ]'::jsonb,
+    5,
+    TRUE
 )
 ON CONFLICT (name) DO UPDATE
 SET
@@ -216,7 +270,23 @@ JOIN (
         ('INSTORE', 'max_users', 5, NULL::BOOLEAN),
         ('INSTORE', 'max_locations', 1, NULL::BOOLEAN),
         ('INSTORE', 'max_warehouses', 1, NULL::BOOLEAN),
-        ('INSTORE', 'ecommerce_access', NULL::INTEGER, FALSE)
+        ('INSTORE', 'ecommerce_access', NULL::INTEGER, FALSE),
+        ('ECOM', 'max_users', 5, NULL::BOOLEAN),
+        ('ECOM', 'max_locations', 1, NULL::BOOLEAN),
+        ('ECOM', 'max_warehouses', 1, NULL::BOOLEAN),
+        ('ECOM', 'ecommerce_access', NULL::INTEGER, TRUE),
+        ('BASIC', 'max_users', 5, NULL::BOOLEAN),
+        ('BASIC', 'max_locations', 1, NULL::BOOLEAN),
+        ('BASIC', 'max_warehouses', 1, NULL::BOOLEAN),
+        ('BASIC', 'ecommerce_access', NULL::INTEGER, TRUE),
+        ('GROWTH', 'max_users', 10, NULL::BOOLEAN),
+        ('GROWTH', 'max_locations', 5, NULL::BOOLEAN),
+        ('GROWTH', 'max_warehouses', 5, NULL::BOOLEAN),
+        ('GROWTH', 'ecommerce_access', NULL::INTEGER, TRUE),
+        ('ENTERPRISE', 'max_users', 20, NULL::BOOLEAN),
+        ('ENTERPRISE', 'max_locations', 5, NULL::BOOLEAN),
+        ('ENTERPRISE', 'max_warehouses', 5, NULL::BOOLEAN),
+        ('ENTERPRISE', 'ecommerce_access', NULL::INTEGER, TRUE)
        ) AS v(plan_name, feature_key, value_int, value_bool)
     ON v.plan_name = p.name
 ON CONFLICT (plan_id, feature_key) DO UPDATE
@@ -224,19 +294,41 @@ SET
     value_int  = EXCLUDED.value_int,
     value_bool = EXCLUDED.value_bool;
     `);
-    // Apply migrations/alters as specified in requirements
-    await client.query(`
-      ALTER TABLE public.company_subscriptions 
-      ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active';
-    `);
 
-    await client.query(`
-      ALTER TABLE public.payments 
-      ADD COLUMN IF NOT EXISTS payment_type VARCHAR(50) DEFAULT 'SUBSCRIPTION_NEW',
-      ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb;
-    `);
 
     await ensureResponsibilitySchema(client);
+
+    // 1. Ensure custom domain columns exist on public.companies table
+    await client.query(`
+      ALTER TABLE public.companies
+        ADD COLUMN IF NOT EXISTS custom_domain VARCHAR(255) UNIQUE,
+        ADD COLUMN IF NOT EXISTS custom_domain_status VARCHAR(20) NOT NULL DEFAULT 'not_configured',
+        ADD COLUMN IF NOT EXISTS custom_domain_verified_at TIMESTAMP;
+    `);
+
+    // Ensure custom_domain_status check constraint exists
+    await client.query(`
+      ALTER TABLE public.companies DROP CONSTRAINT IF EXISTS companies_custom_domain_status_check;
+      ALTER TABLE public.companies ADD CONSTRAINT companies_custom_domain_status_check 
+        CHECK (custom_domain_status IN ('not_configured','pending_dns','verified','failed'));
+    `);
+
+    // 2. Initialize ecom schemas for existing tenants with ecom plan
+    const ecomCompanies = await client.query(`
+      SELECT c.id, c.schema_name 
+      FROM public.companies c
+      JOIN public.company_subscriptions cs ON cs.company_id = c.id
+      WHERE cs.ecommerce_access = TRUE
+    `);
+    const { createEcomSchema } = require("./schema");
+    for (const row of ecomCompanies.rows) {
+      try {
+        await createEcomSchema(client, row.schema_name, row.id);
+      } catch (err) {
+        console.error(`Failed to initialize ecom schema on startup for ${row.schema_name}:`, err);
+      }
+    }
+
     await client.query("COMMIT");
     console.log("DB initialized successfully");
     global.dbInitialized = true;

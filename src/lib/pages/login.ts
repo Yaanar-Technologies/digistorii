@@ -112,6 +112,7 @@ export async function loginUser(company: string, email: string, password: string
     const subscriptionResult = await pool.query(
       `SELECT
        cs.plan_id,
+       cs.ecommerce_access,
        COALESCE(
          cs.max_warehouses,
          (
@@ -159,6 +160,7 @@ export async function loginUser(company: string, email: string, password: string
         location_id: mappedUser.location_id ?? null,
         warehouse_id: mappedUser.warehouse_id ?? null,
         plan_id: subscription.plan_id ?? null,
+        ecommerce_access: Boolean(subscription.ecommerce_access),
         max_warehouse: maxWarehouse,
         max_location: maxLocation,
         max_warehouses: maxWarehouse,

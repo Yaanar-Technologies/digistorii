@@ -3,6 +3,7 @@ import { randomBytes } from "crypto";
 import { pool } from "@/lib/db";
 import { hashPassword } from "@/lib/hash";
 import { ensureDB } from "@/lib/ensure-db";
+import { createEcomSchema } from "@/lib/schema";
 import { ensureLocationTableShape } from "@/lib/locationSchema";
 import { normalizeBillingInterval, PLAN_CONFIG, SetupStage, getNextStepNumber, isValidSetupStage, } from "@/lib/onboarding";
 import {
@@ -394,6 +395,10 @@ export async function POST(req: NextRequest) {
         ]
       );
       const subscriptionId = Number(subscriptionUpsert.rows[0]?.id || 0);
+
+      if (plan.ecommerce_access) {
+        await createEcomSchema(client, context.schema_name, context.id);
+      }
 
       await client.query(
         `WITH latest_payment AS (
