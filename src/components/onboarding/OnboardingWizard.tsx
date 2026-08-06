@@ -1489,7 +1489,7 @@ export default function OnboardingWizard({
             mode="onboarding"
             selectedPlanId={selectedPlan?.plan_id || initialPlanId || null}
             selectedBillingInterval={selectedBillingInterval}
-            onlySelectedPlan
+            onlySelectedPlan={false}
             onSelectPlan={(plan) => {
               setSelectedPlan(plan);
               persistSelectedPlan(plan);
