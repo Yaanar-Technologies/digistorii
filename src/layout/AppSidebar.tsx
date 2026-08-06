@@ -96,7 +96,7 @@ const navItems: NavItem[] = [
   {
     name: "E-Commerce",
     icon: <ShoppingCartIcon className="w-5 h-5" />,
-    ecommerce_access: true,
+    // ecommerce_access: true,
     subItems: [
       { name: "Store Settings", path: "/workspace/ecom-config/settings", pro: false },
       { name: "Product Catalog", path: "/workspace/ecom-config/products", pro: false },
