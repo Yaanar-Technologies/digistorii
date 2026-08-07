@@ -48,33 +48,6 @@ function Input(props: InputProps) {
   );
 }
 
-const mockProducts: ProductRow[] = [
-  {
-    id: "p-001",
-    products: { name: "Classic White Tee" },
-    product_pricing: { price: 799 },
-    product_images: ["https://placehold.co/600x400?text=Classic+White+Tee"],
-  },
-  {
-    id: "p-002",
-    products: { name: "Denim Jacket" },
-    product_pricing: { price: 2499 },
-    product_images: ["https://placehold.co/600x400?text=Denim+Jacket"],
-  },
-  {
-    id: "p-003",
-    products: { name: "Running Sneakers" },
-    product_pricing: { price: 3199 },
-    product_images: ["https://placehold.co/600x400?text=Running+Sneakers"],
-  },
-  {
-    id: "p-004",
-    products: { name: "Canvas Backpack" },
-    product_pricing: { price: 1599 },
-    product_images: ["https://placehold.co/600x400?text=Canvas+Backpack"],
-  },
-];
-
 export default function StoreProductsPage() {
   const params = useParams<{ company?: string | string[] }>();
   const companyParam = params.company;
@@ -87,35 +60,49 @@ export default function StoreProductsPage() {
 
   const [tenantStatus, setTenantStatus] = useState<string>("Checking tenant...");
   const [searchTerm, setSearchTerm] = useState<string>("");
+  const [products, setProducts] = useState<ProductRow[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
   const addItem = useCartStore((state: CartState) => state.addItem);
 
   useEffect(() => {
     if (!company) {
       setTenantStatus("Tenant not available");
+      setLoading(false);
       return;
     }
 
-    const loadTenant = async () => {
+    const loadData = async () => {
       try {
+        setLoading(true);
+        // Load tenant status
         const response = await fetch(`/api/tenant/${company}`);
         const data = (await response.json().catch(() => ({}))) as TenantApiResponse;
         setTenantStatus(
           data.message || (response.ok ? "Tenant loaded" : "Tenant data unavailable in products")
         );
-      } catch {
-        setTenantStatus("Tenant service unavailable");
+
+        // Load storefront products
+        const productsResponse = await fetch(`/api/tenant/${company}/products`);
+        const productsData = await productsResponse.json().catch(() => ({}));
+        if (productsData.success && Array.isArray(productsData.products)) {
+          setProducts(productsData.products);
+        }
+      } catch (err) {
+        console.error("Failed to load products:", err);
+      } finally {
+        setLoading(false);
       }
     };
 
-    void loadTenant();
+    void loadData();
   }, [company]);
 
   const filteredProducts = useMemo(
     () =>
-      mockProducts.filter((product) =>
+      products.filter((product) =>
         product.products.name.toLowerCase().includes(searchTerm.toLowerCase())
       ),
-    [searchTerm]
+    [products, searchTerm]
   );
 
   return (
@@ -140,39 +127,50 @@ export default function StoreProductsPage() {
         />
       </Card>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {filteredProducts.map((product) => (
-          <Card key={product.id} className="flex h-full flex-col">
-            <img
-              src={product.product_images[0]}
-              alt={product.products.name}
-              className="h-40 w-full rounded-lg object-cover"
-            />
-            <div className="mt-3 flex flex-1 flex-col">
-              <h2 className="text-base font-semibold text-gray-900">{product.products.name}</h2>
-              <p className="mt-1 text-sm text-gray-600">
-                Rs. {product.product_pricing.price.toLocaleString("en-IN")}
-              </p>
-              <div className="mt-4">
-                <Button
-                  className="w-full"
-                  onClick={() =>
-                    addItem({
-                      id: product.id,
-                      name: product.products.name,
-                      price: product.product_pricing.price,
-                      image: product.product_images[0],
-                      quantity: 1,
-                    })
-                  }
-                >
-                  Add To Cart
-                </Button>
+      {loading ? (
+        <div className="flex h-64 items-center justify-center text-gray-500">
+          Loading products...
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {filteredProducts.map((product) => (
+            <Card key={product.id} className="flex h-full flex-col">
+              <img
+                src={product.product_images[0]}
+                alt={product.products.name}
+                className="h-40 w-full rounded-lg object-cover"
+              />
+              <div className="mt-3 flex flex-1 flex-col">
+                <h2 className="text-base font-semibold text-gray-900">{product.products.name}</h2>
+                <p className="mt-1 text-sm text-gray-600">
+                  Rs. {product.product_pricing.price.toLocaleString("en-IN")}
+                </p>
+                <div className="mt-4">
+                  <Button
+                    className="w-full"
+                    onClick={() =>
+                      addItem({
+                        id: product.id,
+                        name: product.products.name,
+                        price: product.product_pricing.price,
+                        image: product.product_images[0],
+                        quantity: 1,
+                      })
+                    }
+                  >
+                    Add To Cart
+                  </Button>
+                </div>
               </div>
+            </Card>
+          ))}
+          {!filteredProducts.length && (
+            <div className="col-span-full py-12 text-center text-gray-500">
+              No live products found.
             </div>
-          </Card>
-        ))}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
