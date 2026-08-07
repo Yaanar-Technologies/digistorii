@@ -73,13 +73,13 @@ export async function POST(req: NextRequest) {
        (
          company_id, responsibility_name, dashboard_access, purchase_access,
          inventory_access, sales_access, sales_billing_access, reports_access,
-         settings_access, is_system, created_at, updated_at
+         settings_access, ecommerce_access, is_system, created_at, updated_at
        )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),NOW())
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW(),NOW())
        RETURNING
          id, company_id, responsibility_name, dashboard_access, purchase_access,
          inventory_access, sales_access, sales_billing_access, reports_access,
-         settings_access, is_system`,
+        settings_access, ecommerce_access, is_system`,
       [companyId, responsibilityName, ...insertValues, normalizeBool(body?.is_system)]
     );
 
