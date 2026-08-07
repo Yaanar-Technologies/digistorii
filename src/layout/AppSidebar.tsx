@@ -96,7 +96,7 @@ const navItems: NavItem[] = [
   {
     name: "E-Commerce",
     icon: <ShoppingCartIcon className="w-5 h-5" />,
-    // ecommerce_access: true,
+    ecommerce_access: true,
     subItems: [
       { name: "Store Settings", path: "/workspace/ecom-config/settings", pro: false },
       { name: "Product Catalog", path: "/workspace/ecom-config/products", pro: false },
@@ -223,8 +223,9 @@ const AppSidebar: React.FC = () => {
       return false;
     }
     if (item.ecommerce_access) {
-      //&& !user?.ecommerce_access
-      return false;
+      if (!user?.ecommerce_access || !canAccess(user?.permissions, "ecommerce_access")) {
+        return false;
+      }
     }
     return true;
   });

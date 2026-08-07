@@ -28,7 +28,9 @@ type User = {
   default_warehouse_id?: number | null;
   default_locator_id?: number | null;
   branch_name?: string | null;
+  ecommerce_access?: boolean;
 };
+
 
 type ContextType = {
   user: User | null;

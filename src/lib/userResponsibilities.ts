@@ -7,7 +7,8 @@ export type ResponsibilityAccessKey =
   | "sales_access"
   | "sales_billing_access"
   | "reports_access"
-  | "settings_access";
+  | "settings_access"
+  | "ecommerce_access";
 
 export type ResponsibilityRecord = {
   id: number;
@@ -20,6 +21,7 @@ export type ResponsibilityRecord = {
   sales_billing_access: boolean;
   reports_access: boolean;
   settings_access: boolean;
+  ecommerce_access: boolean;
   is_system: boolean;
 };
 
@@ -44,6 +46,7 @@ export const RESPONSIBILITY_ACCESS_FIELDS: ResponsibilityAccessKey[] = [
   "sales_billing_access",
   "reports_access",
   "settings_access",
+  "ecommerce_access",
 ];
 
 export const DEFAULT_RESPONSIBILITIES: Array<
@@ -58,6 +61,19 @@ export const DEFAULT_RESPONSIBILITIES: Array<
       sales_billing_access: true,
       reports_access: true,
       settings_access: true,
+      ecommerce_access: true,
+      is_system: true,
+    },
+    {
+      responsibility_name: "Site Handler",
+      dashboard_access: true,
+      purchase_access: false,
+      inventory_access: false,
+      sales_access: false,
+      sales_billing_access: false,
+      reports_access: false,
+      settings_access: false,
+      ecommerce_access: true,
       is_system: true,
     },
     {
@@ -69,6 +85,7 @@ export const DEFAULT_RESPONSIBILITIES: Array<
       sales_billing_access: false,
       reports_access: true,
       settings_access: false,
+      ecommerce_access: false,
       is_system: true,
     },
     {
@@ -80,6 +97,7 @@ export const DEFAULT_RESPONSIBILITIES: Array<
       sales_billing_access: false,
       reports_access: true,
       settings_access: false,
+      ecommerce_access: false,
       is_system: true,
     },
     {
@@ -91,6 +109,7 @@ export const DEFAULT_RESPONSIBILITIES: Array<
       sales_billing_access: true,
       reports_access: false,
       settings_access: false,
+      ecommerce_access: false,
       is_system: true,
     },
     {
@@ -102,6 +121,7 @@ export const DEFAULT_RESPONSIBILITIES: Array<
       sales_billing_access: true,
       reports_access: true,
       settings_access: false,
+      ecommerce_access: false,
       is_system: true,
     },
     {
@@ -113,6 +133,7 @@ export const DEFAULT_RESPONSIBILITIES: Array<
       sales_billing_access: false,
       reports_access: true,
       settings_access: false,
+      ecommerce_access: false,
       is_system: true,
     },
   ];
@@ -145,6 +166,7 @@ export function coerceResponsibilityRecord(row: Record<string, unknown>): Respon
     sales_billing_access: Boolean(row.sales_billing_access),
     reports_access: Boolean(row.reports_access),
     settings_access: Boolean(row.settings_access),
+    ecommerce_access: Boolean(row.ecommerce_access),
     is_system: Boolean(row.is_system),
   };
 }
@@ -162,10 +184,21 @@ export async function ensureResponsibilitySchema(client: PoolClient) {
       sales_billing_access BOOLEAN DEFAULT FALSE,
       reports_access BOOLEAN DEFAULT FALSE,
       settings_access BOOLEAN DEFAULT FALSE,
+      ecommerce_access BOOLEAN DEFAULT FALSE,
       is_system BOOLEAN DEFAULT FALSE,
       created_at TIMESTAMP DEFAULT NOW(),
       updated_at TIMESTAMP DEFAULT NOW()
     );
+  `);
+  await client.query(`
+    ALTER TABLE public.user_responsibilities
+      ADD COLUMN IF NOT EXISTS ecommerce_access BOOLEAN DEFAULT FALSE;
+  `);
+  // Backfill existing admin responsibilities
+  await client.query(`
+    UPDATE public.user_responsibilities 
+    SET ecommerce_access = TRUE 
+    WHERE responsibility_name = 'Admin' AND is_system = TRUE;
   `);
   await client.query(`
     CREATE UNIQUE INDEX IF NOT EXISTS uq_user_responsibilities_company_name
@@ -217,9 +250,9 @@ export async function seedDefaultResponsibilities(client: PoolClient, companyId:
        (
          company_id, responsibility_name, dashboard_access, purchase_access,
          inventory_access, sales_access, sales_billing_access, reports_access,
-         settings_access, is_system, created_at, updated_at
+         settings_access, ecommerce_access, is_system, created_at, updated_at
        )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),NOW())
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW(),NOW())
        ON CONFLICT (company_id, responsibility_name) DO NOTHING`,
       [
         companyId,
@@ -231,6 +264,7 @@ export async function seedDefaultResponsibilities(client: PoolClient, companyId:
         responsibility.sales_billing_access,
         responsibility.reports_access,
         responsibility.settings_access,
+        responsibility.ecommerce_access,
         responsibility.is_system,
       ]
     );
@@ -318,11 +352,12 @@ export async function getResponsibilitiesForCompany(client: PoolClient, companyI
        sales_billing_access,
        reports_access,
        settings_access,
+       ecommerce_access,
        is_system
      FROM public.user_responsibilities
      WHERE company_id = $1
      ORDER BY responsibility_name ASC`,
-    [companyId]
+     [companyId]
   );
   return result.rows.map((row) => coerceResponsibilityRecord(row));
 }
@@ -345,6 +380,7 @@ export async function getResponsibilityById(
        sales_billing_access,
        reports_access,
        settings_access,
+       ecommerce_access,
        is_system
      FROM public.user_responsibilities
      WHERE company_id = $1 AND id = $2

@@ -10,6 +10,7 @@ export const DEFAULT_PERMISSIONS: ResponsibilityPermissions = {
   sales_billing_access: false,
   reports_access: false,
   settings_access: false,
+  ecommerce_access: false,
 };
 
 type ProtectedRouteRule = {
@@ -23,6 +24,7 @@ export const MENU_PERMISSION_MAP: Array<{ name: string; permission: Responsibili
   { name: "Inventory", permission: "inventory_access" },
   { name: "Sales", permission: "sales_access" },
   { name: "Sales Billing", permission: "sales_billing_access" },
+  { name: "E-Commerce", permission: "ecommerce_access" },
   { name: "Reports", permission: "reports_access" },
   { name: "Settings", permission: "settings_access" },
 ];
@@ -33,6 +35,7 @@ const FIRST_ACCESSIBLE_PATHS: Array<{ permission: ResponsibilityAccessKey; path:
   { permission: "inventory_access", path: "/workspace/inventory/products" },
   { permission: "sales_access", path: "/workspace/sales/customer" },
   { permission: "sales_billing_access", path: "/workspace/transactions/sales" },
+  { permission: "ecommerce_access", path: "/workspace/ecom-config/settings" },
   { permission: "reports_access", path: "/workspace/reports/stock-ledger-report" },
   { permission: "settings_access", path: "/workspace/settings/user-responsibilities" },
 ];
@@ -53,6 +56,10 @@ const ROUTE_RULES: ProtectedRouteRule[] = [
   {
     prefixes: ["/workspace/transactions/sales"],
     permission: "sales_billing_access",
+  },
+  {
+    prefixes: ["/workspace/ecom-config"],
+    permission: "ecommerce_access",
   },
   {
     prefixes: ["/workspace/reports"],

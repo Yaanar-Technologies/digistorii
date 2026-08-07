@@ -64,6 +64,7 @@ export async function loginUser(company: string, email: string, password: string
     //   [user.id]
     // );
     // const settings = settingsRes.rows[0] || {};
+
     const userMapResult = await pool.query(
       `SELECT
        cum.location_id,
@@ -76,7 +77,8 @@ export async function loginUser(company: string, email: string, password: string
        r.sales_access,
        r.sales_billing_access,
        r.reports_access,
-       r.settings_access
+       r.settings_access,
+       r.ecommerce_access
      FROM public.company_user_map cum
      LEFT JOIN public.users u
        ON u.id = cum.user_id
@@ -100,7 +102,8 @@ export async function loginUser(company: string, email: string, password: string
          sales_access,
          sales_billing_access,
          reports_access,
-         settings_access
+         settings_access,
+         ecommerce_access
        FROM public.user_responsibilities
        WHERE id = $1 AND company_id = $2
        LIMIT 1`,
@@ -108,6 +111,7 @@ export async function loginUser(company: string, email: string, password: string
       );
       mappedUser = responsibilityResult.rows[0] || {};
     }
+
 
     const subscriptionResult = await pool.query(
       `SELECT
@@ -179,7 +183,9 @@ export async function loginUser(company: string, email: string, password: string
           sales_billing_access: Boolean(mappedUser.sales_billing_access),
           reports_access: Boolean(mappedUser.reports_access),
           settings_access: Boolean(mappedUser.settings_access),
+          ecommerce_access: Boolean(mappedUser.ecommerce_access),
         },
+
         // default_warehouse_id: settings.default_warehouse_id ?? null,
         // default_locator_id: settings.default_locator_id ?? null,
         // branch_name: settings.branch_name ?? null

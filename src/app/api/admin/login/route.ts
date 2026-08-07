@@ -61,7 +61,8 @@ export async function POST(req: NextRequest) {
          r.sales_access,
          r.sales_billing_access,
          r.reports_access,
-         r.settings_access
+         r.settings_access,
+         r.ecommerce_access
        FROM public.users u
        LEFT JOIN public.company_user_map cum
          ON cum.user_id = u.id
@@ -114,6 +115,7 @@ export async function POST(req: NextRequest) {
           sales_billing_access: Boolean(user.sales_billing_access),
           reports_access: Boolean(user.reports_access),
           settings_access: Boolean(user.settings_access),
+          ecommerce_access: Boolean(user.ecommerce_access),
         },
       }
     });
@@ -134,6 +136,7 @@ export async function POST(req: NextRequest) {
         sales_billing_access: Boolean(user.sales_billing_access),
         reports_access: Boolean(user.reports_access),
         settings_access: Boolean(user.settings_access),
+        ecommerce_access: Boolean(user.ecommerce_access),
       },
     }), {
       httpOnly: true,
