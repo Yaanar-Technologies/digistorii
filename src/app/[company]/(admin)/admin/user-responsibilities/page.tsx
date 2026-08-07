@@ -15,6 +15,7 @@ type Responsibility = {
   sales_billing_access: boolean;
   reports_access: boolean;
   settings_access: boolean;
+  ecommerce_access: boolean;
   is_system?: boolean;
 };
 
@@ -25,7 +26,9 @@ const accessFields: Array<{ key: keyof Responsibility; label: string }> = [
   { key: "sales_access", label: "Sales" },
   { key: "sales_billing_access", label: "Sales Billing" },
   { key: "reports_access", label: "Reports" },
+  { key: "ecommerce_access", label: "E-Commerce" },
   { key: "settings_access", label: "Settings" },
+
 ];
 
 function getDefaultForm(): Responsibility {
@@ -37,6 +40,7 @@ function getDefaultForm(): Responsibility {
     sales_access: false,
     sales_billing_access: false,
     reports_access: false,
+    ecommerce_access: false,
     settings_access: false,
     is_system: false,
   };
