@@ -11,6 +11,7 @@ type User = {
   name: string;
   email: string;
   phone: string;
+  role: string;
   is_active: boolean;
   created_at: string;
 };
@@ -153,8 +154,9 @@ export default function AdminPage() {
                 <th className="p-3 text-left">Name</th>
                 <th className="p-3 text-left">Email</th>
                 <th className="p-3 text-left">Phone</th>
+                <th className="p-3 text-left">User Resp</th>
                 <th className="p-3 text-left">Status</th>
-                <th className="p-3 text-left">Created At</th>
+                <th className="p-3 text-left">Created On</th>
                 <th className="p-3 text-left">Actions</th>
               </tr>
             </thead>
@@ -168,11 +170,12 @@ export default function AdminPage() {
                   <td className="p-3 font-medium">{u.name}</td>
                   <td className="p-3">{u.email}</td>
                   <td className="p-3">{u.phone}</td>
+                  <td className="p-3">{u.role}</td>
                   <td className="p-3">
                     <span
                       className={`px-2 py-1 rounded-full text-xs font-semibold ${u.is_active
-                          ? "bg-green-100 text-green-800"
-                          : "bg-red-100 text-red-800"
+                        ? "bg-green-100 text-green-800"
+                        : "bg-red-100 text-red-800"
                         }`}
                     >
                       {u.is_active ? "Active" : "Inactive"}

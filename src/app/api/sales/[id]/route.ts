@@ -31,28 +31,40 @@ const toPositiveInt = (value: unknown) => {
 
 const roundMoney = (value: unknown) => Number(Number(value || 0).toFixed(2));
 
-const normalizePaymentRows = (payments: any): Array<{ payment_mode_id: number; amount: number }> => {
+const normalizePaymentRows = (
+    payments: any
+): Array<{
+    payment_mode_id: number;
+    amount: number;
+    paid_amount: number;
+    actual_amount: number;
+    return_change: number;
+}> => {
     if (!Array.isArray(payments)) return [];
     return payments
         .map((row) => ({
             payment_mode_id: toPositiveInt(row?.payment_mode_id),
             amount: roundMoney(row?.amount),
+            paid_amount: roundMoney(row?.paid_amount || row?.amount),
+            actual_amount: roundMoney(row?.actual_amount),
+            return_change: roundMoney(row?.return_change),
         }))
         .filter(
-            (row): row is { payment_mode_id: number; amount: number } =>
+            (row): row is {
+                payment_mode_id: number;
+                amount: number;
+                paid_amount: number;
+                actual_amount: number;
+                return_change: number;
+            } =>
                 Boolean(row.payment_mode_id) && Number.isFinite(row.amount) && row.amount > 0
         );
 };
-
 const calculatePaymentStatus = (totalAmount: number, paidAmount: number) => {
-    const total = roundMoney(totalAmount);
-    const paid = roundMoney(paidAmount);
-    if (paid <= 0) return "unpaid";
-    if (Math.abs(paid - total) <= 0.01) return "paid";
+    if (paidAmount <= 0) return "unpaid";
+    if (paidAmount >= totalAmount) return "paid";
     return "partial";
 };
-
-
 async function resolveWarehouseContext(client: any, schema: string, warehouseId: number) {
     const warehouseRes = await client.query(
         `SELECT id, name, location_id FROM "${schema}".warehouses WHERE id = $1 LIMIT 1`,
@@ -83,11 +95,38 @@ async function validatePaymentModes(
     }
 }
 
+// async function ensurePaymentsTrackingColumns(client: any, schema: string) {
+//   await client.query(`
+//     ALTER TABLE "${schema}".sales_header 
+//     ADD COLUMN IF NOT EXISTS return_change NUMERIC(12,2) DEFAULT 0.00;
+//   `);
+
+//   await client.query(`
+//     ALTER TABLE "${schema}".sales_payments 
+//     ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(12,2) DEFAULT 0.00,
+//     ADD COLUMN IF NOT EXISTS actual_amount NUMERIC(12,2) DEFAULT 0.00,
+//     ADD COLUMN IF NOT EXISTS return_change NUMERIC(12,2) DEFAULT 0.00;
+//   `);
+
+//   await client.query(`
+//     UPDATE "${schema}".sales_payments
+//     SET paid_amount = amount,
+//         actual_amount = amount
+//     WHERE paid_amount = 0.00 AND actual_amount = 0.00;
+//   `);
+// }
+
 async function replaceSalesPayments(
     client: any,
     schema: string,
     salesId: number,
-    payments: Array<{ payment_mode_id: number; amount: number }>,
+    payments: Array<{
+        payment_mode_id: number;
+        amount: number;
+        paid_amount: number;
+        actual_amount: number;
+        return_change: number;
+    }>,
     createdBy: string | number | null,
     locationId: number | null,
     warehouseId: number
@@ -96,10 +135,21 @@ async function replaceSalesPayments(
     if (!payments.length) return;
     for (const payment of payments) {
         await client.query(
-            `INSERT INTO "${schema}".sales_payments
-              (sales_id, payment_mode_id, amount, created_at, created_by, location_id, warehouse_id)
-             VALUES ($1, $2, $3, NOW(), $4, $5, $6)`,
-            [salesId, payment.payment_mode_id, payment.amount, createdBy, locationId, warehouseId]
+            `INSERT INTO "${schema}".sales_payments (
+               sales_id, payment_mode_id, amount, paid_amount, actual_amount, return_change,
+               created_by, location_id, warehouse_id
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+            [
+                salesId,
+                payment.payment_mode_id,
+                payment.amount,
+                payment.paid_amount,
+                payment.actual_amount,
+                payment.return_change,
+                createdBy,
+                locationId,
+                warehouseId
+            ]
         );
     }
 }
@@ -169,6 +219,9 @@ export async function GET(
                 sp.payment_mode_id,
                 pm.name AS payment_mode_name,
                 sp.amount,
+                sp.paid_amount,
+                sp.actual_amount,
+                sp.return_change,
                 sp.location_id,
                 sp.warehouse_id,
                 sp.created_at,
@@ -235,10 +288,12 @@ export async function PUT(
             subtotal,
             tax_amount,
             total_amount,
+            return_change,
             user_name
         } = header;
 
         await client.query("BEGIN");
+        // await ensurePaymentsTrackingColumns(client, schema);
 
         const normalizedWarehouseId = toPositiveInt(warehouse_id);
         if (!normalizedWarehouseId) {
@@ -252,14 +307,11 @@ export async function PUT(
             schema,
             normalizedPayments.map((row) => row.payment_mode_id)
         );
-        const paidAmount = roundMoney(
-            normalizedPayments.reduce((sum, row) => sum + Number(row.amount || 0), 0)
+        const totalTendered = roundMoney(
+            normalizedPayments.reduce((sum, row) => sum + Number(row.paid_amount || row.amount || 0), 0)
         );
         const normalizedTotalAmount = roundMoney(total_amount);
-        if (paidAmount - normalizedTotalAmount > 0.01) {
-            throw new Error("Paid amount cannot exceed grand total");
-        }
-        const calculatedPaymentStatus = calculatePaymentStatus(normalizedTotalAmount, paidAmount);
+        const calculatedPaymentStatus = calculatePaymentStatus(normalizedTotalAmount, totalTendered);
 
         // UPDATE HEADER
         await client.query(
@@ -275,9 +327,10 @@ export async function PUT(
           tax_amount=$8,
           total_amount=$9,
           payment_status=$10,
-          updated_by=$11,
+          return_change=$11,
+          updated_by=$12,
           updated_at=NOW()
-      WHERE id=$12
+      WHERE id=$13
       `,
             [
                 customer_id,
@@ -290,6 +343,7 @@ export async function PUT(
                 tax_amount,
                 total_amount,
                 calculatedPaymentStatus,
+                return_change || 0.0,
                 user_name,
                 salesId
             ]

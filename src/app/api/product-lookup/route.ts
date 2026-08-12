@@ -24,10 +24,10 @@ function getUserIdFromCookie(req: NextRequest): number | null {
 
 export async function GET(req: NextRequest) {
   const client = await pool.connect();
- 
+
   try {
     const { company, schema } = await getTenantSchema(req);
- 
+
     const type = req.nextUrl.searchParams.get("type"); // "products" or "taxes"
     const moduleParam = req.nextUrl.searchParams.get("module") || "";
     const productTypeColumnRes = await client.query(
@@ -44,10 +44,12 @@ export async function GET(req: NextRequest) {
     const productTypeColumn = productTypeColumnRes.rowCount
       ? "product_type"
       : "type";
+    const warehouseParam = req.nextUrl.searchParams.get("warehouse_id");
+    const isOpsModule = moduleParam === "ops" || type === "ops_lookup";
     const isSalesModule = moduleParam === "sales";
     const salesProductFilter =
       isSalesModule ? `AND p.${productTypeColumn} = 'finished_good'` : "";
-    let salesWarehouseId: number | null = null;
+    let targetWarehouseId: number | null = null;
 
     if (isSalesModule) {
       const userId = getUserIdFromCookie(req);
@@ -82,31 +84,59 @@ export async function GET(req: NextRequest) {
         `,
         [userId, companyId]
       );
-      salesWarehouseId = toPositiveInt(userWarehouseRes.rows[0]?.warehouse_id);
+      targetWarehouseId = toPositiveInt(userWarehouseRes.rows[0]?.warehouse_id);
 
-      if (!salesWarehouseId) {
+      if (!targetWarehouseId) {
         return NextResponse.json({ success: true, data: [] });
       }
+    } else if (isOpsModule && warehouseParam) {
+      targetWarehouseId = toPositiveInt(warehouseParam);
     }
 
-    const salesWarehouseSourceFilter = isSalesModule
-      ? `
-          AND (
-            EXISTS (
-              SELECT 1
-              FROM "${schema}".opening_stock_items osi
-              WHERE osi.product_id = pv.id
-                AND osi.warehouse_id = $2
-            )
-            OR EXISTS (
-              SELECT 1
-              FROM "${schema}".grn_detail gd
-              WHERE gd.product_id = pv.id
-                AND gd.warehouse_id = $2
-            )
+    let warehouseSourceFilter = "";
+    if (isSalesModule) {
+      warehouseSourceFilter = `
+        AND (
+          EXISTS (
+            SELECT 1
+            FROM "${schema}".opening_stock_items osi
+            WHERE osi.product_id = pv.id
+              AND osi.warehouse_id = $2
           )
-        `
-      : "";
+          OR EXISTS (
+            SELECT 1
+            FROM "${schema}".grn_detail gd
+            WHERE gd.product_id = pv.id
+              AND gd.warehouse_id = $2
+          )
+        )
+      `;
+    } else if (isOpsModule) {
+      warehouseSourceFilter = `
+        AND NOT EXISTS (
+          SELECT 1
+          FROM "${schema}".opening_stock_items osi
+          WHERE osi.product_id = pv.id
+            AND osi.warehouse_id = $2
+        )
+        AND (
+          NOT EXISTS (
+            SELECT 1
+            FROM "${schema}".current_stock cs
+            WHERE cs.product_id = pv.id
+              AND cs.tenant_id = $1
+              AND ($2::int IS NULL OR cs.warehouse_id = $2::int)
+          )
+          OR (
+            SELECT COALESCE(SUM(cs.current_stock), 0)
+            FROM "${schema}".current_stock cs
+            WHERE cs.product_id = pv.id
+              AND cs.tenant_id = $1
+              AND ($2::int IS NULL OR cs.warehouse_id = $2::int)
+          ) = 0
+        )
+      `;
+    }
 
     let result;
     if (type === "uoms") {
@@ -119,7 +149,7 @@ export async function GET(req: NextRequest) {
         ORDER BY id
       `);
       return NextResponse.json({ success: true, data: result.rows });
-    }else if (type === "taxes") {
+    } else if (type === "taxes") {
       result = await client.query(`
         SELECT
           id::int,
@@ -133,10 +163,10 @@ export async function GET(req: NextRequest) {
         ORDER BY id
       `);
       return NextResponse.json({ success: true, data: result.rows });
-    } else if(type === "polist"){
- 
-         result = await client.query(
-      `
+    } else if (type === "polist") {
+
+      result = await client.query(
+        `
       SELECT
       h.id as purchase_id,
       h.purchase_no,
@@ -151,16 +181,16 @@ export async function GET(req: NextRequest) {
     WHERE h.approval_status ='Approved'
     ORDER BY h.id DESC
       `
-    );
- 
-    return NextResponse.json(result.rows);
- 
-    }else if (type === "poitems") {
-  const poId = req.nextUrl.searchParams.get("po_id");
-  if (!poId) return NextResponse.json({ success: false, message: "PO ID required" }, { status: 400 });
- console.log("purchase order lookup 63");
-  const result = await client.query(
-    `
+      );
+
+      return NextResponse.json(result.rows);
+
+    } else if (type === "poitems") {
+      const poId = req.nextUrl.searchParams.get("po_id");
+      if (!poId) return NextResponse.json({ success: false, message: "PO ID required" }, { status: 400 });
+      console.log("purchase order lookup 63");
+      const result = await client.query(
+        `
     SELECT  ph.status as po_status,d.id AS detail_id,d.product_id,p.product_code,p.name AS product_name,
     p.description,u.uom_code,u.uom_name,
     d.uom,d.hsn_no,d.qty AS order_qty,
@@ -186,11 +216,11 @@ GROUP BY d.id,d.product_id,p.product_code,p.name,p.description,u.uom_code,u.uom_
 HAVING (d.qty - COALESCE(SUM(gd.qty),0)) > 0
 ORDER BY d.id 
     `,
-    [poId]
-  );
- 
-  return NextResponse.json({ success: true, items: result.rows });
-}else if (type === "currencies") {
+        [poId]
+      );
+
+      return NextResponse.json({ success: true, items: result.rows });
+    } else if (type === "currencies") {
       result = await client.query(`
         SELECT
           c.id::int,
@@ -202,7 +232,7 @@ ORDER BY d.id
           ON cr.currency_id = c.id
         ORDER BY c.id
       `);
- 
+
       return NextResponse.json({ success: true, data: result.rows });
     } else if (type === "lookup") {
       console.log("Fetching product lookup data...110");
@@ -218,8 +248,8 @@ ORDER BY d.id
           pcl.color_name as color,
           p.name,
           p.description,
-          COALESCE(pc.category_name, p.category) AS category_name,
-          COALESCE(pc.category_name, p.category) AS category,
+          COALESCE(pc.path_string, pc.category_name, p.category) AS category_name,
+          COALESCE(pc.path_string, pc.category_name, p.category) AS category,
           stock.current_stock AS current_stock,
           COALESCE(pp.final_selling_price, 0) AS selling_price,
           p.${productTypeColumn} AS type,
@@ -253,22 +283,22 @@ ORDER BY d.id
         WHERE p.status = 1
           AND pv.status IN ('draft', 'active')
           ${salesProductFilter}
-          ${salesWarehouseSourceFilter}
+          ${warehouseSourceFilter}
         ORDER BY stock.current_stock ASC
         `
-      , [company, salesWarehouseId]);
+        , [company, targetWarehouseId]);
       return NextResponse.json({ success: true, data: result.rows });
-      
+
     } else {
       console.log("in else 150");
-         result = await client.query(
-      `
+      result = await client.query(
+        `
       SELECT
         p.id::int AS product_id,
         p.product_code,
         p.name AS product_name,
         p.description,
-        p.category,
+        COALESCE(pc.path_string, pc.category_name, p.category) AS category,
         stock.current_stock AS current_stock,
         p.material,
         p.uom,
@@ -288,6 +318,8 @@ ORDER BY d.id
         ON u.id::text = p.uom
       INNER JOIN "${schema}".product_variants pv
         ON pv.product_id = p.id
+      LEFT JOIN "${schema}".product_categories pc
+        ON pc.id::text = p.category::text
       LEFT JOIN LATERAL (
         SELECT COALESCE(SUM(cs.current_stock), 0) AS current_stock
         FROM "${schema}".current_stock cs
@@ -299,22 +331,22 @@ ORDER BY d.id
       WHERE p.status = 1
         AND pv.status IN ('draft', 'active')
         ${salesProductFilter}
-        ${salesWarehouseSourceFilter}
+        ${warehouseSourceFilter}
       ORDER BY p.id, pv.id
       `
-    , [company, salesWarehouseId]);
- 
-    return NextResponse.json(result.rows);
-    
+        , [company, targetWarehouseId]);
+
+      return NextResponse.json(result.rows);
+
     }
- 
-   
-} catch (error: any) {
+
+
+  } catch (error: any) {
     return NextResponse.json(
       { message: error.message || "Failed to fetch products" },
       { status: 400 }
-    );  
-} finally {
+    );
+  } finally {
     client.release();
   }
 }

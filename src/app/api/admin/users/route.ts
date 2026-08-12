@@ -82,7 +82,7 @@ export async function GET(req: NextRequest) {
          u.is_active,
          u.created_at,
          COALESCE(cum.responsibility_id, u.responsibility_id) AS responsibility_id,
-         r.responsibility_name,
+         r.responsibility_name as role,
          cum.location_id,
          cum.warehouse_id,
          l.name AS location_name,
@@ -161,7 +161,7 @@ export async function POST(req: NextRequest) {
 
     // 2. START TRANSACTION ONLY AFTER CHECKS PASS
     await client.query("BEGIN");
-    
+
     const existingCompany = await client.query(
       `SELECT id FROM public.companies WHERE subdomain_url = $1`,
       [company]

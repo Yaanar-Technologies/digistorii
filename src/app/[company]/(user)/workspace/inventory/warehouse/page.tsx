@@ -536,8 +536,8 @@ export default function WarehouseMasterPage() {
                   data-field="description"
                   data-rules="no-symbols"
                   data-optional="true"
-                  value={form.description}
-                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  value={form.description || ""}
+                  onChange={(e) => setForm({ ...form, description: e.target.value ?? "" })}
                   className={inputClass("description")}
                   rows={3}
                 />
@@ -554,8 +554,8 @@ export default function WarehouseMasterPage() {
                     data-field="landline"
                     data-rules="phone"
                     data-optional="true"
-                    value={form.landline}
-                    onChange={(e) => setForm({ ...form, landline: e.target.value })}
+                    value={form.landline || ""}
+                    onChange={(e) => setForm({ ...form, landline: e.target.value ?? "" })}
                     className={inputClass("landline")}
                   />
                   {errors.landline && <p className="text-red-500 text-sm mt-1">{errors.landline}</p>}
@@ -566,8 +566,8 @@ export default function WarehouseMasterPage() {
                     data-field="mobile_no"
                     data-rules="phone"
                     data-optional="true"
-                    value={form.mobile_no}
-                    onChange={(e) => setForm({ ...form, mobile_no: e.target.value })}
+                    value={form.mobile_no || ""}
+                    onChange={(e) => setForm({ ...form, mobile_no: e.target.value ?? "" })}
                     className={inputClass("mobile_no")}
                   />
                   {errors.mobile_no && <p className="text-red-500 text-sm mt-1">{errors.mobile_no}</p>}
@@ -578,8 +578,8 @@ export default function WarehouseMasterPage() {
                     data-field="fax"
                     data-rules="fax-phone"
                     data-optional="true"
-                    value={form.fax}
-                    onChange={(e) => setForm({ ...form, fax: e.target.value })}
+                    value={form.fax || ""}
+                    onChange={(e) => setForm({ ...form, fax: e.target.value ?? "" })}
                     className={inputClass("fax")}
                   />
                   {errors.fax && <p className="text-red-500 text-sm mt-1">{errors.fax}</p>}
@@ -590,8 +590,8 @@ export default function WarehouseMasterPage() {
                     data-rules="email"
                     data-field="email"
                     data-optional="true"
-                    value={form.email}
-                    onChange={(e) => setForm({ ...form, email: e.target.value })}
+                    value={form.email || ""}
+                    onChange={(e) => setForm({ ...form, email: e.target.value ?? "" })}
                     className={inputClass("email")}
                   />
                   {errors.email && <p className="text-red-500 text-sm mt-1">{errors.email}</p>}
@@ -608,8 +608,8 @@ export default function WarehouseMasterPage() {
                     data-field="contact_person_name"
                     data-rules="alpha-name"
                     data-optional="true"
-                    value={form.contact_person_name}
-                    onChange={(e) => setForm({ ...form, contact_person_name: e.target.value })}
+                    value={form.contact_person_name || ""}
+                    onChange={(e) => setForm({ ...form, contact_person_name: e.target.value ?? "" })}
                     className={inputClass("contact_person_name")}
                   />
                   {errors.contact_person_name && <p className="text-red-500 text-sm mt-1">{errors.contact_person_name}</p>}
@@ -620,8 +620,8 @@ export default function WarehouseMasterPage() {
                     data-field="contact_person_mobile"
                     data-rules="phone"
                     data-optional="true"
-                    value={form.contact_person_mobile}
-                    onChange={(e) => setForm({ ...form, contact_person_mobile: e.target.value })}
+                    value={form.contact_person_mobile || ""}
+                    onChange={(e) => setForm({ ...form, contact_person_mobile: e.target.value ?? "" })}
                     className={inputClass("contact_person_mobile")}
                   />
                   {errors.contact_person_mobile && <p className="text-red-500 text-sm mt-1">{errors.contact_person_mobile}</p>}
@@ -632,8 +632,8 @@ export default function WarehouseMasterPage() {
                     data-rules="email"
                     data-field="contact_person_email"
                     data-optional="true"
-                    value={form.contact_person_email}
-                    onChange={(e) => setForm({ ...form, contact_person_email: e.target.value })}
+                    value={form.contact_person_email || ""}
+                    onChange={(e) => setForm({ ...form, contact_person_email: e.target.value ?? "" })}
                     className={inputClass("contact_person_email")}
                   />
                   {errors.contact_person_email && (

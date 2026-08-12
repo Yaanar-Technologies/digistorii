@@ -90,7 +90,7 @@ async function generateTemplate(
     params
   );
 
-    const [categoriesRes, materialsRes, uomsRes] = await Promise.all([
+    const [categoriesRes, materialsRes, uomsRes, colorsRes, fittingsRes] = await Promise.all([
       client.query(
         `
           SELECT path_string, category_name
@@ -110,6 +110,20 @@ async function generateTemplate(
           SELECT uom_code, uom_name
           FROM "${schema}".uom
           ORDER BY uom_name ASC
+        `
+      ),
+      client.query(
+        `
+          SELECT id, color_name
+          FROM "${schema}".product_colors
+          ORDER BY color_name ASC
+        `
+      ),
+      client.query(
+        `
+          SELECT id, fitting_name
+          FROM "${schema}".product_fittings
+          ORDER BY fitting_name ASC
         `
       ),
     ]);
@@ -138,6 +152,16 @@ async function generateTemplate(
       })
       .filter(Boolean);
 
+    const colorOptions = colorsRes.rows
+      .map((row: { color_name: string | null }) => String(row.color_name || "").trim())
+      .filter(Boolean);
+
+    const fittingOptions = fittingsRes.rows
+      .map((row: { fitting_name: string | null }) => String(row.fitting_name || "").trim())
+      .filter(Boolean);
+
+    const genderOptions = ["Male", "Female", "Transgender", "Not Specified"];
+
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet("Image Master Template");
     const listsSheet = workbook.addWorksheet("_lists", { state: "hidden" });
@@ -153,6 +177,10 @@ async function generateTemplate(
     writeList(2, materialOptions, "Materials");
     writeList(3, uomOptions, "UOMs");
     writeList(4, ["own", "vendor"], "Source");
+    writeList(5, colorOptions, "Colors");
+    writeList(6, fittingOptions, "Fittings");
+    writeList(7, genderOptions, "Genders");
+
     worksheet.columns = [
       { header: "Image_id", key: "image_id", width: 12 },
       { header: "Image_url", key: "image_url", width: 50 },
@@ -175,6 +203,7 @@ async function generateTemplate(
       { header: "Height", key: "height", width: 12 },
       { header: "Low stock amount", key: "low_stock_amount", width: 18 },
       { header: "Backorders allowed", key: "backorders_allowed", width: 20 },
+      { header: "Barcode", key: "barcode", width: 20 },
     ];
 
     const headerRow = worksheet.getRow(1);
@@ -217,6 +246,7 @@ async function generateTemplate(
         height: "",
         low_stock_amount: "",
         backorders_allowed: "",
+        barcode: "",
       });
     });
 
@@ -246,6 +276,9 @@ async function generateTemplate(
     applyValidation("material", 2);
     applyValidation("uom", 3);
     applyValidation("source", 4);
+    applyValidation("color", 5);
+    applyValidation("fitting", 6);
+    applyValidation("gender", 7);
 
     const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
     return new NextResponse(buffer, {

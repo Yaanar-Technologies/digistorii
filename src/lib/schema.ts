@@ -745,6 +745,7 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
           subtotal NUMERIC(12,2) DEFAULT 0,
           tax_amount NUMERIC(12,2) DEFAULT 0,
           total_amount NUMERIC(12,2) DEFAULT 0,
+          return_change NUMERIC(12,2) DEFAULT 0.00,
           created_by VARCHAR(100),
           created_at TIMESTAMP,
           updated_by VARCHAR(100),
@@ -909,6 +910,9 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
       sales_id INT NOT NULL REFERENCES "${schema}".sales_header(id) ON DELETE CASCADE,
       payment_mode_id INT NOT NULL REFERENCES "${schema}".payment_modes(id) ON DELETE RESTRICT,
       amount NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (amount >= 0),
+      paid_amount NUMERIC(12,2) DEFAULT 0.00,
+      actual_amount NUMERIC(12,2) DEFAULT 0.00,
+      return_change NUMERIC(12,2) DEFAULT 0.00,
       created_at TIMESTAMP NOT NULL DEFAULT NOW(),
       created_by VARCHAR(100),
       location_id INT REFERENCES "${schema}".locations(id) ON DELETE RESTRICT,
@@ -919,6 +923,26 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
   await client.query(`
     CREATE INDEX IF NOT EXISTS idx_sales_payments_sales_id
     ON "${schema}".sales_payments(sales_id);
+  `);
+
+  // Ensure tables shape is updated for existing schemas and backfill legacy records
+  await client.query(`
+    ALTER TABLE "${schema}".sales_header 
+    ADD COLUMN IF NOT EXISTS return_change NUMERIC(12,2) DEFAULT 0.00;
+  `);
+
+  await client.query(`
+    ALTER TABLE "${schema}".sales_payments 
+    ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(12,2) DEFAULT 0.00,
+    ADD COLUMN IF NOT EXISTS actual_amount NUMERIC(12,2) DEFAULT 0.00,
+    ADD COLUMN IF NOT EXISTS return_change NUMERIC(12,2) DEFAULT 0.00;
+  `);
+
+  await client.query(`
+    UPDATE "${schema}".sales_payments
+    SET paid_amount = amount,
+        actual_amount = amount
+    WHERE paid_amount = 0.00 AND actual_amount = 0.00;
   `);
 
   /* =========================================================

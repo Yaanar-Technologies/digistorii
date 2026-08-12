@@ -29,6 +29,7 @@ type ProductLookupModalProps = {
   isSelected: (item: ProductLookupItem) => boolean;
   onToggle: (item: ProductLookupItem) => void;
   onToggleAll: (checked: boolean, pageItems: ProductLookupItem[]) => void;
+  selectedCount?: number;
   showBarcodeInput?: boolean;
   barcodeValue?: string;
   barcodeMessage?: string;
@@ -61,6 +62,7 @@ export default function ProductLookupModal({
   barcodeMessage,
   onBarcodeChange,
   onBarcodeSubmit,
+  selectedCount,
 }: ProductLookupModalProps) {
   if (!open) return null;
 
@@ -84,6 +86,7 @@ export default function ProductLookupModal({
   }
 
   const allSelected = items.length > 0 && items.every((item) => isSelected(item));
+  const countToShow = selectedCount !== undefined ? selectedCount : items.filter(isSelected).length;
 
   return createPortal(
     <div className="fixed inset-0 z-[100002] bg-black/40 backdrop-blur-sm flex items-center justify-center">
@@ -109,50 +112,23 @@ export default function ProductLookupModal({
         </div>
 
         <div className="p-4 border-b bg-white space-y-3">
-          {showBarcodeInput ? (
-            <div className="flex flex-col sm:flex-row sm:items-end gap-3">
-              <div className="flex-1">
-                <label className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                  Barcode
-                </label>
-                <input
-                  value={barcodeValue}
-                  onChange={(e) => onBarcodeChange?.(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      onBarcodeSubmit?.(barcodeValue);
-                    }
-                  }}
-                  placeholder="Scan or enter barcode"
-                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-                />
-                {barcodeMessage ? (
-                  <span className="text-xs text-red-500 mt-1 block">{barcodeMessage}</span>
-                ) : null}
-              </div>
-              <button
-                type="button"
-                onClick={() => onBarcodeSubmit?.(barcodeValue)}
-                className="h-[42px] rounded-md bg-gray-900 px-4 text-sm font-medium text-white hover:bg-gray-800"
-              >
-                Add
-              </button>
-            </div>
-          ) : null}
           <ProductFilters
             values={filters}
             onChange={onFiltersChange}
             categoryOptions={categoryOptions}
             searchPlaceholder="Search by SKU or product name"
+            barcodeValue={barcodeValue}
+            barcodeMessage={barcodeMessage}
+            onBarcodeChange={onBarcodeChange}
+            onBarcodeSubmit={onBarcodeSubmit}
           />
         </div>
 
-        <div className="bg-white shadow-lg flex-1 overflow-y-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-indigo-50 text-gray-600 text-sm">
+        <div className="bg-white shadow-lg flex-1 overflow-y-auto relative">
+          <table className="w-full text-sm border-collapse">
+            <thead className="sticky top-0 bg-gray-50 z-10 shadow-[0_1px_0_0_rgba(0,0,0,0.1)]">
               <tr className="border-t hover:bg-blue-50 transition">
-                <th className="p-3 w-12 text-center">
+                <th className="p-3 w-12 text-center bg-gray-50">
                   <input
                     type="checkbox"
                     checked={allSelected}
@@ -160,7 +136,7 @@ export default function ProductLookupModal({
                   />
                 </th>
                 {PRODUCT_LOOKUP_COLUMNS.map((col) => (
-                  <th key={col} className="p-3 text-left">
+                  <th key={col} className="p-3 text-left text-gray-600 font-semibold bg-gray-50">
                     {PRODUCT_LOOKUP_COLUMN_LABELS[col]}
                   </th>
                 ))}
@@ -182,26 +158,56 @@ export default function ProductLookupModal({
                 </tr>
               ) : (
                 items.map((item) => {
-                  const cells: Record<string, string> = {
+                  const cells: Record<string, React.ReactNode> = {
                     code: item.code || item.product_code || "-",
                     sku: item.sku || "-",
                     color: item.color || "-",
                     name: item.name || "-",
                     description: item.description || "-",
                     category: item.category_name || item.category || "-",
-                    current_stock: item.current_stock != null ? String(+item.current_stock) : "-",
+                    current_stock: (() => {
+                      const stockVal = item.current_stock != null ? +item.current_stock : 0;
+                      if (stockVal <= 0) {
+                        return (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-800">
+                            {stockVal}
+                          </span>
+                        );
+                      }
+                      if (stockVal < 10) {
+                        return (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
+                            {stockVal}
+                          </span>
+                        );
+                      }
+                      return (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800">
+                          {stockVal}
+                        </span>
+                      );
+                    })(),
                   };
+                  const isRowSelected = isSelected(item);
                   return (
-                    <tr key={item.id} className="border-t hover:bg-blue-50 transition">
-                      <td className="p-3 text-center">
+                    <tr
+                      key={item.variant_id}
+                      id={`product-row-${item.variant_id}`}
+                      onClick={() => onToggle(item)}
+                      className={`border-t cursor-pointer transition-colors hover:bg-blue-50/50 ${
+                        isRowSelected ? "bg-blue-50 font-medium border-l-4 border-l-blue-600" : ""
+                      }`}
+                    >
+                      <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
                         <input
                           type="checkbox"
-                          checked={isSelected(item)}
+                          checked={isRowSelected}
                           onChange={() => onToggle(item)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                         />
                       </td>
                       {PRODUCT_LOOKUP_COLUMNS.map((col) => (
-                        <td key={col} className="p-3 text-gray-600">
+                        <td key={col} className={`p-3 ${isRowSelected ? "text-blue-900" : "text-gray-600"}`}>
                           {cells[col]}
                         </td>
                       ))}
@@ -286,7 +292,7 @@ export default function ProductLookupModal({
             className={`px-4 py-2 rounded-md text-white ${!isEditable ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
               }`}
           >
-            Add Selected
+            Add Selected {countToShow > 0 ? `(${countToShow})` : ""}
           </button>
         </div>
       </div>

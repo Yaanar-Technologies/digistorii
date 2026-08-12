@@ -148,6 +148,8 @@ export type SalesIndexRow = {
   created_at?: string;
   total_amount?: number;
   items_count?: number;
+  status?: string;
+  payment_status?: string;
 };
 
 export type ActiveTodayDiscount = {

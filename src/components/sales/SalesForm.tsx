@@ -6,12 +6,13 @@ import type { ChangeEvent, KeyboardEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
+import { useNotify } from "@/hooks/useNotify";
 import { useReactToPrint } from "react-to-print";
 import {
     ArrowPathIcon,
     MagnifyingGlassIcon,
     PlusIcon,
-    PrinterIcon,
+    PrinterIcon, PauseIcon,
 } from "@heroicons/react/24/outline";
 import { useTenant } from "@/context/TenantContext";
 import { useUser } from "@/context/CurrentUserContext";
@@ -94,6 +95,7 @@ type ThermalPrintHeader = {
     subtotal: number;
     tax_amount: number;
     total_amount: number;
+    return_change: number;
 };
 
 type ThermalPrintDetail = {
@@ -109,6 +111,7 @@ type ThermalPrintDetail = {
 
 export default function SalesForm() {
     const router = useRouter();
+    const notify = useNotify();
     const searchParams = useSearchParams();
     const salesId = searchParams.get("id");
     const isEdit = Boolean(salesId);
@@ -197,6 +200,7 @@ export default function SalesForm() {
     } | null>(null);
     const [paymentPanelOpen, setPaymentPanelOpen] = useState(false);
     const [activeLineIndex, setActiveLineIndex] = useState<number | null>(null);
+    const [billsSearch, setBillsSearch] = useState("");
 
     const { header, details, payments, couponCode, barcodeValue, barcodeMessage } = formState;
     const {
@@ -421,6 +425,7 @@ export default function SalesForm() {
                 payment_status: "",
                 currency_code: getCurrencyCode(),
                 conversion_rate: 1,
+                return_change: balanceAmountstore,
             };
         },
         [allCustomers, getCurrencyCode]
@@ -449,12 +454,28 @@ export default function SalesForm() {
     }, [company, getSalesIndex]);
 
     const sortedBills = useMemo(() => {
-        return [...billsList].sort((a, b) => {
+        const query = billsSearch.trim().toLowerCase();
+        const filtered = query
+            ? billsList.filter((bill) => {
+                const billNo = String(bill.sales_no || "").toLowerCase();
+                const customer = String(bill.customer_name || bill.customer_id || "").toLowerCase();
+                const date = formatDateLabel(bill.sales_date || bill.created_at).toLowerCase();
+                const amount = Number(bill.total_amount || 0).toFixed(2);
+                return (
+                    billNo.includes(query) ||
+                    customer.includes(query) ||
+                    date.includes(query) ||
+                    amount.includes(query)
+                );
+            })
+            : billsList;
+
+        return [...filtered].sort((a, b) => {
             const ad = new Date(a.created_at || a.sales_date || 0).getTime();
             const bd = new Date(b.created_at || b.sales_date || 0).getTime();
             return bd - ad;
         });
-    }, [billsList]);
+    }, [billsList, billsSearch]);
 
     const billingTotals = useMemo(() => calculateSalesTotals(details), [details]);
 
@@ -1454,13 +1475,7 @@ export default function SalesForm() {
             });
         }
 
-        const normalizedTotalPaid = roundMoney(
-            payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
-        );
-        const targetTotal = hasReturns ? netTotalAmount : Number(header.total_amount || 0);
-        if (targetTotal > 0 && normalizedTotalPaid - targetTotal > 0.01) {
-            newErrors.payments = "Paid amount cannot exceed grand total";
-        }
+        // Allow payment amounts >= net total (excess will be calculated as Return Change)
         payments.forEach((payment) => {
             if (Number(payment.amount || 0) <= 0) {
                 newErrors[`payment_mode_${payment.payment_mode_id}`] = "Enter payment amount";
@@ -1533,10 +1548,11 @@ export default function SalesForm() {
     type SaveOptions = {
         redirect?: boolean;
         reset?: boolean;
+        overrideStatus?: string;
     };
 
     const saveSales = async (printAfterSave: boolean, options: SaveOptions = {}) => {
-        const { redirect = true, reset = true } = options;
+        const { redirect = true, reset = true, overrideStatus } = options;
         updateUiState({ errorMessage: "" });
         if (!activeWarehouseId) {
             updateUiState({ errorMessage: "Warehouse not assigned for this user. Contact administrator." });
@@ -1587,10 +1603,32 @@ export default function SalesForm() {
                 discount_type: discountMode,
                 discount_amount: Number(row.discount || 0),
             }));
-            const payloadPayments = payments.map((payment) => ({
-                ...payment,
-                amount: Number(payment.amount || 0),
-            }));
+            // Inside saveSales() in SalesForm.tsx:
+            const payloadPayments = payments.map((payment) => {
+                const rawAmt = Number(payment.amount || 0);
+                return {
+                    ...payment,
+                    paid_amount: rawAmt,
+                    actual_amount: Math.min(rawAmt, netTotalAmount),
+                    return_change: balanceAmountstore,
+                    amount: rawAmt,
+                };
+            });
+
+            const finalHeader = {
+                ...header,
+                user_name: user?.name,
+                warehouse_id: selectedWarehouse?.id ?? activeWarehouseId ?? header.warehouse_id,
+                location_id: selectedWarehouse?.location_id ?? activeLocationId ?? header.location_id,
+                status: overrideStatus || (header.status === "Hold" ? "Entered" : header.status || "Entered"),
+                payment_status: calculatePaymentStatus(netTotalAmount, totalPaidAmount),
+                total_amount: Number(netTotalAmount.toFixed(2)),
+                return_change: balanceAmountstore,
+            };
+            if (overrideStatus) {
+                finalHeader.status = overrideStatus;
+            }
+
             const res = await fetch(url, {
                 method: method,
                 headers: {
@@ -1598,14 +1636,7 @@ export default function SalesForm() {
                     "x-tenant": company,
                 },
                 body: JSON.stringify({
-                    header: {
-                        ...header,
-                        user_name: user?.name,
-                        warehouse_id: selectedWarehouse?.id ?? activeWarehouseId ?? header.warehouse_id,
-                        location_id: selectedWarehouse?.location_id ?? activeLocationId ?? header.location_id,
-                        payment_status: calculatePaymentStatus(netTotalAmount, totalPaidAmount),
-                        total_amount: Number(netTotalAmount.toFixed(2)),
-                    },
+                    header: finalHeader,
                     details: payloadDetails,
                     payments: payloadPayments,
                     returns: returnedItemsList.length > 0 ? {
@@ -1626,9 +1657,8 @@ export default function SalesForm() {
             if (!data.success) throw new Error(data.error || "Failed to save sales");
 
             const mergedHeader: SalesHeaderType = {
-                ...header,
-                sales_no: data.sales_no || header.sales_no,
-                user_name: user?.name || header.user_name,
+                ...finalHeader,
+                sales_no: data.sales_no || finalHeader.sales_no,
                 payment_status:
                     data.payment_status || calculatePaymentStatus(billingTotals.total, totalPaidAmount),
             };
@@ -1664,7 +1694,29 @@ export default function SalesForm() {
         }
     };
 
-    const handleSave = async (options: SaveOptions = {}) => saveSales(false, options);
+    // 1. Normal Save button handler
+    const handleSave = async (options: SaveOptions = {}) =>
+        saveSales(false, { overrideStatus: "Entered", ...options });
+
+    // 2. Save & Print button handler
+    const handleSaveAndPrint = async () => {
+        const savedBill = await handleSave({ redirect: false, reset: false, overrideStatus: "Entered" });
+        if (savedBill?.id) {
+            await printBill(savedBill.id);
+            if (company) {
+                router.replace(`/${company}/workspace/transactions/sales/add`);
+            }
+            await resetFormAfterSave();
+        }
+    };
+
+    // 3. Hold Bill button handler
+    const handleHoldBill = async () => {
+        const savedBill = await saveSales(false, { redirect: false, reset: true, overrideStatus: "Hold" });
+        if (savedBill?.id) {
+            notify(`Bill ${savedBill.sales_no} placed on Hold!`);
+        }
+    };
 
     const printBill = useCallback(
         async (billId: number) => {
@@ -1693,6 +1745,7 @@ export default function SalesForm() {
                         subtotal: Number(header.subtotal || 0),
                         tax_amount: Number(header.tax_amount || 0),
                         total_amount: Number(header.total_amount || 0),
+                        return_change: roundMoney(header.return_change || 0),
                     },
                     details: details.map((d: any) => ({
                         product_name: d.product_name,
@@ -1720,16 +1773,7 @@ export default function SalesForm() {
         [company, updateUiState]
     );
 
-    const handleSaveAndPrint = async () => {
-        const savedBill = await handleSave({ redirect: false, reset: false });
-        if (savedBill?.id) {
-            await printBill(savedBill.id);
-            if (company) {
-                router.replace(`/${company}/workspace/transactions/sales/add`);
-            }
-            await resetFormAfterSave();
-        }
-    };
+
 
     const handleSalesDateChange = (e: ChangeEvent<HTMLInputElement>) => {
         setHeader((prev) => ({
@@ -1790,10 +1834,10 @@ export default function SalesForm() {
                 return;
             }
 
-            // Ctrl + S: Save
+            // Ctrl + S: Hold Bill
             if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
                 e.preventDefault();
-                handleSave();
+                handleHoldBill();
                 return;
             }
 
@@ -2048,7 +2092,7 @@ export default function SalesForm() {
                                     {details.length} item{details.length === 1 ? "" : "s"} in bill
                                 </div>
                             </div>
-                             <SalesTable
+                            <SalesTable
                                 details={details}
                                 errors={errors}
                                 taxes={allTaxes}
@@ -2135,160 +2179,188 @@ export default function SalesForm() {
                                     </div>
                                 </div>
                             </div>
-                                <div className="rounded-xl border border-gray-200 p-3 mt-3">
-                                    <label className="mb-2 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                                        Payment Mode (F4)
-                                    </label>
-                                    <div className="relative">
-                                        <button
-                                            type="button"
-                                            onClick={() => setPaymentPanelOpen((prev) => !prev)}
-                                            className="flex h-10 w-full items-center justify-between rounded-lg border border-gray-200 px-3 text-sm text-slate-700 hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-100"
-                                        >
-                                            <span className="truncate font-medium">
-                                                {payments.length
-                                                    ? payments
-                                                        .map(
-                                                            (p) => `${p.payment_mode_name || "Payment"}: ₹${p.amount || 0}`
-                                                        )
-                                                        .join(" | ")
-                                                    : "Select payment mode"}
-                                            </span>
-                                            <span className="text-xs font-semibold text-blue-600">
-                                                {paymentPanelOpen ? "Close ▲" : "Open ▼"}
-                                            </span>
-                                        </button>
+                            <div className="rounded-xl border border-gray-200 p-3 mt-3">
+                                <label className="mb-2 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                                    Payment Mode (F4)
+                                </label>
+                                <div className="relative">
+                                    <button
+                                        type="button"
+                                        onClick={() => setPaymentPanelOpen((prev) => !prev)}
+                                        className="flex h-10 w-full items-center justify-between rounded-lg border border-gray-200 px-3 text-sm text-slate-700 hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                                    >
+                                        <span className="truncate font-medium">
+                                            {payments.length
+                                                ? payments
+                                                    .map(
+                                                        (p) => `${p.payment_mode_name || "Payment"}: ₹${p.amount || 0}`
+                                                    )
+                                                    .join(" | ")
+                                                : "Select payment mode"}
+                                        </span>
+                                        <span className="text-xs font-semibold text-blue-600">
+                                            {paymentPanelOpen ? "Close ▲" : "Open ▼"}
+                                        </span>
+                                    </button>
 
-                                        {paymentPanelOpen && (
-                                            <div className="absolute left-0 right-0 z-30 mt-2 rounded-xl border border-gray-200 bg-white p-3 shadow-xl">
-                                                <div className="max-h-72 space-y-2 overflow-auto pr-1">
-                                                    {paymentModes.map((mode, idx) => {
-                                                        const selectedPayment = payments.find(
-                                                            (p) => p.payment_mode_id === mode.id
-                                                        );
-                                                        const isSelected = Boolean(selectedPayment);
+                                    {paymentPanelOpen && (
+                                        <div className="absolute left-0 right-0 z-30 mt-2 rounded-xl border border-gray-200 bg-white p-3 shadow-xl">
+                                            <div className="max-h-72 space-y-2 overflow-auto pr-1">
+                                                {paymentModes.map((mode, idx) => {
+                                                    const selectedPayment = payments.find(
+                                                        (p) => p.payment_mode_id === mode.id
+                                                    );
+                                                    const isSelected = Boolean(selectedPayment);
 
-                                                        return (
-                                                            <div
-                                                                key={mode.id}
-                                                                className={`flex items-center gap-3 rounded-lg border p-2 text-sm transition-colors ${isSelected
-                                                                    ? "border-blue-200 bg-blue-50/40"
-                                                                    : "border-gray-100 bg-white"
-                                                                    }`}
-                                                            >
-                                                                <label className="flex cursor-pointer items-center gap-2 font-medium text-slate-700">
-                                                                    <input
-                                                                        type="checkbox"
-                                                                        checked={isSelected}
-                                                                        ref={(el) => {
-                                                                            paymentCheckboxRefs.current[idx] = el;
-                                                                        }}
-                                                                        onChange={(e) => {
-                                                                            togglePaymentMode(mode, e.target.checked);
-                                                                            if (e.target.checked) {
-                                                                                const currentPaid = payments.reduce(
-                                                                                    (acc, p) => acc + (Number(p.amount) || 0),
-                                                                                    0
-                                                                                );
-                                                                                const remaining = Math.max(
-                                                                                    0,
-                                                                                    billingTotals.total - currentPaid
-                                                                                );
-                                                                                updatePaymentAmount(
-                                                                                    mode.id,
-                                                                                    remaining === 0 ? "" : String(remaining)
-                                                                                );
-                                                                                setTimeout(() => {
-                                                                                    paymentAmountRefs.current[idx]?.focus();
-                                                                                }, 0);
-                                                                            }
-                                                                        }}
-                                                                        onKeyDown={(e) =>
-                                                                            handlePaymentItemKeyDown(idx, false, mode, e)
+                                                    return (
+                                                        <div
+                                                            key={mode.id}
+                                                            className={`flex items-center gap-3 rounded-lg border p-2 text-sm transition-colors ${isSelected
+                                                                ? "border-blue-200 bg-blue-50/40"
+                                                                : "border-gray-100 bg-white"
+                                                                }`}
+                                                        >
+                                                            <label className="flex cursor-pointer items-center gap-2 font-medium text-slate-700">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={isSelected}
+                                                                    ref={(el) => {
+                                                                        paymentCheckboxRefs.current[idx] = el;
+                                                                    }}
+                                                                    onChange={(e) => {
+                                                                        togglePaymentMode(mode, e.target.checked);
+                                                                        if (e.target.checked) {
+                                                                            const currentPaid = payments.reduce(
+                                                                                (acc, p) => acc + (Number(p.amount) || 0),
+                                                                                0
+                                                                            );
+                                                                            const remaining = Math.max(
+                                                                                0,
+                                                                                billingTotals.total - currentPaid
+                                                                            );
+                                                                            updatePaymentAmount(
+                                                                                mode.id,
+                                                                                remaining === 0 ? "" : String(remaining)
+                                                                            );
+                                                                            setTimeout(() => {
+                                                                                paymentAmountRefs.current[idx]?.focus();
+                                                                            }, 0);
                                                                         }
-                                                                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                                                    }}
+                                                                    onKeyDown={(e) =>
+                                                                        handlePaymentItemKeyDown(idx, false, mode, e)
+                                                                    }
+                                                                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                                                />
+                                                                <span>{getPaymentModeName(mode)}</span>
+                                                            </label>
+
+                                                            {isSelected && (
+                                                                <div className="ml-auto flex items-center gap-1">
+                                                                    <span className="text-xs text-gray-400">₹</span>
+                                                                    <input
+                                                                        type="number"
+                                                                        min="0"
+                                                                        step="0.01"
+                                                                        ref={(el) => {
+                                                                            paymentAmountRefs.current[idx] = el;
+                                                                        }}
+                                                                        placeholder="Amount"
+                                                                        value={selectedPayment?.amount ?? ""}
+                                                                        onChange={(e) =>
+                                                                            updatePaymentAmount(mode.id, e.target.value)
+                                                                        }
+                                                                        onKeyDown={(e) =>
+                                                                            handlePaymentItemKeyDown(idx, true, mode, e)
+                                                                        }
+                                                                        className="h-8 w-28 rounded-md border border-gray-300 px-2 text-right text-sm font-semibold text-slate-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                                                                     />
-                                                                    <span>{getPaymentModeName(mode)}</span>
-                                                                </label>
-
-                                                                {isSelected && (
-                                                                    <div className="ml-auto flex items-center gap-1">
-                                                                        <span className="text-xs text-gray-400">₹</span>
-                                                                        <input
-                                                                            type="number"
-                                                                            min="0"
-                                                                            step="0.01"
-                                                                            ref={(el) => {
-                                                                                paymentAmountRefs.current[idx] = el;
-                                                                            }}
-                                                                            placeholder="Amount"
-                                                                            value={selectedPayment?.amount ?? ""}
-                                                                            onChange={(e) =>
-                                                                                updatePaymentAmount(mode.id, e.target.value)
-                                                                            }
-                                                                            onKeyDown={(e) =>
-                                                                                handlePaymentItemKeyDown(idx, true, mode, e)
-                                                                            }
-                                                                            className="h-8 w-28 rounded-md border border-gray-300 px-2 text-right text-sm font-semibold text-slate-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                                                                        />
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
-                                        )}
-                                    </div>
-
-                                    {errors.payments ? (
-                                        <p className="mt-2 text-xs text-red-500">{errors.payments}</p>
-                                    ) : null}
+                                        </div>
+                                    )}
                                 </div>
-                                <div className="border-t border-gray-100 pt-2 mt-2">
-                                    <div className="flex justify-between">
-                                        <span>Paid</span>
-                                        <span>{totalPaidAmount.toFixed(2)}</span>
-                                    </div>
-                                    <div className="mt-1 flex justify-between">
-                                        <span>Balance Due</span>
-                                        <span>{balanceAmount.toFixed(2)}</span>
-                                    </div>
-                                    <div className="mt-1 flex justify-between">
-                                        <span>Extra Paid</span>
-                                        <span>{balanceAmountstore.toFixed(2)}</span>
-                                    </div>
+
+                                {errors.payments ? (
+                                    <p className="mt-2 text-xs text-red-500">{errors.payments}</p>
+                                ) : null}
+                            </div>
+                            <div className="border-t border-gray-100 pt-2 mt-2 space-y-1">
+                                <div className="flex justify-between">
+                                    <span>Paid</span>
+                                    <span>{totalPaidAmount.toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span>Balance Due</span>
+                                    <span>{balanceAmount.toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between font-semibold text-emerald-600">
+                                    <span>Change</span>
+                                    <span>{balanceAmountstore.toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between items-center pt-1 border-t border-dashed border-gray-100">
+                                    <span>Payment Status</span>
+                                    {(() => {
+                                        const stat = calculatePaymentStatus(netTotalAmount, totalPaidAmount);
+                                        console.log("--- Billing Summary Variables ---");
+                                        console.log("Total Payable (netTotalAmount):", netTotalAmount);
+                                        console.log("Paid (totalPaidAmount):", totalPaidAmount);
+                                        console.log("Balance Due (balanceAmount):", balanceAmount);
+                                        console.log("Change (balanceAmountstore):", balanceAmountstore);
+                                        console.log("Payment Status (stat):", stat);
+                                        return (
+                                            <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold ${stat === "paid"
+                                                ? "bg-emerald-100 text-emerald-800"
+                                                : stat === "partial"
+                                                    ? "bg-amber-100 text-amber-800"
+                                                    : "bg-rose-100 text-rose-800"
+                                                }`}>
+                                                {stat.toUpperCase()}
+                                            </span>
+                                        );
+                                    })()}
                                 </div>
                             </div>
+                        </div>
 
                         <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                            <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                                Actions
-                            </div>
-                            <div className="mt-3 grid grid-cols-3 gap-2">
-                                <button
-                                    type="submit"
-                                    className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 text-sm font-medium text-white hover:bg-blue-700"
-                                >
-                                    <PlusIcon className="h-4 w-4" />
-                                    Save (Ctrl+S)
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={handleSaveAndPrint}
-                                    className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-slate-900 px-3 text-sm font-medium text-white hover:bg-slate-800"
-                                >
-                                    <PrinterIcon className="h-4 w-4" />
-                                    Print (Ctrl+P)
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={resetFormAfterSave}
-                                    className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                                >
-                                    <ArrowPathIcon className="h-4 w-4" />
-                                    Reset (Alt+N)
-                                </button>
+
+                            <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                                    Actions
+                                </div>
+                                <div className="mt-3 grid grid-cols-3 gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={handleHoldBill}
+                                        className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-amber-500 px-3 text-sm font-medium text-white hover:bg-amber-600"
+                                    >
+                                        <PauseIcon className="h-3 w-3 shrink-0" />
+                                        <span>Hold (Ctrl+S)</span>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={handleSaveAndPrint}
+                                        className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-slate-900 px-3 text-sm font-medium text-white hover:bg-slate-800"
+                                    >
+                                        <PrinterIcon className="h-3 w-3 shrink-0" />
+                                        <span>Print (Ctrl+P)</span>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={resetFormAfterSave}
+                                        className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                                    >
+                                        <ArrowPathIcon className="h-3 w-3 shrink-0" />
+                                        <span>Reset (Alt+N)</span>
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </aside>
@@ -2389,13 +2461,20 @@ export default function SalesForm() {
                             className="absolute inset-0 bg-black/40"
                             onClick={() => updateUiState({ showBillsPanel: false })}
                         />
-                        <div className="absolute right-0 top-0 h-full w-[540px] bg-white shadow-2xl flex flex-col">
-                            <div className="flex items-center justify-between px-5 py-4 border-b">
-                                <div className="text-lg font-semibold">Previous Bills</div>
+                        <div className="absolute right-0 top-0 h-full w-[600px] bg-white shadow-2xl flex flex-col">
+                            <div className="flex items-center justify-between px-5 py-4 border-b gap-4">
+                                <div className="text-lg font-semibold whitespace-nowrap">Previous Bills</div>
+                                <input
+                                    type="text"
+                                    placeholder="Search by amt, name, date, no..."
+                                    value={billsSearch}
+                                    onChange={(e) => setBillsSearch(e.target.value)}
+                                    className="flex-1 max-w-xs rounded-md border border-gray-300 px-3 py-1 text-sm outline-none focus:border-blue-500"
+                                />
                                 <button
                                     type="button"
                                     onClick={() => updateUiState({ showBillsPanel: false })}
-                                    className="text-gray-500 hover:text-gray-800"
+                                    className="text-gray-500 hover:text-gray-800 text-sm font-medium"
                                 >
                                     Close
                                 </button>
@@ -2524,66 +2603,91 @@ export default function SalesForm() {
                                         {billsError && <div className="p-5 text-sm text-red-500">{billsError}</div>}
                                         {!billsLoading && !billsError && (
                                             <table className="w-full text-sm">
-                                                <thead className="bg-gray-50 text-gray-600 sticky top-0 border-b">
+                                                <thead className="bg-gray-50 text-gray-600 sticky top-0 border-b z-10 shadow-[0_1px_0_0_rgba(0,0,0,0.05)]">
                                                     <tr>
                                                         <th className="p-3 text-left font-semibold">Bill No</th>
                                                         <th className="p-3 text-left font-semibold">Customer</th>
                                                         <th className="p-3 text-left font-semibold">Date</th>
-                                                        <th className="p-3 text-right font-semibold">Total Amount</th>
+                                                        <th className="p-3 text-center font-semibold">Payment Status</th>
+                                                        <th className="p-3 text-right font-semibold">Total</th>
                                                         <th className="p-3 text-center font-semibold">Action</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
                                                     {sortedBills.length === 0 && (
                                                         <tr>
-                                                            <td className="p-4 text-sm text-gray-400" colSpan={5}>
+                                                            <td className="p-4 text-sm text-gray-400" colSpan={6}>
                                                                 No bills available.
                                                             </td>
                                                         </tr>
                                                     )}
-                                                    {sortedBills.map((bill) => (
-                                                        <tr
-                                                            key={bill.id}
-                                                            className="border-t hover:bg-blue-50 transition"
-                                                        >
-                                                            <td
-                                                                onClick={() => handleSelectBill(bill)}
-                                                                className="p-3 font-medium text-gray-700 cursor-pointer"
+                                                    {sortedBills.map((bill) => {
+                                                        const isHold = bill.status === "Hold";
+                                                        const paymentStatus = bill.payment_status || "unpaid";
+
+                                                        return (
+                                                            <tr
+                                                                key={bill.id}
+                                                                className="border-t hover:bg-blue-50 transition"
                                                             >
-                                                                {bill.sales_no}
-                                                            </td>
-                                                            <td
-                                                                onClick={() => handleSelectBill(bill)}
-                                                                className="p-3 text-gray-600 cursor-pointer"
-                                                            >
-                                                                {bill.customer_name || bill.customer_id}
-                                                            </td>
-                                                            <td
-                                                                onClick={() => handleSelectBill(bill)}
-                                                                className="p-3 text-gray-600 cursor-pointer"
-                                                            >
-                                                                {formatDateLabel(bill.sales_date || bill.created_at)}
-                                                            </td>
-                                                            <td
-                                                                onClick={() => handleSelectBill(bill)}
-                                                                className="p-3 text-right font-semibold text-gray-700 cursor-pointer"
-                                                            >
-                                                                {Number(bill.total_amount || 0).toFixed(2)}
-                                                            </td>
-                                                            <td className="p-3 text-center">
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        void handleOpenReturnSelection(bill);
-                                                                    }}
-                                                                    className="inline-flex items-center gap-1 rounded bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-600 hover:bg-indigo-100 transition"
+                                                                <td
+                                                                    onClick={() => handleSelectBill(bill)}
+                                                                    className="p-3 font-medium text-gray-700 cursor-pointer"
                                                                 >
-                                                                    Return/Exch
-                                                                </button>
-                                                            </td>
-                                                        </tr>
-                                                    ))}
+                                                                    <div className="flex items-center gap-2">
+                                                                        {isHold && (
+                                                                            <span className="relative flex h-2.5 w-2.5" title="Payment Due / Bill on Hold">
+                                                                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                                                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                                                                            </span>
+                                                                        )}
+                                                                        <span>{bill.sales_no}</span>
+                                                                    </div>
+                                                                </td>
+                                                                <td
+                                                                    onClick={() => handleSelectBill(bill)}
+                                                                    className="p-3 text-gray-600 cursor-pointer"
+                                                                >
+                                                                    {bill.customer_name || bill.customer_id}
+                                                                </td>
+                                                                <td
+                                                                    onClick={() => handleSelectBill(bill)}
+                                                                    className="p-3 text-gray-600 cursor-pointer"
+                                                                >
+                                                                    {formatDateLabel(bill.sales_date || bill.created_at)}
+                                                                </td>
+                                                                {/* Status Badge */}
+                                                                <td className="p-3 text-center">
+                                                                    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${paymentStatus === "paid"
+                                                                        ? "bg-emerald-100 text-emerald-800"
+                                                                        : paymentStatus === "partial"
+                                                                            ? "bg-amber-100 text-amber-800"
+                                                                            : "bg-rose-100 text-rose-800"
+                                                                        }`}>
+                                                                        {paymentStatus.toUpperCase()}
+                                                                    </span>
+                                                                </td>
+                                                                <td
+                                                                    onClick={() => handleSelectBill(bill)}
+                                                                    className="p-3 text-right font-semibold text-gray-700 cursor-pointer"
+                                                                >
+                                                                    {Number(bill.total_amount || 0).toFixed(2)}
+                                                                </td>
+                                                                <td className="p-3 text-center">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            void handleOpenReturnSelection(bill);
+                                                                        }}
+                                                                        className="inline-flex items-center gap-1 rounded bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-600 hover:bg-indigo-100 transition"
+                                                                    >
+                                                                        Return/Exch
+                                                                    </button>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
                                                 </tbody>
                                             </table>
                                         )}
@@ -2621,7 +2725,7 @@ export default function SalesForm() {
                     <kbd className="rounded border border-slate-600 bg-slate-800 px-1.5 py-0.5 text-xs text-white">Ctrl + P</kbd> Save & Print
                 </span>
                 <span className="flex items-center gap-1">
-                    <kbd className="rounded border border-slate-600 bg-slate-800 px-1.5 py-0.5 text-xs text-white">Ctrl + S</kbd> Save
+                    <kbd className="rounded border border-slate-600 bg-slate-800 px-1.5 py-0.5 text-xs text-white">Ctrl + S</kbd> Hold Bill
                 </span>
                 <span className="flex items-center gap-1">
                     <kbd className="rounded border border-slate-600 bg-slate-800 px-1.5 py-0.5 text-xs text-white">↑ / ↓</kbd> Navigate Items

@@ -87,24 +87,39 @@ function getUserIdFromCookie(req: NextRequest): number | null {
 
 const roundMoney = (value: unknown) => Number(Number(value || 0).toFixed(2));
 
-const normalizePaymentRows = (payments: any): Array<{ payment_mode_id: number; amount: number }> => {
+const normalizePaymentRows = (
+  payments: any
+): Array<{
+  payment_mode_id: number;
+  amount: number;
+  paid_amount: number;
+  actual_amount: number;
+  return_change: number;
+}> => {
   if (!Array.isArray(payments)) return [];
   return payments
     .map((row) => ({
       payment_mode_id: toPositiveInt(row?.payment_mode_id),
       amount: roundMoney(row?.amount),
+      paid_amount: roundMoney(row?.paid_amount || row?.amount),
+      actual_amount: roundMoney(row?.actual_amount),
+      return_change: roundMoney(row?.return_change),
     }))
     .filter(
-      (row): row is { payment_mode_id: number; amount: number } =>
+      (row): row is {
+        payment_mode_id: number;
+        amount: number;
+        paid_amount: number;
+        actual_amount: number;
+        return_change: number;
+      } =>
         Boolean(row.payment_mode_id) && Number.isFinite(row.amount) && row.amount > 0
     );
 };
 
 const calculatePaymentStatus = (totalAmount: number, paidAmount: number) => {
-  const total = roundMoney(totalAmount);
-  const paid = roundMoney(paidAmount);
-  if (paid <= 0) return "unpaid";
-  if (Math.abs(paid - total) <= 0.01) return "paid";
+  if (paidAmount <= 0) return "unpaid";
+  if (paidAmount >= totalAmount) return "paid";
   return "partial";
 };
 
@@ -124,11 +139,38 @@ async function resolveWarehouseContext(client: any, schema: string, warehouseId:
 }
 
 
+// async function ensurePaymentsTrackingColumns(client: any, schema: string) {
+//   await client.query(`
+//     ALTER TABLE "${schema}".sales_header 
+//     ADD COLUMN IF NOT EXISTS return_change NUMERIC(12,2) DEFAULT 0.00;
+//   `);
+
+//   await client.query(`
+//     ALTER TABLE "${schema}".sales_payments 
+//     ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(12,2) DEFAULT 0.00,
+//     ADD COLUMN IF NOT EXISTS actual_amount NUMERIC(12,2) DEFAULT 0.00,
+//     ADD COLUMN IF NOT EXISTS return_change NUMERIC(12,2) DEFAULT 0.00;
+//   `);
+
+//   await client.query(`
+//     UPDATE "${schema}".sales_payments
+//     SET paid_amount = amount,
+//         actual_amount = amount
+//     WHERE paid_amount = 0.00 AND actual_amount = 0.00;
+//   `);
+// }
+
 async function replaceSalesPayments(
   client: any,
   schema: string,
   salesId: number,
-  payments: Array<{ payment_mode_id: number; amount: number }>,
+  payments: Array<{
+    payment_mode_id: number;
+    amount: number;
+    paid_amount: number;
+    actual_amount: number;
+    return_change: number;
+  }>,
   createdBy: string | number | null,
   locationId: number | null,
   warehouseId: number
@@ -137,10 +179,21 @@ async function replaceSalesPayments(
   if (!payments.length) return;
   for (const payment of payments) {
     await client.query(
-      `INSERT INTO "${schema}".sales_payments
-        (sales_id, payment_mode_id, amount, created_at, created_by, location_id, warehouse_id)
-       VALUES ($1, $2, $3, NOW(), $4, $5, $6)`,
-      [salesId, payment.payment_mode_id, payment.amount, createdBy, locationId, warehouseId]
+      `INSERT INTO "${schema}".sales_payments (
+         sales_id, payment_mode_id, amount, paid_amount, actual_amount, return_change,
+         created_by, location_id, warehouse_id
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        salesId,
+        payment.payment_mode_id,
+        payment.amount,
+        payment.paid_amount,
+        payment.actual_amount,
+        payment.return_change,
+        createdBy,
+        locationId,
+        warehouseId
+      ]
     );
   }
 }
@@ -259,6 +312,7 @@ export async function POST(req: NextRequest) {
 
     // Ensure Sales Return Tables exist
     await ensureSalesReturnTables(client, schema);
+    // await ensurePaymentsTrackingColumns(client, schema);
 
     const warehouseContext = await resolveWarehouseContext(client, schema, warehouseId);
     const locatorId = null;
@@ -268,22 +322,19 @@ export async function POST(req: NextRequest) {
       schema,
       normalizedPayments.map((row) => row.payment_mode_id)
     );
-    const paidAmount = roundMoney(
-      normalizedPayments.reduce((sum, row) => sum + Number(row.amount || 0), 0)
+    const totalTendered = roundMoney(
+      normalizedPayments.reduce((sum, row) => sum + Number(row.paid_amount || row.amount || 0), 0)
     );
     const totalAmount = roundMoney(header.total_amount);
-    if (paidAmount - totalAmount > 0.01) {
-      throw new Error("Paid amount cannot exceed grand total");
-    }
-    const paymentStatus = calculatePaymentStatus(totalAmount, paidAmount);
+    const paymentStatus = calculatePaymentStatus(totalAmount, totalTendered);
 
     // Generate sales_no
     const salesNo = await generateSalesNo(schema);
     // Insert header
     const headerQuery = `
       INSERT INTO ${schema}.sales_header
-        (sales_no, customer_id, sales_date, currency, warehouse_id, location_id, locator_id, status, payment_status, subtotal, tax_amount, total_amount, created_by, created_at)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW())
+        (sales_no, customer_id, sales_date, currency, warehouse_id, location_id, locator_id, status, payment_status, subtotal, tax_amount, total_amount, return_change, created_by, created_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW())
       RETURNING id
     `;
     const statusValue = header.status || "Entered";
@@ -300,6 +351,7 @@ export async function POST(req: NextRequest) {
       header.subtotal,
       header.tax_amount,
       header.total_amount,
+      header.return_change || 0.0,
       userId,
     ];
     const headerRes = await client.query(headerQuery, headerValues);

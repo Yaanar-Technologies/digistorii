@@ -16,6 +16,7 @@ type UseProductLookupOptions = {
   enabled?: boolean;
   itemsPerPage?: number;
   module?: string;
+  warehouseId?: string | number;
 };
 
 const DEFAULT_FILTERS: ProductLookupFilters = {
@@ -37,6 +38,7 @@ export function useProductLookup(options: UseProductLookupOptions = {}) {
   const [page, setPage] = useState(1);
 
   const moduleParam = options.module ? `&module=${encodeURIComponent(options.module)}` : "";
+  const warehouseParam = options.warehouseId ? `&warehouse_id=${encodeURIComponent(options.warehouseId)}` : "";
 
   const resetFilters = useCallback(() => {
     setFilters(DEFAULT_FILTERS);
@@ -49,7 +51,7 @@ export function useProductLookup(options: UseProductLookupOptions = {}) {
     setError("");
     try {
       const res = await apiFetch(
-        `/api/product-lookup?type=lookup${moduleParam}`,
+        `/api/product-lookup?type=lookup${moduleParam}${warehouseParam}`,
         company
       );
       const data = await res.json();
@@ -62,7 +64,7 @@ export function useProductLookup(options: UseProductLookupOptions = {}) {
     } finally {
       setLoading(false);
     }
-  }, [company, moduleParam]);
+  }, [company, moduleParam, warehouseParam]);
 
   useEffect(() => {
     if (!enabled || !company) return;

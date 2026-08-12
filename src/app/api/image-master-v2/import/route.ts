@@ -5,6 +5,10 @@ import { getTenantSchema } from "@/lib/tenant";
 import { normalizeSku } from "@/lib/product-utils";
 import { PoolClient } from "pg";
 import { getRuleValidationError } from "@/lib/formValidationRules";
+import {
+  validateBarcodeOrThrow,
+  normalizeBarcode,
+} from "@/lib/product-barcode";
 
 export const runtime = "nodejs";
 
@@ -18,6 +22,7 @@ type ParsedVariant = {
   gender: string;
   lowStockAmount: number | null;
   backordersAllowed: boolean;
+  barcode: string;
   imageUrls: string[];
   imageIds: number[];
 };
@@ -234,6 +239,7 @@ async function parseSheet(buffer: Buffer, lookups: Lookups) {
     "height",
     "Low stock amount",
     "backorders allowed",
+    "barcode",
   ];
   const actualHeaders = Object.keys(rows[0]).map(normalizeHeader);
 
@@ -291,6 +297,7 @@ if (missingHeaders.length > 0) {
     const heightRaw = cell(row, "height");
     const lowStockRaw = cell(row, "Low stock amount");
     const backordersRaw = cell(row, "backorders allowed");
+    const barcodeRaw = cell(row, "barcode");
 
     const categoryId = resolveLookupStrict(
       categoryRaw,
@@ -331,29 +338,28 @@ if (missingHeaders.length > 0) {
     const height = heightRaw ? asNumber(heightRaw) : null;
     const lowStockAmount = lowStockRaw ? asNumber(lowStockRaw) : null;
     const backordersAllowed = parseBooleanFlexible(backordersRaw);
+    const barcode = normalizeBarcode(barcodeRaw);
 
     if (weightRaw && weight === null) {
-      warnings.push(`Row ${rowNumber}: Weight must be a number. Keeping blank.`);
+      errors.push(`Row ${rowNumber}: Weight must be numeric.`);
     }
     if (lengthRaw && length === null) {
-      warnings.push(`Row ${rowNumber}: Length must be a number. Keeping blank.`);
+      errors.push(`Row ${rowNumber}: Length must be numeric.`);
     }
     if (widthRaw && width === null) {
-      warnings.push(`Row ${rowNumber}: Width must be a number. Keeping blank.`);
+      errors.push(`Row ${rowNumber}: Width must be numeric.`);
     }
     if (heightRaw && height === null) {
-      warnings.push(`Row ${rowNumber}: Height must be a number. Keeping blank.`);
+      errors.push(`Row ${rowNumber}: Height must be numeric.`);
     }
     if (lowStockRaw && lowStockAmount === null) {
-      warnings.push(`Row ${rowNumber}: Low stock amount must be a number. Keeping blank.`);
+      errors.push(`Row ${rowNumber}: Low stock amount must be numeric.`);
     }
     if (backordersRaw && backordersAllowed === null) {
-      warnings.push(
-        `Row ${rowNumber}: backorders allowed must be yes/no, true/false, or 1/0. Keeping false.`
-      );
+      errors.push(`Row ${rowNumber}: backorders allowed must be yes/no or true/false.`);
     }
 
-    // Validate name, description, sku: only alphanumeric, spaces, hyphens, commas allowed
+    // Validate name, description, sku, hsn, parent_sku, size to restrict symbols
     if (nameRaw) {
       const nameErr = getRuleValidationError('alphanumeric-spaces-hyphens', nameRaw);
       if (nameErr) errors.push(`Row ${rowNumber}: product_name: ${nameErr}`);
@@ -365,6 +371,26 @@ if (missingHeaders.length > 0) {
     if (skuRaw) {
       const skuErr = getRuleValidationError('alphanumeric-spaces-hyphens', skuRaw);
       if (skuErr) errors.push(`Row ${rowNumber}: sku: ${skuErr}`);
+    }
+    if (hsn) {
+      const hsnErr = getRuleValidationError('alphanumeric-spaces-hyphens', hsn);
+      if (hsnErr) errors.push(`Row ${rowNumber}: hsn: ${hsnErr}`);
+    }
+    if (parentSkuRaw) {
+      const parentSkuErr = getRuleValidationError('alphanumeric-spaces-hyphens', parentSkuRaw);
+      if (parentSkuErr) errors.push(`Row ${rowNumber}: parent sku: ${parentSkuErr}`);
+    }
+    if (size) {
+      const sizeErr = getRuleValidationError('alphanumeric-spaces-hyphens', size);
+      if (sizeErr) errors.push(`Row ${rowNumber}: size: ${sizeErr}`);
+    }
+
+    if (barcode) {
+      try {
+        validateBarcodeOrThrow(barcode);
+      } catch (err: any) {
+        errors.push(`Row ${rowNumber}: barcode: ${err.message}`);
+      }
     }
 
     const parentSku = parentSkuRaw || skuRaw || `AUTO-${rowNumber}`;
@@ -413,6 +439,7 @@ if (missingHeaders.length > 0) {
         gender,
         lowStockAmount,
         backordersAllowed: backordersAllowed ?? false,
+        barcode,
         imageUrls,
         imageIds,
       });
@@ -432,6 +459,7 @@ if (missingHeaders.length > 0) {
       gender,
       lowStockAmount,
       backordersAllowed: backordersAllowed ?? false,
+      barcode,
       imageUrls,
       imageIds,
     };
@@ -522,6 +550,28 @@ export async function POST(req: NextRequest) {
       ...parsed.orphanVariants.map((variant) => variant.sku),
     ];
 
+    const duplicateErrors: string[] = [];
+
+    const barcodeSet = new Set<string>();
+    parsed.parents.forEach((parent) => {
+      parent.variants.forEach((v) => {
+        if (v.barcode) {
+          if (barcodeSet.has(v.barcode.toLowerCase())) {
+            duplicateErrors.push(`Row ${v.row}: Duplicate barcode "${v.barcode}" in upload.`);
+          }
+          barcodeSet.add(v.barcode.toLowerCase());
+        }
+      });
+    });
+    parsed.orphanVariants.forEach((v) => {
+      if (v.barcode) {
+        if (barcodeSet.has(v.barcode.toLowerCase())) {
+          duplicateErrors.push(`Row ${v.row}: Duplicate barcode "${v.barcode}" in upload.`);
+        }
+        barcodeSet.add(v.barcode.toLowerCase());
+      }
+    });
+
     if (allSkus.length) {
       const existing = await client.query(
         `
@@ -533,15 +583,39 @@ export async function POST(req: NextRequest) {
       );
       if (existing.rows.length > 0) {
         const dupes = existing.rows.map((row: { sku: string }) => row.sku);
-        return NextResponse.json(
-          {
-            success: false,
-            errors: dupes.map((sku) => `SKU "${sku}" already exists.`),
-            warnings: parsed.warnings,
-          },
-          { status: 400 }
-        );
+        dupes.forEach((sku) => duplicateErrors.push(`SKU "${sku}" already exists.`));
       }
+    }
+
+    const allBarcodes = [
+      ...parsed.parents.flatMap((parent) => parent.variants.map((variant) => variant.barcode).filter(Boolean)),
+      ...parsed.orphanVariants.map((variant) => variant.barcode).filter(Boolean),
+    ];
+
+    if (allBarcodes.length) {
+      const existingBarcodes = await client.query(
+        `
+          SELECT barcode
+          FROM "${schema}".product_variants
+          WHERE barcode = ANY($1::text[])
+        `,
+        [allBarcodes]
+      );
+      if (existingBarcodes.rows.length > 0) {
+        const dupes = existingBarcodes.rows.map((row: { barcode: string }) => row.barcode);
+        dupes.forEach((barcode) => duplicateErrors.push(`Barcode "${barcode}" already exists.`));
+      }
+    }
+
+    if (duplicateErrors.length > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          errors: duplicateErrors,
+          warnings: parsed.warnings,
+        },
+        { status: 400 }
+      );
     }
 
     await client.query("BEGIN");
@@ -668,9 +742,9 @@ export async function POST(req: NextRequest) {
           const variantInsert = await client.query(
             `
               INSERT INTO "${schema}".product_variants
-                (product_id, color_id, size, fitting_id, gender, sku, qty, low_stock_threshold, backorders_allowed, status)
-              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft')
-              RETURNING id
+                (product_id, color_id, size, fitting_id, gender, sku, qty, low_stock_threshold, backorders_allowed, status, barcode)
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft', $10)
+              RETURNING id, barcode
             `,
             [
               productId,
@@ -682,17 +756,20 @@ export async function POST(req: NextRequest) {
               0,
               variant.lowStockAmount ?? 5,
               variant.backordersAllowed,
+              variant.barcode || null,
             ]
           );
           const variantId = variantInsert.rows[0].id as number;
-          await client.query(
-            `
-              UPDATE "${schema}".product_variants
-              SET barcode = LPAD(id::text, 10, '0')
-              WHERE id = $1
-            `,
-            [variantId]
-          );
+          if (!variantInsert.rows[0].barcode) {
+            await client.query(
+              `
+                UPDATE "${schema}".product_variants
+                SET barcode = LPAD(id::text, 10, '0')
+                WHERE id = $1
+              `,
+              [variantId]
+            );
+          }
           insertedVariants += 1;
 
           let order = 1;
@@ -719,9 +796,9 @@ export async function POST(req: NextRequest) {
         const variantInsert = await client.query(
           `
             INSERT INTO "${schema}".product_variants
-              (product_id, color_id, size, fitting_id, gender, sku, qty, low_stock_threshold, backorders_allowed, status)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft')
-            RETURNING id
+              (product_id, color_id, size, fitting_id, gender, sku, qty, low_stock_threshold, backorders_allowed, status, barcode)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft', $10)
+            RETURNING id, barcode
           `,
           [
             productId,
@@ -733,17 +810,20 @@ export async function POST(req: NextRequest) {
             0,
             variant.lowStockAmount ?? 5,
             variant.backordersAllowed,
+            variant.barcode || null,
           ]
         );
         const variantId = variantInsert.rows[0].id as number;
-        await client.query(
-          `
-            UPDATE "${schema}".product_variants
-            SET barcode = LPAD(id::text, 10, '0')
-            WHERE id = $1
-          `,
-          [variantId]
-        );
+        if (!variantInsert.rows[0].barcode) {
+          await client.query(
+            `
+              UPDATE "${schema}".product_variants
+              SET barcode = LPAD(id::text, 10, '0')
+              WHERE id = $1
+            `,
+            [variantId]
+          );
+        }
         insertedVariants += 1;
 
         let order = 1;

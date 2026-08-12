@@ -60,7 +60,10 @@ export async function GET(request: NextRequest) {
     const paymentsQuery = `
       SELECT 
         pm.name as payment_mode_name,
-        sp.amount
+        sp.amount,
+        sp.paid_amount,
+        sp.actual_amount,
+        sp.return_change
       FROM ${schema}.sales_payments sp
       LEFT JOIN ${schema}.payment_modes pm ON pm.id = sp.payment_mode_id
       LEFT JOIN ${schema}.sales_header sh ON sh.id = sp.sales_id
@@ -69,7 +72,10 @@ export async function GET(request: NextRequest) {
     const paymentsResult = await pool.query(paymentsQuery, [salesNo]);
     const paymentModes = paymentsResult.rows.map(row => ({
       name: row.payment_mode_name || "Unknown Mode",
-      amount: parseFloat(row.amount || 0)
+      amount: parseFloat(row.amount || 0),
+      paid_amount: parseFloat(row.paid_amount || 0),
+      actual_amount: parseFloat(row.actual_amount || 0),
+      return_change: parseFloat(row.return_change || 0)
     }));
     return NextResponse.json({
       company: {

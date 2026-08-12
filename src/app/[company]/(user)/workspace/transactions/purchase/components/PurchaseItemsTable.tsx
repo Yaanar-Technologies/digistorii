@@ -239,20 +239,21 @@ export default function PurchaseItemsTable({
               <div className="flex flex-wrap items-center gap-2">
                 <input
                   type="number"
-                  value={bulkRate}
-                  onChange={(e) => setBulkRate(e.target.value)}
-                  placeholder="Unit Price"
-                  className="border p-2 rounded w-32"
-                  disabled={!isEditable}
-                />
-                <input
-                  type="number"
                   value={bulkQty}
                   onChange={(e) => setBulkQty(e.target.value)}
                   placeholder="Quantity"
                   className="border p-2 rounded w-28"
                   disabled={!isEditable}
                 />
+                <input
+                  type="number"
+                  value={bulkRate}
+                  onChange={(e) => setBulkRate(e.target.value)}
+                  placeholder="Unit Price"
+                  className="border p-2 rounded w-32"
+                  disabled={!isEditable}
+                />
+
                 <select
                   value={bulkTaxId}
                   onChange={(e) => setBulkTaxId(e.target.value)}
@@ -289,9 +290,8 @@ export default function PurchaseItemsTable({
           )}
           <table className="w-full text-sm">
             <thead
-              className={`bg-indigo-50 text-gray-600 text-sm sticky ${
-                bulkBarVisible ? "top-[56px]" : "top-0"
-              } z-10 shadow-sm`}
+              className={`bg-indigo-50 text-gray-600 text-sm sticky ${bulkBarVisible ? "top-[56px]" : "top-0"
+                } z-10 shadow-sm`}
             >
               <tr className="border-t hover:bg-blue-50 transition">
                 <th className="p-3 text-sm text-center w-10">
@@ -303,17 +303,17 @@ export default function PurchaseItemsTable({
                     disabled={!isEditable || filteredIds.length === 0}
                   />
                 </th>
-                <th className="p-3 text-sm text-left ">Product Code</th>
+                <th className="p-3 text-sm text-left">Product Code</th>
                 <th className="p-3 text-sm text-left">Product Name</th>
                 <th className="p-3 text-sm text-left">Description</th>
-                <th className="p-3 text-sm">UOM</th>
                 <th className="p-3 text-sm">HSN No</th>
-                <th className="p-3 text-sm w-[50px]">Unit Price</th>
-                <th className="p-3 text-sm w-[20px]">Qty</th>
-                <th className="p-3 text-sm w-[80px]">Amount</th>
-                <th className="p-3 text-sm w-[30px]">Tax Group</th>
-                <th className="p-3 text-sm w-[80px]">Tax Amt</th>
-                <th className="p-3 text-sm w-[90px]">Total</th>
+                <th className="p-3 text-sm">Qty</th>
+                <th className="p-3 text-sm">UOM</th>
+                <th className="p-3 text-sm">Unit Price</th>
+                <th className="p-3 text-sm">Amount</th>
+                <th className="p-3 text-sm">Tax Group</th>
+                <th className="p-3 text-sm">Tax Amt</th>
+                <th className="p-3 text-sm">Total</th>
                 <th className="p-3 w-[40px]"></th>
               </tr>
             </thead>
@@ -372,32 +372,7 @@ export default function PurchaseItemsTable({
                       )} */}
                     </td>
                     <td className="p-2">
-                      <div className="text-gray-700">{row.uom_code || row.uom_name}</div>
-                    </td>
-                    <td className="p-2">
                       <div>{row.hsn_no}</div>
-                    </td>
-                    <td className="text-right">
-                      <input
-                        type="number"
-                        disabled={!isEditable}
-                        value={row.rate === "" ? "" : row.rate}
-                        onChange={(e) =>
-                          updateRow(
-                            index,
-                            "rate",
-                            e.target.value === "" ? "" : Number(e.target.value)
-                          )
-                        }
-                        className={`border p-1 rounded w-20 ${
-                          errors[`rate_${index}`] ? "border-red-500" : ""
-                        }`}
-                      />
-                      {errors[`rate_${index}`] && (
-                        <p className="text-red-500 text-sm mt-1">
-                          {errors[`rate_${index}`]}
-                        </p>
-                      )}
                     </td>
                     <td className="text-right">
                       <input
@@ -411,9 +386,8 @@ export default function PurchaseItemsTable({
                             e.target.value === "" ? "" : Number(e.target.value)
                           )
                         }
-                        className={`border p-1 rounded w-20 ${
-                          errors[`qty_${index}`] ? "border-red-500" : ""
-                        }`}
+                        className={`border p-1 rounded w-20 ${errors[`qty_${index}`] ? "border-red-500" : ""
+                          }`}
                       />
                       {errors[`qty_${index}`] && (
                         <p className="text-red-500 text-sm mt-1">
@@ -421,6 +395,32 @@ export default function PurchaseItemsTable({
                         </p>
                       )}
                     </td>
+                    <td className="p-2">
+                      <div className="text-gray-700">{row.uom_code || row.uom_name}</div>
+                    </td>
+
+                    <td className="text-right">
+                      <input
+                        type="number"
+                        disabled={!isEditable}
+                        value={row.rate === "" ? "" : row.rate}
+                        onChange={(e) =>
+                          updateRow(
+                            index,
+                            "rate",
+                            e.target.value === "" ? "" : Number(e.target.value)
+                          )
+                        }
+                        className={`border p-1 rounded w-20 ${errors[`rate_${index}`] ? "border-red-500" : ""
+                          }`}
+                      />
+                      {errors[`rate_${index}`] && (
+                        <p className="text-red-500 text-sm mt-1">
+                          {errors[`rate_${index}`]}
+                        </p>
+                      )}
+                    </td>
+
                     <td className="text-right">{Number(row.amount || 0).toFixed(2)}</td>
                     <td className="text-center">
                       <select
@@ -443,16 +443,16 @@ export default function PurchaseItemsTable({
                     <td className="text-right">{Number(row.tax_amount || 0).toFixed(2)}</td>
                     <td className="text-right">{Number(row.line_total || 0).toFixed(2)}</td>
                     <td className="p-2 text-center align-middle">
-  {isEditable && (
-    <button
-      type="button"
-      onClick={() => removeRow(index)}
-      className="text-red-600 hover:text-red-800 inline-flex items-center justify-center"
-    >
-      <TrashIcon className="w-4 h-4" />
-    </button>
-  )}
-</td>
+                      {isEditable && (
+                        <button
+                          type="button"
+                          onClick={() => removeRow(index)}
+                          className="text-red-600 hover:text-red-800 inline-flex items-center justify-center"
+                        >
+                          <TrashIcon className="w-4 h-4" />
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 );
               })}

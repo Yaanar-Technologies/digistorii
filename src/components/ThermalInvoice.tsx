@@ -56,6 +56,7 @@ type Header = {
   user_name?: string;
   payment_modes?: PaymentRow[];
   payments?: PaymentRow[];
+  return_change?: number | string;
 };
 
 type Props = {
@@ -183,6 +184,9 @@ const ThermalInvoice = forwardRef<HTMLDivElement, Props>(({ header, details, onD
   const payments = rawPayments.map((p: any) => ({
     mode_name: p.name || p.payment_mode_name || p.mode_name || "Payment",
     amount: Number(p.amount ?? 0),
+    paid_amount: Number(p.paid_amount ?? 0),
+    actual_amount: Number(p.actual_amount ?? 0),
+    return_change: Number(p.return_change ?? 0),
   }));
 
   const totals = useMemo(() => {
@@ -363,21 +367,19 @@ const ThermalInvoice = forwardRef<HTMLDivElement, Props>(({ header, details, onD
         <span style={valueStyle}>{currency(Number(header.total_amount || 0))}</span>
       </div>
 
-      <div style={{ margin: "4px 0" }}>{divider}</div>
-
-      <div style={{ display: "grid", gap: "1px" }}>
+      <div style={{ display: "grid", gap: "1px", marginTop: "3px" }}>
         <div style={keyRowStyle}>
-          <span style={labelStyle}>Total Prod/Qty  :</span>
-          <span style={valueStyle}>{`${details.length}/${currency(totals.totalQty)}`}</span>
+          <span style={labelStyle}>Items           :</span>
+          <span style={valueStyle}>{details.length}</span>
         </div>
+
         {totals.savings > 0 ? (
           <div style={keyRowStyle}>
-            <span style={labelStyle}>Total Savings   :</span>
+            <span style={labelStyle}>Savings         :</span>
             <span style={valueStyle}>{currency(totals.savings)}</span>
           </div>
         ) : null}
       </div>
-
       {taxGroups.length ? (
         <>
           <div style={{ margin: "4px 0" }}>{divider}</div>
@@ -417,7 +419,6 @@ const ThermalInvoice = forwardRef<HTMLDivElement, Props>(({ header, details, onD
       ) : null}
 
       {/* SALESMAN SECTION */}
-      <div style={{ margin: "4px 0" }}>{divider}</div>
       <div style={keyRowStyle}>
         <span style={labelStyle}>Salesman        :</span>
         <span style={valueStyle}>{salesmanName}</span>
@@ -427,12 +428,32 @@ const ThermalInvoice = forwardRef<HTMLDivElement, Props>(({ header, details, onD
       {payments.length > 0 && (
         <>
           <div style={{ margin: "4px 0" }}>{divider}</div>
-          <div style={{ fontWeight: 700, marginBottom: "2px" }}>PAYMENT DETAILS</div>
+          <div style={{ fontWeight: 700, marginBottom: "2px" }}>
+            PAYMENT DETAILS
+          </div>
+
           {payments.map((p, idx) => (
-            <div key={`payment-${idx}`} style={keyRowStyle}>
-              <span style={labelStyle}>{p.mode_name} :</span>
-              <span style={valueStyle}>{currency(p.amount)}</span>
-            </div>
+            <React.Fragment key={`payment-${idx}`}>
+              <div style={keyRowStyle}>
+                <span style={labelStyle}>{p.mode_name} :</span>
+                <span style={valueStyle}>{currency(p.amount)}</span>
+              </div>
+
+              {Number(p.return_change) > 0 && (
+                <div
+                  style={{
+                    ...keyRowStyle,
+                    marginTop: "2px",
+                    fontWeight: 700,
+                  }}
+                >
+                  <span style={labelStyle}>Change:</span>
+                  <span style={valueStyle}>
+                    {currency(Number(p.return_change))}
+                  </span>
+                </div>
+              )}
+            </React.Fragment>
           ))}
         </>
       )}

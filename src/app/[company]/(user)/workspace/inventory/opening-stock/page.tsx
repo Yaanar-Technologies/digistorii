@@ -221,7 +221,11 @@ export default function OpeningStockPage() {
     setPage: setLookupPage,
     itemsPerPage: lookupItemsPerPage,
     categoryOptions: lookupCategoryOptions,
-  } = useProductLookup({ enabled: Boolean(company) });
+  } = useProductLookup({
+    enabled: Boolean(company),
+    module: "ops",
+    warehouseId: form.warehouse_id,
+  });
 
   function openForm() {
     setShowForm(true);
@@ -632,27 +636,37 @@ export default function OpeningStockPage() {
       return;
     }
 
-    setSelectedItems((prev) => [
-      ...prev,
-      {
-        product_id: match.product_id,
-        product_code: match.code || match.product_code,
-        product_name: match.name,
-        sku: match.sku,
-        qty: "0",
-      },
-    ]);
-    setSelectedOpeningSkuMap((prev) => ({ ...prev, [match.sku]: true }));
+    // Select the product in the modal
     setSelectedVariantMap((prev) => ({ ...prev, [String(match.variant_id)]: true }));
-    setErrors((prev) => {
-      if (!prev.items) return prev;
-      const next = { ...prev };
-      delete next.items;
-      return next;
-    });
-    setProductModalError("");
-    setBarcodeMessage("");
     setBarcodeValue("");
+    setBarcodeMessage("");
+    setProductModalError("");
+
+    // Clear filters if the item is not in the currently filtered list
+    const isInFiltered = sortedLookupItems.some((item) => item.variant_id === match.variant_id);
+    if (!isInFiltered) {
+      setLookupFilters({
+        search: "",
+        type: "",
+        category: "",
+        source: "",
+      });
+      setLookupPage(1);
+    } else {
+      const index = sortedLookupItems.findIndex((item) => item.variant_id === match.variant_id);
+      if (index !== -1) {
+        const pageNum = Math.floor(index / lookupItemsPerPage) + 1;
+        setLookupPage(pageNum);
+      }
+    }
+
+    // Scroll the element into view
+    setTimeout(() => {
+      const el = document.getElementById(`product-row-${match.variant_id}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 150);
   };
 
   return (
@@ -1107,14 +1121,14 @@ export default function OpeningStockPage() {
         isSelected={(item) => Boolean(selectedVariantMap[String(item.variant_id)])}
         onToggle={toggleVariantSelection}
         onToggleAll={toggleSelectAll}
-        showBarcodeInput
         barcodeValue={barcodeValue}
         barcodeMessage={barcodeMessage}
-        onBarcodeChange={(value) => {
+        onBarcodeChange={(value: string) => {
           setBarcodeValue(value);
           setBarcodeMessage("");
         }}
         onBarcodeSubmit={handleBarcodeSubmit}
+        selectedCount={selectedVariantIds.length}
       />
     </div>
   );

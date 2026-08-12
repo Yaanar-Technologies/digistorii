@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
       SELECT 
         pm.id AS mode_id,
         pm.name AS mode_name,
-        SUM(sp.amount) AS total_amount
+        SUM(COALESCE(NULLIF(sp.actual_amount, 0), sp.amount)) AS total_amount
       FROM "${schema}".sales_payments sp
       JOIN "${schema}".payment_modes pm ON sp.payment_mode_id = pm.id
       WHERE ${tenantCondition} ${dateCondition}
@@ -99,7 +99,7 @@ export async function GET(req: NextRequest) {
           SELECT 
             pm.id AS mode_id,
             pm.name AS mode_name,
-            SUM(sp.amount) AS total_amount
+            SUM(COALESCE(NULLIF(sp.actual_amount, 0), sp.amount)) AS total_amount
           FROM "${schema}".sales_payments sp
           JOIN "${schema}".payment_modes pm ON sp.payment_mode_id = pm.id
           WHERE 1=1 ${dateCondition}

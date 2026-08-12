@@ -21,7 +21,7 @@ type ProductFiltersProps = {
   barcodeValue?: string;
   barcodeMessage?: string;
   onBarcodeChange?: (value: string) => void;
-  onBarcodeSubmit?: () => void;
+  onBarcodeSubmit?: (value?: string) => void;
 };
 
 export default function ProductFilters({
@@ -96,7 +96,7 @@ export default function ProductFilters({
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
-                onBarcodeSubmit?.();
+                onBarcodeSubmit?.(barcodeValue);
               }
             }}
             placeholder="Scan barcode"
