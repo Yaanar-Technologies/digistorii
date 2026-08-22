@@ -1,4 +1,6 @@
 "use client";
+import Link from "next/link";
+import { ArrowLeftIcon } from "@heroicons/react/24/outline";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -330,6 +332,11 @@ export default function LocationMasterPage() {
           <p className="text-sm text-gray-500">Manage physical stores, branches, and outlet locations for your business.</p>
         </div>
         {!showForm && (
+          <div className="flex items-center gap-3">
+          <Link className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors" href={`/${company}/workspace/administration/masters`}>
+            <ArrowLeftIcon className="w-4 h-4 text-gray-500"/>
+            Back to Masters
+          </Link>
           <button
             onClick={() => {
               setForm(getInitialForm());
@@ -342,6 +349,7 @@ export default function LocationMasterPage() {
             <PlusIcon className="w-4 h-4" />
             Add Store Location
           </button>
+        </div>
         )}
       </div>
 
@@ -596,8 +604,8 @@ export default function LocationMasterPage() {
                       data-rules="no-symbols"
                       data-field="registered_address_line_1"
                       data-optional="true"
-                      value={form.registered_address_line_1}
-                      onChange={(e) => updateForm((prev) => ({ ...prev, registered_address_line_1: e.target.value }))}
+                      value={form.registered_address_line_1 || ""}
+                      onChange={(e) => updateForm((prev) => ({ ...prev, registered_address_line_1: e.target.value ?? "" }))}
                       className={inputClass("registered_address_line_1")}
                     />    {errors.registered_address_line_1 && <p className="text-red-500 text-sm mt-1">{errors.registered_address_line_1}</p>}
                   </div>
@@ -607,8 +615,8 @@ export default function LocationMasterPage() {
                       data-rules="no-symbols"
                       data-field="registered_address_line_2"
                       data-optional="true"
-                      value={form.registered_address_line_2}
-                      onChange={(e) => updateForm((prev) => ({ ...prev, registered_address_line_2: e.target.value }))}
+                      value={form.registered_address_line_2 || ""}
+                      onChange={(e) => updateForm((prev) => ({ ...prev, registered_address_line_2: e.target.value ?? "" }))}
                       className={inputClass("registered_address_line_2")}
                     /> {errors.registered_address_line_2 && <p className="text-red-500 text-sm mt-1">{errors.registered_address_line_2}</p>}
                   </div>
@@ -691,8 +699,8 @@ export default function LocationMasterPage() {
                       data-field="registered_pincode"
                       data-rules="pincode-6"
                       data-optional="true"
-                      value={form.registered_pincode}
-                      onChange={(e) => updateForm((prev) => ({ ...prev, registered_pincode: e.target.value }))}
+                      value={form.registered_pincode || ""}
+                      onChange={(e) => updateForm((prev) => ({ ...prev, registered_pincode: e.target.value ?? "" }))}
                       className={inputClass("registered_pincode")}
                     />  {errors.registered_pincode && <p className="text-red-500 text-sm mt-1">{errors.registered_pincode}</p>}
                   </div>
@@ -717,8 +725,8 @@ export default function LocationMasterPage() {
                       data-field="bill_address_line_1"
                       data-rules="no-symbols"
                       data-optional="true"
-                      value={form.bill_address_line_1}
-                      onChange={(e) => updateForm((prev) => ({ ...prev, bill_address_line_1: e.target.value }))}
+                      value={form.bill_address_line_1 || ""}
+                      onChange={(e) => updateForm((prev) => ({ ...prev, bill_address_line_1: e.target.value ?? "" }))}
                       className={inputClass("bill_address_line_1")}
                     />
                     {errors.bill_address_line_1 && <p className="text-red-500 text-sm mt-1">{errors.bill_address_line_1}</p>}
@@ -839,8 +847,8 @@ export default function LocationMasterPage() {
                       data-field="ship_address_line_1"
                       data-rules="no-symbols"
                       data-optional="true"
-                      value={form.ship_address_line_1}
-                      onChange={(e) => updateForm((prev) => ({ ...prev, ship_address_line_1: e.target.value }))}
+                      value={form.ship_address_line_1 || ""}
+                      onChange={(e) => updateForm((prev) => ({ ...prev, ship_address_line_1: e.target.value ?? "" }))}
                       className={inputClass("ship_address_line_1")}
                     />
                     {errors.ship_address_line_1 && <p className="text-red-500 text-sm mt-1">{errors.ship_address_line_1}</p>}
@@ -851,8 +859,8 @@ export default function LocationMasterPage() {
                       data-field="ship_address_line_2"
                       data-rules="no-symbols"
                       data-optional="true"
-                      value={form.ship_address_line_2}
-                      onChange={(e) => updateForm((prev) => ({ ...prev, ship_address_line_2: e.target.value }))}
+                      value={form.ship_address_line_2 || ""}
+                      onChange={(e) => updateForm((prev) => ({ ...prev, ship_address_line_2: e.target.value ?? "" }))}
                       className={inputClass("ship_address_line_2")}
                     />
                     {errors.ship_address_line_2 && <p className="text-red-500 text-sm mt-1">{errors.ship_address_line_2}</p>}

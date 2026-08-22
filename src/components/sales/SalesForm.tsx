@@ -137,6 +137,7 @@ export default function SalesForm() {
         totalCount: lookupTotalCount,
         categoryOptions: lookupCategoryOptions,
         resetFilters: resetLookupFilters,
+        refresh: refreshProductLookup,
     } = useProductLookup({ enabled: Boolean(company), module: "sales" });
 
     const [discountMode, setDiscountMode] = useState<"percent" | "amount">("percent");
@@ -201,6 +202,7 @@ export default function SalesForm() {
     const [paymentPanelOpen, setPaymentPanelOpen] = useState(false);
     const [activeLineIndex, setActiveLineIndex] = useState<number | null>(null);
     const [billsSearch, setBillsSearch] = useState("");
+    const [searchFocused, setSearchFocused] = useState(false);
 
     const { header, details, payments, couponCode, barcodeValue, barcodeMessage } = formState;
     const {
@@ -1211,6 +1213,12 @@ export default function SalesForm() {
             return Math.min(prev, details.length - 1);
         });
     }, [details.length]);
+ 
+    useEffect(() => {
+        if (showProductPopup) {
+            refreshProductLookup();
+        }
+    }, [showProductPopup, refreshProductLookup]);
 
     const updateRow = useCallback(
         (index: number, field: string, value: any) => {
@@ -1518,6 +1526,7 @@ export default function SalesForm() {
         }));
         resetLookupFilters();
         setLookupPage(1);
+        refreshProductLookup();
 
         if (company) {
             try {
@@ -1803,6 +1812,7 @@ export default function SalesForm() {
     };
 
     const handleOpenProductPopup = () => {
+        refreshProductLookup();
         updateUiState({ showProductPopup: true });
     };
 
@@ -2003,7 +2013,7 @@ export default function SalesForm() {
 
                         <section className="rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
                             <div className="grid gap-3 md:grid-cols-12">
-                                <div className="md:col-span-5">
+                                <div className="md:col-span-5 relative">
                                     <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">
                                         Scan Item / Search Product (F8)
                                     </label>
@@ -2013,12 +2023,56 @@ export default function SalesForm() {
                                             ref={barcodeInputRef}
                                             type="text"
                                             value={barcodeValue}
+                                            onFocus={() => setSearchFocused(true)}
+                                            onBlur={() => setTimeout(() => setSearchFocused(false), 200)}
                                             onChange={handleBarcodeChange}
                                             onKeyDown={handleBarcodeKeyDown}
-                                            placeholder="Scan Barcode"
+                                            placeholder="Scan Barcode or type Name / SKU..."
                                             className="h-10 w-full rounded-lg border border-gray-200 pl-9 pr-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                                         />
                                     </div>
+
+                                    {searchFocused && barcodeValue && allProducts.filter((p) =>
+                                        p.product_name?.toLowerCase().includes(barcodeValue.toLowerCase()) ||
+                                        p.product_code?.toLowerCase().includes(barcodeValue.toLowerCase()) ||
+                                        p.barcode?.toLowerCase().includes(barcodeValue.toLowerCase())
+                                    ).length > 0 && (
+                                        <div className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto border bg-white rounded-lg shadow-xl divide-y">
+                                            {allProducts.filter((p) =>
+                                                p.product_name?.toLowerCase().includes(barcodeValue.toLowerCase()) ||
+                                                p.product_code?.toLowerCase().includes(barcodeValue.toLowerCase()) ||
+                                                p.barcode?.toLowerCase().includes(barcodeValue.toLowerCase())
+                                            ).map((item) => (
+                                                <div
+                                                    key={item.id}
+                                                    onMouseDown={() => {
+                                                        const matchStr = item.barcode || item.product_code;
+                                                        if (matchStr) {
+                                                            setFormState((prev) => ({ ...prev, barcodeValue: matchStr }));
+                                                            setTimeout(() => {
+                                                                addOrIncrementByBarcode(matchStr);
+                                                                setFormState((prev) => ({ ...prev, barcodeValue: "" }));
+                                                            }, 0);
+                                                        }
+                                                        setSearchFocused(false);
+                                                    }}
+                                                    className="p-3 hover:bg-indigo-50 cursor-pointer flex justify-between items-center text-sm"
+                                                >
+                                                    <div>
+                                                        <span className="font-semibold block text-gray-800">{item.product_name}</span>
+                                                        <span className="text-xs text-gray-500 font-mono">
+                                                            SKU: {item.product_code}
+                                                        </span>
+                                                    </div>
+                                                    {item.barcode && (
+                                                        <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-600 font-mono">
+                                                            {item.barcode}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="md:col-span-2">
                                     <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">

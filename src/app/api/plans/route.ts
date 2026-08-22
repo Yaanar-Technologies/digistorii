@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ensureDB } from "@/lib/ensure-db";
+//import { ensureDB } from "@/lib/ensure-db";
 import { pool } from "@/lib/db";
 import { normalizeBillingInterval } from "@/lib/onboarding";
 
@@ -22,7 +22,7 @@ function normalizeFeatures(value: unknown): string[] {
 }
 
 export async function GET(req: Request) {
-  await ensureDB();
+  //await ensureDB();
   const client = await pool.connect();
 
   try {

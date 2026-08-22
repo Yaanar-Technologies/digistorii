@@ -21,12 +21,6 @@ export async function GET(
         s.currency as curr,
 			  c.currency_code as currency,
         CONCAT_WS(', ', s.address_line1, s.address_line2, s.address_line3, s.city, s.state, s.pincode) as supplier_address,
-        bt.supplier_code as bill_to_code,
-        bt.name as bill_to_name,
-        CONCAT_WS(', ', bt.address_line1, bt.address_line2, bt.address_line3, bt.city, bt.state, bt.pincode) as bill_to_address,
-        st.supplier_code as ship_to_code,
-        st.name as ship_to_name,
-        CONCAT_WS(', ', st.address_line1, st.address_line2, st.address_line3, st.city, st.state, st.pincode) as ship_to_address,
         dt.despatch_name as despatch_terms_name,
         pt.name as payment_terms_name,
         c.currency_code as currency_code
@@ -35,10 +29,6 @@ export async function GET(
         ON ph.supplier_id = s.id
       Left Join ${schema}.currencies c
 			  ON ph.currency=c.id
-      LEFT JOIN ${schema}.suppliers bt
-        ON ph.bill_to = bt.id
-      LEFT JOIN ${schema}.suppliers st
-        ON ph.ship_to = st.id
       LEFT JOIN "${schema}".despatch_terms dt
         ON ph.despatch_terms = dt.id
       LEFT JOIN "${schema}".payment_terms pt

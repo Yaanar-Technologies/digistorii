@@ -1,7 +1,10 @@
 "use client";
+import Link from "next/link";
+import { ArrowLeftIcon } from "@heroicons/react/24/outline";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Country, State, City } from "country-state-city";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -16,7 +19,16 @@ import { useConfirm } from "@/hooks/useConfirm";
 import { useNotify } from "@/hooks/useNotify";
 import { usePagination } from "@/hooks/usePagination";
 import { attachRuleValidationListeners, getRuleValidationError } from "@/lib/formValidationRules";
-type LocationOption = { id: number; name: string };
+type LocationOption = {
+  id: number;
+  name: string;
+  ship_address_line_1?: string;
+  ship_address_line_2?: string;
+  ship_city?: string;
+  ship_state?: string;
+  ship_country?: string;
+  ship_pincode?: string;
+};
 
 type Warehouse = {
   id?: number;
@@ -25,6 +37,13 @@ type Warehouse = {
   location_id: string;
   location_name?: string;
   type: "global" | "local";
+  same_as_ship_to: boolean;
+  address_line_1: string;
+  address_line_2: string;
+  city: string;
+  state: string;
+  country: string;
+  pincode: string;
   effective_from: string;
   effective_to: string;
   description: string;
@@ -45,6 +64,13 @@ function getInitialForm(): Warehouse {
     name: "",
     location_id: "",
     type: "global",
+    same_as_ship_to: true,
+    address_line_1: "",
+    address_line_2: "",
+    city: "",
+    state: "",
+    country: "India",
+    pincode: "",
     effective_from: "",
     effective_to: "",
     description: "",
@@ -228,6 +254,16 @@ export default function WarehouseMasterPage() {
     resetDeps: [search],
   });
 
+  const countryOptions = useMemo(() => Country.getAllCountries(), []);
+  const selectedCountry = countryOptions.find((c) => c.name === form.country);
+  const stateOptions = selectedCountry ? State.getStatesOfCountry(selectedCountry.isoCode) : [];
+  const selectedState = stateOptions.find((s) => s.name === form.state);
+  const cityOptions =
+    selectedCountry && selectedState
+      ? City.getCitiesOfState(selectedCountry.isoCode, selectedState.isoCode)
+      : [];
+
+
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
       {formLoading &&
@@ -247,17 +283,23 @@ export default function WarehouseMasterPage() {
           <p className="text-sm text-gray-500">Manage warehouses and stock storage facilities for your business.</p>
         </div>
         {!showForm && (
-          <button
-            onClick={() => {
-              setForm(getInitialForm());
-              setErrors({});
-              setShowForm(true);
-            }}
-            className="bg-[var(--color-blue-500)] flex items-center gap-2 text-white px-4 py-2 rounded-lg"
-          >
-            <PlusIcon className="w-4 h-4" />
-            Add Warehouse
-          </button>
+          <div className="flex items-center gap-3">
+            <Link className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors" href={`/${company}/workspace/administration/masters`}>
+              <ArrowLeftIcon className="w-4 h-4 text-gray-500" />
+              Back to Masters
+            </Link>
+            <button
+              onClick={() => {
+                setForm(getInitialForm());
+                setErrors({});
+                setShowForm(true);
+              }}
+              className="bg-[var(--color-blue-500)] flex items-center gap-2 text-white px-4 py-2 rounded-lg"
+            >
+              <PlusIcon className="w-4 h-4" />
+              Add Warehouse
+            </button>
+          </div>
         )}
       </div>
 
@@ -543,6 +585,142 @@ export default function WarehouseMasterPage() {
                 />
                 {errors.description && <p className="text-red-500 text-sm mt-1">{errors.description}</p>}
               </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="same_as_ship_to"
+                  checked={form.same_as_ship_to}
+                  onChange={(e) => setForm({ ...form, same_as_ship_to: e.target.checked })}
+                  className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                />
+                <label htmlFor="same_as_ship_to" className="text-sm font-semibold text-gray-700 cursor-pointer">
+                  Same as Location's Ship-To Address
+                </label>
+              </div>
+
+              {form.same_as_ship_to ? (
+                <div className="p-4 bg-gray-50 rounded-lg text-sm text-gray-600 border border-gray-100">
+                  <p className="font-medium text-gray-700 mb-1">Location Shipping Address:</p>
+                  {locations.find(l => String(l.id) === form.location_id) ? (
+                    (() => {
+                      const loc = locations.find(l => String(l.id) === form.location_id)!;
+                      const parts = [
+                        loc.ship_address_line_1,
+                        loc.ship_address_line_2,
+                        loc.ship_city,
+                        loc.ship_state,
+                        loc.ship_country,
+                        loc.ship_pincode ? `PIN: ${loc.ship_pincode}` : null
+                      ].filter(Boolean);
+                      return parts.length > 0 ? (
+                        <p>{parts.join(', ')}</p>
+                      ) : (
+                        <p className="italic text-gray-400">No shipping address defined for this location.</p>
+                      );
+                    })()
+                  ) : (
+                    <p className="italic text-gray-400">Select a location to view its shipping address.</p>
+                  )}
+                </div>
+              ) : (
+                <div className="grid md:grid-cols-3 gap-6">
+                  <div>
+                    <label className="text-sm font-semibold mb-1 block">Country <span className="text-red-500">*</span></label>
+                    <select
+                      data-field="country"
+                      data-rules="india-only"
+                      disabled
+                      value={form.country}
+                      onChange={(e) => setForm({ ...form, country: e.target.value, state: "", city: "" })}
+                      className={inputClass("country")}
+                    >
+                      <option value="">Select Country</option>
+                      {countryOptions.map((country) => (
+                        <option key={country.isoCode} value={country.name}>
+                          {country.name}
+                        </option>
+                      ))}
+                    </select>
+                    {errors.country && <p className="text-red-500 text-sm mt-1">{errors.country}</p>}
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold mb-1 block">State <span className="text-red-500">*</span></label>
+                    <select
+                      data-field="state"
+                      data-rules="alpha-spaces-hyphens"
+                      value={form.state || ""}
+                      onChange={(e) => setForm({ ...form, state: e.target.value, city: "" })}
+                      className={inputClass("state")}
+                    >
+                      <option value="">Select State</option>
+                      {stateOptions.map((state) => (
+                        <option key={state.isoCode} value={state.name}>
+                          {state.name}
+                        </option>
+                      ))}
+                    </select>
+                    {errors.state && <p className="text-red-500 text-sm mt-1">{errors.state}</p>}
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold mb-1 block">City <span className="text-red-500">*</span></label>
+                    <select
+                      data-field="city"
+                      data-rules="alpha-spaces-hyphens"
+                      value={form.city || ""}
+                      onChange={(e) => setForm({ ...form, city: e.target.value })}
+                      className={inputClass("city")}
+                    >
+                      <option value="">Select City</option>
+                      {cityOptions.map((city) => (
+                        <option
+                          key={`${city.name}-${city.latitude}-${city.longitude}`}
+                          value={city.name}
+                        >
+                          {city.name}
+                        </option>
+                      ))}
+                    </select>
+                    {errors.city && <p className="text-red-500 text-sm mt-1">{errors.city}</p>}
+                  </div>
+                  <div >
+                    <label className="text-sm font-semibold mb-1 block">Address Line 1 <span className="text-red-500">*</span></label>
+                    <input
+                      data-field="address_line_1"
+                      data-rules="no-symbols"
+                      value={form.address_line_1 || ""}
+                      onChange={(e) => setForm({ ...form, address_line_1: e.target.value ?? "" })}
+                      className={inputClass("address_line_1")}
+                    />
+                    {errors.address_line_1 && <p className="text-red-500 text-sm mt-1">{errors.address_line_1}</p>}
+                  </div>
+                  <div >
+                    <label className="text-sm font-semibold mb-1 block">Address Line 2</label>
+                    <input
+                      data-field="address_line_2"
+                      data-rules="no-symbols"
+                      data-optional="true"
+                      value={form.address_line_2 || ""}
+                      onChange={(e) => setForm({ ...form, address_line_2: e.target.value ?? "" })}
+                      className={inputClass("address_line_2")}
+                    />
+                    {errors.address_line_2 && <p className="text-red-500 text-sm mt-1">{errors.address_line_2}</p>}
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold mb-1 block">Pincode <span className="text-red-500">*</span></label>
+                    <input
+                      data-field="pincode"
+                      data-rules="pincode-6"
+                      value={form.pincode || ""}
+                      onChange={(e) => setForm({ ...form, pincode: e.target.value ?? "" })}
+                      className={inputClass("pincode")}
+                    />
+                    {errors.pincode && <p className="text-red-500 text-sm mt-1">{errors.pincode}</p>}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="space-y-4">

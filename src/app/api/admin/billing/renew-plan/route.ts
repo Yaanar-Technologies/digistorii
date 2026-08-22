@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import Razorpay from "razorpay";
 import { pool } from "@/lib/db";
-import { ensureDB } from "@/lib/ensure-db";
+//import { ensureDB } from "@/lib/ensure-db";
 import { getTenantSchema } from "@/lib/tenant";
 
 export async function POST(req: NextRequest) {
-  await ensureDB();
+  //await ensureDB();
   const client = await pool.connect();
   let transactionStarted = false;
 

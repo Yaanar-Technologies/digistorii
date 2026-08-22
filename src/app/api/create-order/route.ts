@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Razorpay from "razorpay";
 import { pool } from "@/lib/db";
-import { ensureDB } from "@/lib/ensure-db";
+//import { ensureDB } from "@/lib/ensure-db";
 import {
   normalizeBillingInterval,
 } from "@/lib/onboarding";
@@ -20,7 +20,7 @@ function toPositiveNumber(value: unknown): number | null {
 }
 
 export async function POST(req: NextRequest) {
-  await ensureDB();
+  //await ensureDB();
   const client = await pool.connect();
   let transactionStarted = false;
 

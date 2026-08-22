@@ -88,6 +88,8 @@ export default function ProductLookupModal({
   const allSelected = items.length > 0 && items.every((item) => isSelected(item));
   const countToShow = selectedCount !== undefined ? selectedCount : items.filter(isSelected).length;
 
+  const isPurchaseLookup = items.some(i => i.last_price_this_supplier !== undefined);
+
   return createPortal(
     <div className="fixed inset-0 z-[100002] bg-black/40 backdrop-blur-sm flex items-center justify-center">
       <div className="w-[1200px] max-w-[95vw] h-[700px] bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden">
@@ -140,19 +142,24 @@ export default function ProductLookupModal({
                     {PRODUCT_LOOKUP_COLUMN_LABELS[col]}
                   </th>
                 ))}
+                {isPurchaseLookup && (
+                  <th className="p-3 text-left text-gray-600 font-semibold bg-gray-50">
+                    Supplier Price
+                  </th>
+                )}
               </tr>
             </thead>
 
             <tbody>
               {loading ? (
                 <tr className="border-t">
-                  <td colSpan={7} className="p-6 text-center text-gray-500">
+                  <td colSpan={isPurchaseLookup ? 9 : 8} className="p-6 text-center text-gray-500">
                     Loading products...
                   </td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr className="border-t">
-                  <td colSpan={7} className="p-6 text-center text-gray-500">
+                  <td colSpan={isPurchaseLookup ? 9 : 8} className="p-6 text-center text-gray-500">
                     No products found.
                   </td>
                 </tr>
@@ -211,6 +218,21 @@ export default function ProductLookupModal({
                           {cells[col]}
                         </td>
                       ))}
+                      {isPurchaseLookup && (
+                        <td className={`p-3 ${isRowSelected ? "text-blue-900" : "text-gray-600"}`}>
+                          <div className="flex items-center gap-2">
+                            <span>{item.last_price_this_supplier != null ? item.last_price_this_supplier : "-"}</span>
+                            {item.lowest_price_overall != null && item.last_price_this_supplier != null && item.lowest_price_overall < item.last_price_this_supplier && (
+                              <span
+                                className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-yellow-100 text-yellow-800"
+                                title={`Cheaper elsewhere: ${item.lowest_price_overall} from ${item.lowest_price_supplier_name || "another supplier"} on ${item.lowest_price_date ? new Date(item.lowest_price_date).toLocaleDateString() : ""}`}
+                              >
+                                !
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   );
                 })

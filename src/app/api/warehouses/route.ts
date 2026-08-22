@@ -11,6 +11,13 @@ const warehouseSchema = z.object({
   name: z.string().trim().min(1, "Name is required"),
   location_id: z.union([z.number(), z.string()]),
   type: z.enum(typeValues),
+  same_as_ship_to: z.boolean().default(true),
+  address_line_1: z.string().optional().nullable(),
+  address_line_2: z.string().optional().nullable(),
+  city: z.string().optional().nullable(),
+  state: z.string().optional().nullable(),
+  country: z.string().optional().nullable(),
+  pincode: z.string().optional().nullable(),
   effective_from: z.string().optional().nullable(),
   effective_to: z.string().optional().nullable(),
   description: z.string().optional().nullable(),
@@ -57,6 +64,13 @@ function normalizePayload(data: WarehouseInput) {
     name: data.name.trim(),
     location_id: parseLocationId(data.location_id),
     type: data.type,
+    same_as_ship_to: data.same_as_ship_to,
+    address_line_1: asNull(data.address_line_1),
+    address_line_2: asNull(data.address_line_2),
+    city: asNull(data.city),
+    state: asNull(data.state),
+    country: asNull(data.country) || 'India',
+    pincode: asNull(data.pincode),
     effective_from: asNull(data.effective_from),
     effective_to: asNull(data.effective_to),
     description: asNull(data.description),
@@ -114,6 +128,7 @@ export async function GET(req: NextRequest) {
     const result = await client.query(
       `SELECT
         w.id, w.code, w.name, w.location_id, w.type, w.effective_from, w.effective_to,
+        w.same_as_ship_to, w.address_line_1, w.address_line_2, w.city, w.state, w.country, w.pincode,
         w.description, w.landline, w.mobile_no, w.fax, w.email,
         w.contact_person_name, w.contact_person_mobile, w.contact_person_email,
         w.created_at, w.updated_at,
@@ -178,18 +193,24 @@ export async function POST(req: NextRequest) {
     const result = await client.query(
       `INSERT INTO "${schema}".warehouses
        (
-        code, name, location_id, type, effective_from, effective_to, description,
+        code, name, location_id, type, 
+        same_as_ship_to, address_line_1, address_line_2, city, state, country, pincode,
+        effective_from, effective_to, description,
         landline, mobile_no, fax, email,
         contact_person_name, contact_person_mobile, contact_person_email,
          created_at, updated_at
        )
        VALUES (
-        $1,$2,$3,$4,$5,$6,$7,
-        $8,$9,$10,$11,
+        $1,$2,$3,$4,
+        $5,$6,$7,$8,$9,$10,$11,
         $12,$13,$14,
+        $15,$16,$17,$18,
+        $19,$20,$21,
        NOW(),NOW()
        )
-       RETURNING id, code, name, location_id, type, effective_from, effective_to,
+       RETURNING id, code, name, location_id, type, 
+        same_as_ship_to, address_line_1, address_line_2, city, state, country, pincode,
+        effective_from, effective_to,
         description, landline, mobile_no, fax, email,
         contact_person_name, contact_person_mobile, contact_person_email,
        created_at, updated_at`,
@@ -198,6 +219,13 @@ export async function POST(req: NextRequest) {
         payload.name,
         payload.location_id,
         payload.type,
+        payload.same_as_ship_to,
+        payload.address_line_1,
+        payload.address_line_2,
+        payload.city,
+        payload.state,
+        payload.country,
+        payload.pincode,
         payload.effective_from,
         payload.effective_to,
         payload.description,

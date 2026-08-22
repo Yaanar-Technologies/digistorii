@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { HiEye, HiEyeOff, HiMail, HiArrowLeft } from "react-icons/hi";
 import {
-  UserCircleIcon,LockClosedIcon
+  UserCircleIcon, LockClosedIcon
 } from "@heroicons/react/24/outline";
 import { useUser } from "@/context/CurrentUserContext";
 import { ShoppingCartIcon, CubeIcon, DocumentTextIcon, CurrencyRupeeIcon } from "@heroicons/react/24/outline";
@@ -40,21 +40,21 @@ export default function LoginForm({ company }: Props) {
     return re.test(email.toLowerCase());
   };
   useEffect(() => {
-  setMounted(true);
-  setYear(new Date().getFullYear());
+    setMounted(true);
+    setYear(new Date().getFullYear());
 
-  if (company) {
-    fetch(`/api/company?company=${encodeURIComponent(company)}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data?.success && data?.company_name) {
-          setRealCompanyName(data.company_name);
-        }
-      })
-      .catch((err) => console.error("Failed to fetch company name:", err));
-  }
-}, [company]);
-const displayCompanyName =  realCompanyName ||"Company";
+    if (company) {
+      fetch(`/api/company?company=${encodeURIComponent(company)}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data?.success && data?.company_name) {
+            setRealCompanyName(data.company_name);
+          }
+        })
+        .catch((err) => console.error("Failed to fetch company name:", err));
+    }
+  }, [company]);
+  const displayCompanyName = realCompanyName || "Company";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -141,10 +141,9 @@ const displayCompanyName =  realCompanyName ||"Company";
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-100 via-blue-50 to-purple-100 relative overflow-hidden">
-      <div className="absolute w-[500px] h-[500px] bg-blue-400/30 rounded-full blur-3xl top-[-100px] left-[-100px] animate-pulse"></div>
-      <div className="absolute w-[400px] h-[400px] bg-purple-400/30 rounded-full blur-3xl bottom-[-120px] right-[-100px] animate-pulse"></div>
-
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-100 via-gray-50 to-blue-50 px-4 relative overflow-hidden">
+      <div className="absolute w-[450px] h-[450px] bg-blue-300/20 rounded-full blur-3xl top-[-120px] left-[-100px]" />
+      <div className="absolute w-[400px] h-[400px] bg-indigo-300/20 rounded-full blur-3xl bottom-[-120px] right-[-100px]" />
       <div className="relative z-10 w-full max-w-5xl grid md:grid-cols-2 bg-white/60 backdrop-blur-xl shadow-2xl rounded-3xl overflow-hidden border border-white/30">
         {/* Left Side Branding */}
         <div className="hidden md:flex flex-col justify-center items-center bg-gradient-to-br from-indigo-600 via-blue-600 to-purple-600 text-white p-12 relative overflow-hidden">
@@ -183,8 +182,8 @@ const displayCompanyName =  realCompanyName ||"Company";
         <div className="p-10 space-y-6">
           <div className="flex justify-center">
             <div className="bg-gradient-to-tr from-blue-600 to-indigo-600 text-white w-12 h-12 flex items-center justify-center rounded-xl shadow-md">
-  <LockClosedIcon className="w-6 h-6 text-white" /> 
-</div>
+              <LockClosedIcon className="w-6 h-6 text-white" />
+            </div>
           </div>
 
           <h2 className="text-2xl font-bold text-center text-gray-800">

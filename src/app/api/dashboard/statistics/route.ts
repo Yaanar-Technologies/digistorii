@@ -6,7 +6,16 @@ export async function GET(req: NextRequest) {
     try {
         const { schema } = await getTenantSchema(req);
 
-        const data = await getStatisticsChart(schema);
+        const searchParams = req.nextUrl.searchParams;
+        const yearType = searchParams.get("yearType") || "fiscal";
+        const fromDate = searchParams.get("fromDate");
+        const toDate = searchParams.get("toDate");
+
+        if (!fromDate || !toDate) {
+            return NextResponse.json({ success: false, error: "fromDate and toDate are required" }, { status: 400 });
+        }
+
+        const data = await getStatisticsChart(schema, yearType, fromDate, toDate);
 
         return NextResponse.json({
             success: true,

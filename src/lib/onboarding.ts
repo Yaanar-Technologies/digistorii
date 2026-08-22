@@ -3,9 +3,6 @@ export const SETUP_STAGES = [
   "PHONE_VERIFIED",
   "PLAN_SELECTED",
   "BUSINESS_SETUP",
-  "LOCATION_SETUP",
-  "WAREHOUSE_SETUP",
-  "STAFF_SETUP",
   "LIVE",
 ] as const;
 
@@ -98,14 +95,10 @@ export function getPlanAmountInPaise(planCode: PaidPlanCode, billingInterval: Bi
 }
 
 export const ONBOARDING_STEPS = [
-  { id: 1, key: "ACCOUNT_CREATED", label: "Create Account" },
-  { id: 2, key: "PHONE_VERIFIED", label: "Verify Phone" },
-  { id: 3, key: "PLAN_SELECTED", label: "Select Plan" },
-  { id: 4, key: "BUSINESS_SETUP", label: "Business Setup" },
-  { id: 5, key: "LOCATION_SETUP", label: "Location Setup" },
-  { id: 6, key: "WAREHOUSE_SETUP", label: "Warehouse Setup" },
-  { id: 7, key: "STAFF_SETUP", label: "Staff Setup" },
-  { id: 8, key: "LIVE", label: "Launch" },
+  { id: 1, key: "PHONE_VERIFIED", label: "Phone Verification" },
+  { id: 2, key: "PLAN_SELECTED", label: "Subscription & Payment" },
+  { id: 3, key: "BUSINESS_SETUP", label: "Business Details" },
+  { id: 4, key: "LIVE", label: "Email Activation" },
 ] as const;
 
 export function isValidSetupStage(value: string): value is SetupStage {
@@ -115,22 +108,16 @@ export function isValidSetupStage(value: string): value is SetupStage {
 export function getNextStepNumber(stage: SetupStage): number {
   switch (stage) {
     case "ACCOUNT_CREATED":
-      return 2;
+      return 1;
     case "PHONE_VERIFIED":
-      return 3;
-    case "PLAN_SELECTED":
-      return 4;
-    case "BUSINESS_SETUP":
-      return 5;
-    case "LOCATION_SETUP":
-      return 6;
-    case "WAREHOUSE_SETUP":
-      return 7;
-    case "STAFF_SETUP":
-      return 8;
-    case "LIVE":
-      return 8;
-    default:
       return 2;
+    case "PLAN_SELECTED":
+      return 3;
+    case "BUSINESS_SETUP":
+      return 4;
+    case "LIVE":
+      return 4;
+    default:
+      return 1;
   }
 }

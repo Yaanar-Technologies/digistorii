@@ -1,5 +1,7 @@
 'use client';
- 
+import Link from 'next/link';
+import { ArrowLeftIcon } from '@heroicons/react/24/outline';
+
 import { useEffect, useMemo, useState, useRef } from 'react';
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
@@ -226,13 +228,19 @@ export default function CurrencyRatePage() {
                         {success}
                     </div>
                 )}
-                <button
-                    onClick={handleSave}
-                    disabled={saving}
-                    className="bg-[var(--color-blue-600)] flex items-center gap-2  text-white px-4 py-2 rounded-lg"
-                >
-                    {saving ? "Saving..." : "Save"}
-                </button>
+                <div className="flex items-center gap-3">
+                  <Link className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors" href={`/${company}/workspace/administration/masters`}>
+                    <ArrowLeftIcon className="w-4 h-4 text-gray-500"/>
+                    Back to Masters
+                  </Link>
+                  <button
+                      onClick={handleSave}
+                      disabled={saving}
+                      className="bg-[var(--color-blue-600)] flex items-center gap-2  text-white px-4 py-2 rounded-lg"
+                  >
+                      {saving ? "Saving..." : "Save"}
+                  </button>
+                </div>
             </div>
  
  

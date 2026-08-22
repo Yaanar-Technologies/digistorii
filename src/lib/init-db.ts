@@ -12,8 +12,10 @@ export async function initializeDatabase() {
   }
 
   const client = await pool.connect();
+  const LOCK_ID = 849204819;
 
   try {
+    await client.query("SELECT pg_advisory_lock($1)", [LOCK_ID]);
     console.log("Running DB initialization / migrations...");
     await client.query("BEGIN");
 
@@ -28,17 +30,19 @@ export async function initializeDatabase() {
         id SERIAL PRIMARY KEY,
         company_name VARCHAR(200) NOT NULL UNIQUE,
         gst_number VARCHAR(20),
+        gst_available BOOLEAN NOT NULL DEFAULT FALSE,
         pan_number VARCHAR(20),
         currency VARCHAR(10),
         address TEXT,
         city VARCHAR(100),
-                state VARCHAR(100),
+        state VARCHAR(100),
         country VARCHAR(100),
         subdomain_url VARCHAR(200) NOT NULL UNIQUE,
         schema_name VARCHAR(100) NOT NULL UNIQUE,
         subscription_plan VARCHAR(50) DEFAULT 'BASIC',
         setup_stage VARCHAR(40) DEFAULT 'ACCOUNT_CREATED',
         status VARCHAR(20) DEFAULT 'ACTIVE',
+        has_completed_guided_setup BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMP DEFAULT now(),
         updated_at TIMESTAMP DEFAULT now(),
         verification_token TEXT UNIQUE,
@@ -306,29 +310,13 @@ SET
         ADD COLUMN IF NOT EXISTS custom_domain_verified_at TIMESTAMP;
     `);
 
-    // Ensure custom_domain_status check constraint exists
     await client.query(`
-      ALTER TABLE public.companies DROP CONSTRAINT IF EXISTS companies_custom_domain_status_check;
-      ALTER TABLE public.companies ADD CONSTRAINT companies_custom_domain_status_check 
-        CHECK (custom_domain_status IN ('not_configured','pending_dns','verified','failed'));
+      ALTER TABLE public.payments 
+      ADD COLUMN IF NOT EXISTS payment_type VARCHAR(50) DEFAULT 'SUBSCRIPTION_NEW',
+      ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb;
     `);
 
-    // 2. Initialize ecom schemas for existing tenants with ecom plan
-    const ecomCompanies = await client.query(`
-      SELECT c.id, c.schema_name 
-      FROM public.companies c
-      JOIN public.company_subscriptions cs ON cs.company_id = c.id
-      WHERE cs.ecommerce_access = TRUE
-    `);
-    const { createEcomSchema } = require("./schema");
-    for (const row of ecomCompanies.rows) {
-      try {
-        await createEcomSchema(client, row.schema_name, row.id);
-      } catch (err) {
-        console.error(`Failed to initialize ecom schema on startup for ${row.schema_name}:`, err);
-      }
-    }
-
+    await ensureResponsibilitySchema(client);
     await client.query("COMMIT");
     console.log("DB initialized successfully");
     global.dbInitialized = true;
@@ -336,7 +324,71 @@ SET
     await client.query("ROLLBACK");
     console.error("Error initializing DB:", err);
   } finally {
+    await client.query("SELECT pg_advisory_unlock($1)", [LOCK_ID]);
     client.release();
+  }
+}
+
+async function upgradeTenantSchemas(client: any) {
+  const companiesRes = await client.query("SELECT schema_name FROM public.companies");
+  for (const row of companiesRes.rows) {
+    const schema = row.schema_name;
+    console.log(`Upgrading schema: ${schema}`);
+
+    await client.query(`
+      ALTER TABLE "${schema}".business_settings
+        ADD COLUMN IF NOT EXISTS default_low_stock_threshold INT NOT NULL DEFAULT 5,
+        ADD COLUMN IF NOT EXISTS default_backorders_allowed BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS low_stock_notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        ADD COLUMN IF NOT EXISTS low_stock_email_notifications_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+    `);
+
+    await client.query(`
+      ALTER TABLE "${schema}".product_variants
+        ADD COLUMN IF NOT EXISTS low_stock_threshold INT,
+        ADD COLUMN IF NOT EXISTS backorders_allowed BOOLEAN,
+        ADD COLUMN IF NOT EXISTS last_low_stock_notified_at TIMESTAMPTZ;
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS "${schema}".notification_subscriptions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        event_type VARCHAR(50) NOT NULL,
+        user_id INTEGER NOT NULL,
+        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ DEFAULT now(),
+        UNIQUE (event_type, user_id)
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS "${schema}".notifications (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        type VARCHAR(50) NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        message TEXT NOT NULL,
+        metadata JSONB,
+        created_at TIMESTAMPTZ DEFAULT now()
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS "${schema}".notification_recipients (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        notification_id UUID NOT NULL REFERENCES "${schema}".notifications(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL,
+        is_read BOOLEAN NOT NULL DEFAULT FALSE,
+        read_at TIMESTAMPTZ,
+        delivered_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT now(),
+        UNIQUE (notification_id, user_id)
+      );
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_notif_recipients_user_unread 
+      ON "${schema}".notification_recipients (user_id, is_read);
+    `);
   }
 }
 

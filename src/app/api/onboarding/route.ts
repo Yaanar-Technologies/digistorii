@@ -170,7 +170,7 @@ function parseCompany(req: NextRequest): string {
 }
 
 export async function GET(req: NextRequest) {
-  await ensureDB();
+  //await ensureDB();
   const client = await pool.connect();
   try {
     const company = parseCompany(req);
@@ -186,21 +186,22 @@ export async function GET(req: NextRequest) {
     );
     const businessRow = businessSettings.rows[0] || null;
     const stateCode = getGstStateCodeForState(String(businessRow?.state || "").trim());
+    const gstAvailable = Boolean(businessRow?.gst_available);
 
     const rawGst = String(businessRow?.gst_number || "").trim();
 
     const gstNumber =
-      rawGst.length > 2
+      gstAvailable && rawGst
         ? normalizeGstin(rawGst, stateCode)
         : "";
 
     const panInput =
-      gstNumber
+      gstAvailable
         ? normalizePan(String(businessRow?.pan_number || "").trim())
         : "";
 
     const panNumber =
-      gstNumber
+      gstAvailable && gstNumber
         ? panInput || extractPanFromGstin(gstNumber)
         : "";
     const currency = context.currency || businessRow?.currency || null;
@@ -267,6 +268,7 @@ export async function GET(req: NextRequest) {
         : null,
       business_settings: {
         ...(businessRow || {}),
+        gst_available: gstAvailable,
         gst_number: gstNumber,
         pan_number: panNumber,
         currency,
@@ -289,7 +291,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  await ensureDB();
+  //await ensureDB();
   const client = await pool.connect();
   let transactionStarted = false;
   try {
@@ -446,12 +448,25 @@ export async function POST(req: NextRequest) {
         [context.id, plan.code]
       );
     } else if (step === "BUSINESS_SETUP") {
-      const stateCode = getGstStateCodeForState(String(data?.state || "").trim());
-      const gstNumber = normalizeGstin(String(data?.gst_number || "").trim(), stateCode);
-      const panInput = normalizePan(String(data?.pan_number || "").trim());
-      const panNumber = gstNumber ? panInput || extractPanFromGstin(gstNumber) : "";
-      const currency = String(data?.currency || "").trim().toUpperCase() || null;
-
+      const gstAvailable = Boolean(data?.gst_available);
+      const state = String(data?.state || "").trim();
+      const currency =
+        String(data?.currency || "").trim().toUpperCase() || null;
+      let gstNumber = "";
+      let panNumber = "";
+      if (gstAvailable) {
+        const stateCode = getGstStateCodeForState(state);
+        gstNumber = normalizeGstin(
+          String(data?.gst_number || "").trim(),
+          stateCode
+        );
+        const panInput = normalizePan(
+          String(data?.pan_number || "").trim()
+        );
+        panNumber = gstNumber
+          ? panInput || extractPanFromGstin(gstNumber)
+          : "";
+      }
       // if (gstNumber && !isValidGstin(gstNumber)) {
       //   throw new Error("GST number must match the format 33AAAAA9999A1Z5");
       // }
@@ -475,41 +490,73 @@ export async function POST(req: NextRequest) {
       }
 
       const payload = {
-        gst_number: gstNumber || null,
-        pan_number: panNumber || null,
-        business_address: String(data?.business_address || "").trim() || null,
-        city: String(data?.city || "").trim() || null,
-        state: String(data?.state || "").trim() || null,
-        country: String(data?.country || "").trim() || null,
-        timezone: String(data?.timezone || "").trim() || null,
-        invoice_prefix: String(data?.invoice_prefix || "").trim() || null,
+        gst_available: gstAvailable,
+        gst_number: gstAvailable ? gstNumber : null,
+        pan_number: gstAvailable ? panNumber : null,
+
+        business_address:
+          String(data?.business_address || "").trim() || null,
+
+        city:
+          String(data?.city || "").trim() || null,
+
+        state:
+          state || null,
+
+        country: "India",
+
+        timezone:
+          String(data?.timezone || "").trim() || null,
+
+        invoice_prefix:
+          String(data?.invoice_prefix || "").trim() || null,
       };
 
       await client.query(
         `UPDATE public.companies
-         SET gst_number = $2,
-             pan_number = $3,
-             address =$4, city =$5,country=$6,currency=$7,
-             updated_at = NOW()
-         WHERE id = $1`,
-        [context.id, payload.gst_number, payload.pan_number, payload.business_address, payload.city, payload.country, currency]
+   SET gst_available = $2,
+       gst_number = $3,
+       pan_number = $4,
+       address = $5,
+       city = $6,
+       state = $7,
+       country = $8,
+       currency = $9,
+       updated_at = NOW()
+   WHERE id = $1`,
+        [
+          context.id,
+          payload.gst_available,
+          payload.gst_number,
+          payload.pan_number,
+          payload.business_address,
+          payload.city,
+          payload.state,
+          payload.country,
+          currency
+        ]
       );
-
       const existingBusiness = await client.query(
         `SELECT id FROM "${context.schema_name}".business_settings ORDER BY id ASC LIMIT 1`
       );
       if (existingBusiness.rowCount) {
         await client.query(
           `UPDATE "${context.schema_name}".business_settings
-           SET business_address = $1,
-               city = $2,
-               state = $3,
-               country = $4,
-               timezone = $5,
-               invoice_prefix = $6,
-               updated_at = NOW()
-           WHERE id = $7`,
+SET gst_available = $1,
+    gst_number = $2,
+    pan_number = $3,
+    business_address = $4,
+    city = $5,
+    state = $6,
+    country = $7,
+    timezone = $8,
+    invoice_prefix = $9,
+    updated_at = NOW()
+WHERE id = $10`,
           [
+            payload.gst_available,
+            payload.gst_number,
+            payload.pan_number,
             payload.business_address,
             payload.city,
             payload.state,
@@ -522,9 +569,24 @@ export async function POST(req: NextRequest) {
       } else {
         await client.query(
           `INSERT INTO "${context.schema_name}".business_settings
-           (business_address, city, state, country, timezone, invoice_prefix, created_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,NOW(),NOW())`,
+(
+  gst_available,
+  gst_number,
+  pan_number,
+  business_address,
+  city,
+  state,
+  country,
+  timezone,
+  invoice_prefix,
+  created_at,
+  updated_at
+)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW())`,
           [
+            payload.gst_available,
+            payload.gst_number,
+            payload.pan_number,
             payload.business_address,
             payload.city,
             payload.state,
@@ -541,6 +603,70 @@ export async function POST(req: NextRequest) {
          WHERE id = $1`,
         [context.id]
       );
+
+      // Auto-create default location and warehouse if they don't exist
+      let locationId: number | null = null;
+      let warehouseId: number | null = null;
+
+      const locCheck = await client.query(`SELECT id FROM "${context.schema_name}".locations WHERE is_default = TRUE LIMIT 1`);
+      if (locCheck.rowCount) {
+        locationId = locCheck.rows[0].id;
+      } else {
+        const locationInsert = await client.query(
+          `INSERT INTO "${context.schema_name}".locations
+           (
+             name, type, same_as_registered, same_as_bill_to,
+             registered_address_line_1, registered_country, registered_state, registered_city,
+             is_default, created_at, updated_at
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+           RETURNING id`,
+          ["Main Branch", "global", true, true, payload.business_address, payload.country, payload.state, payload.city, true]
+        );
+        locationId = locationInsert.rows[0].id;
+      }
+
+      const whCheck = await client.query(`SELECT id FROM "${context.schema_name}".warehouses WHERE is_default = TRUE LIMIT 1`);
+      if (whCheck.rowCount) {
+        warehouseId = whCheck.rows[0].id;
+      } else {
+        const warehouseInsert = await client.query(
+          `INSERT INTO "${context.schema_name}".warehouses
+           (
+             code, name, location_id, type, 
+             same_as_ship_to, address_line_1, address_line_2, city, state, country, pincode,
+             is_default, created_at, updated_at
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
+           RETURNING id`,
+          [
+            "WH001",
+            "Default Warehouse",
+            locationId,
+            "global",
+            true,
+            payload.business_address,
+            null,
+            payload.city,
+            payload.state,
+            payload.country,
+            null,
+            true
+          ]
+        );
+        warehouseId = warehouseInsert.rows[0].id;
+      }
+
+      const owner = await getOwnerForCompany(client, context.id);
+      if (owner?.id) {
+        await client.query(
+          `UPDATE public.company_user_map
+           SET location_id = COALESCE(location_id, $1),
+               warehouse_id = COALESCE(warehouse_id, $2)
+           WHERE company_id = $3 AND user_id = $4`,
+          [locationId, warehouseId, context.id, owner.id]
+        );
+      }
     } else if (step === "LOCATION_SETUP") {
       const subscription = await getPlanForCompany(client, context.id);
       const maxLocations = Number(
@@ -655,7 +781,13 @@ export async function POST(req: NextRequest) {
       }
 
       const warehouseName = String(data?.name || data?.warehouse_name || "").trim();
-      const warehouseAddress = String(data?.address || "").trim();
+      let warehouseAddressLine1 = String(data?.address_line_1 || "").trim();
+      let warehouseAddressLine2 = String(data?.address_line_2 || "").trim();
+      let warehouseCity = String(data?.city || "").trim();
+      let warehouseState = String(data?.state || "").trim();
+      let warehouseCountry = String(data?.country || "India").trim();
+      let warehousePincode = String(data?.pincode || "").trim();
+      const sameAsShipTo = Boolean(data?.same_as_ship_to ?? true);
       const warehouseCodeInput = String(data?.code || "").trim();
       const isDefault = Boolean(data?.is_default ?? true);
       if (!warehouseName) {
@@ -687,12 +819,22 @@ export async function POST(req: NextRequest) {
         locationId = Number(defaultLocation.rows[0].id);
       }
       const locationExists = await client.query(
-        `SELECT id FROM "${context.schema_name}".locations WHERE id = $1`,
+        `SELECT id, ship_address_line_1, ship_address_line_2, ship_city, ship_state, ship_country, ship_pincode FROM "${context.schema_name}".locations WHERE id = $1`,
         [locationId]
       );
       if (!locationExists.rowCount) {
         throw new Error("Selected location does not exist");
       }
+      if (sameAsShipTo) {
+        const loc = locationExists.rows[0];
+        warehouseAddressLine1 = loc.ship_address_line_1 || "";
+        warehouseAddressLine2 = loc.ship_address_line_2 || "";
+        warehouseCity = loc.ship_city || "";
+        warehouseState = loc.ship_state || "";
+        warehouseCountry = loc.ship_country || "India";
+        warehousePincode = loc.ship_pincode || "";
+      }
+
       const warehouseCode = warehouseCodeInput || `WH${String(currentCount + 1).padStart(3, "0")}`;
       const duplicateWarehouseCode = await client.query(
         `SELECT id FROM "${context.schema_name}".warehouses
@@ -707,15 +849,19 @@ export async function POST(req: NextRequest) {
       const warehouseInsert = await client.query(
         `INSERT INTO "${context.schema_name}".warehouses
          (
-           code, name, location_id, type, address, is_default,
+           code, name, location_id, type, 
+           same_as_ship_to, address_line_1, address_line_2, city, state, country, pincode,
+           is_default,
            effective_from, effective_to, description, landline, mobile_no, fax, email,
            contact_person_name, contact_person_mobile, contact_person_email,
            created_at, updated_at
          )
          VALUES (
-           $1, $2, $3, $4, $5, $6,
-           $7, $8, $9, $10, $11, $12, $13,
-           $14, $15, $16,
+           $1, $2, $3, $4, 
+           $5, $6, $7, $8, $9, $10, $11,
+           $12,
+           $13, $14, $15, $16, $17, $18, $19,
+           $20, $21, $22,
            NOW(), NOW()
          )
            RETURNING id`,
@@ -724,11 +870,17 @@ export async function POST(req: NextRequest) {
           warehouseName,
           locationId,
           String(data?.type || "global").trim() || "global",
-          warehouseAddress || null,
+          sameAsShipTo,
+          warehouseAddressLine1 || null,
+          warehouseAddressLine2 || null,
+          warehouseCity || null,
+          warehouseState || null,
+          warehouseCountry || null,
+          warehousePincode || null,
           isDefault,
           String(data?.effective_from || "").trim() || null,
           String(data?.effective_to || "").trim() || null,
-          String(data?.description || "").trim() || warehouseAddress || null,
+          String(data?.description || "").trim() || null,
           String(data?.landline || "").trim() || null,
           String(data?.mobile_no || "").trim() || null,
           String(data?.fax || "").trim() || null,

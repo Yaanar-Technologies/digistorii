@@ -33,7 +33,7 @@ type Variant = {
   sku: string;
   qty: string;
   low_stock_threshold: string;
-  backorders_allowed: boolean;
+  backorders_allowed: boolean | null;
   status: VariantStatus;
   barcode?: string;
 };
@@ -140,8 +140,8 @@ const EMPTY_VARIANT: Variant = {
   size: "",
   sku: "",
   qty: "0",
-  low_stock_threshold: "5",
-  backorders_allowed: false,
+  low_stock_threshold: "",
+  backorders_allowed: null,
   status: "draft",
   barcode: "",
 };
@@ -327,8 +327,8 @@ export function ProductForm({
         size: v.size || "",
         sku: v.sku || "",
         qty: String(v.qty ?? 0),
-        low_stock_threshold: String(v.low_stock_threshold ?? 5),
-        backorders_allowed: Boolean(v.backorders_allowed),
+        low_stock_threshold: v.low_stock_threshold === null || v.low_stock_threshold === undefined ? "" : String(v.low_stock_threshold),
+        backorders_allowed: v.backorders_allowed === null || v.backorders_allowed === undefined ? null : Boolean(v.backorders_allowed),
         status: normalizeVariantStatus(v.status),
         barcode: v.barcode || "",
       }));
@@ -592,7 +592,7 @@ export function ProductForm({
     });
   }
 
-  function updateVariant(index: number, key: keyof Variant, value: string | boolean) {
+  function updateVariant(index: number, key: keyof Variant, value: string | boolean | null) {
     setVariants((prev) => prev.map((v, i) => (i === index ? { ...v, [key]: value } : v)));
   }
 
@@ -777,8 +777,8 @@ export function ProductForm({
         sku: v.sku.trim(),
         barcode: normalizeBarcode(v.barcode),
         qty: Number(v.qty),
-        low_stock_threshold: Number(v.low_stock_threshold || 5),
-        backorders_allowed: Boolean(v.backorders_allowed),
+        low_stock_threshold: v.low_stock_threshold === "" || v.low_stock_threshold === null || v.low_stock_threshold === undefined ? null : Number(v.low_stock_threshold),
+        backorders_allowed: v.backorders_allowed,
         status: v.status,
       }))
       .filter((v) => v.color_id || v.size || v.sku);
@@ -1389,17 +1389,23 @@ export function ProductForm({
                         />
                       </td>
                       <td className="px-3 py-2">
-                        <label className="inline-flex items-center gap-2 text-sm text-gray-700">
-                          <input
-                            type="checkbox"
-                            checked={variant.backorders_allowed}
-                            onChange={(e) =>
-                              updateVariant(index, "backorders_allowed", e.target.checked)
-                            }
-                            disabled={readOnly}
-                          />
-                          Allow
-                        </label>
+                        <select
+                          value={variant.backorders_allowed === null ? "inherit" : (variant.backorders_allowed ? "allow" : "deny")}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            updateVariant(
+                              index,
+                              "backorders_allowed",
+                              val === "inherit" ? null : (val === "allow" ? true : false)
+                            );
+                          }}
+                          disabled={readOnly}
+                          className="w-full rounded border border-gray-300 px-2 py-1 text-sm focus:outline-none disabled:bg-gray-100"
+                        >
+                          <option value="inherit">Inherit</option>
+                          <option value="allow">Allow</option>
+                          <option value="deny">Deny</option>
+                        </select>
                       </td>
                       <td className="px-3 py-2">
                         <select

@@ -1,7 +1,7 @@
-//C:\Users\yanna\digistorii\src\context\TenantContext.tsx
+// C:\Users\yanna\digistorii\src\context\TenantContext.tsx
 "use client";
 
-import { createContext, useContext } from "react";
+import React, { createContext, useContext } from "react";
 
 type TenantContextType = {
   company: string;
@@ -9,7 +9,19 @@ type TenantContextType = {
 
 const TenantContext = createContext<TenantContextType | undefined>(undefined);
 
-export const TenantProvider = TenantContext.Provider;
+export function TenantProvider({
+  children,
+  value,
+}: {
+  children: React.ReactNode;
+  value: { company: string };
+}) {
+  return (
+    <TenantContext.Provider value={value}>
+      {children}
+    </TenantContext.Provider>
+  );
+}
 
 export const useTenant = (): TenantContextType => {
   const context = useContext(TenantContext);

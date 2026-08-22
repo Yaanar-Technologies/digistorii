@@ -23,6 +23,8 @@ import type {
   PurchaseDetail,
   PurchaseHeader,
   Supplier,
+  Warehouse,
+  LocationOption,
 } from "./types";
 
 type LocalProductSavePayload = {
@@ -89,21 +91,6 @@ export default function PurchasePage() {
   const { company } = useTenant();
   const { user } = useUser();
   const notify = useNotify();
-  const {
-    items: lookupItems,
-    loading: lookupLoading,
-    filters: lookupFilters,
-    setFilters: setLookupFilters,
-    page: lookupPage,
-    setPage: setLookupPage,
-    totalPages: lookupTotalPages,
-    itemsPerPage: lookupItemsPerPage,
-    paginatedItems: lookupPaginatedItems,
-    totalCount: lookupTotalCount,
-    categoryOptions: lookupCategoryOptions,
-    resetFilters: resetLookupFilters,
-  } = useProductLookup({ enabled: Boolean(company) });
-
   const initialHeader: PurchaseHeader = {
     po_type: "standard",
     purchase_no: "", ref_no: "",
@@ -130,15 +117,38 @@ export default function PurchasePage() {
   };
 
   const [header, setHeader] = useState<PurchaseHeader>(initialHeader);
+
+  const {
+    items: lookupItems,
+    loading: lookupLoading,
+    filters: lookupFilters,
+    setFilters: setLookupFilters,
+    page: lookupPage,
+    setPage: setLookupPage,
+    totalPages: lookupTotalPages,
+    itemsPerPage: lookupItemsPerPage,
+    paginatedItems: lookupPaginatedItems,
+    totalCount: lookupTotalCount,
+    categoryOptions: lookupCategoryOptions,
+    resetFilters: resetLookupFilters,
+  } = useProductLookup({
+    enabled: Boolean(company) && Boolean(header.supplier_id),
+    lookupType: "po_supplier_lookup",
+    supplierId: header.supplier_id
+  });
   const [errors, setErrors] = useState<any>({});
   const [loading, setLoading] = useState(false);
   const [pageLoading, setPageLoading] = useState(false);
-  const [allTaxes, setAllTaxes] = useState<any[]>([]);
   const [errorMessage, setErrorMessage] = useState("");
   const [allSuppliers, setAllSuppliers] = useState<Supplier[]>([]);
   const [allDespatchTerms, setAllDespatchTerms] = useState<DespatchTerm[]>([]);
   const [allPaymentTerms, setAllPaymentTerms] = useState<PaymentTerm[]>([]);
   const [allCurrencies, setAllCurrencies] = useState<Currency[]>([]);
+  const [allTaxes, setAllTaxes] = useState<any[]>([]);
+  const [allWarehouses, setAllWarehouses] = useState<Warehouse[]>([]);
+  const [allLocations, setAllLocations] = useState<LocationOption[]>([]);
+  
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>("");
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
   const [showProductPopup, setShowProductPopup] = useState(false);
   const [activeTab, setActiveTab] = useState<"items" | "additional">("items");
@@ -587,12 +597,16 @@ export default function PurchasePage() {
           despatchRes,
           paymentRes,
           currencyRes,
+          warehousesRes,
+          locationsRes,
         ] = await Promise.all([
           fetch("/api/suppliers", { headers: { "x-tenant": company } }),
           fetch("/api/tax-master", { headers: { "x-tenant": company } }),
           fetch("/api/despatch-terms", { headers: { "x-tenant": company } }),
           fetch("/api/payment-terms", { headers: { "x-tenant": company } }),
           fetch("/api/currencies", { headers: { "x-tenant": company } }),
+          fetch("/api/warehouses", { headers: { "x-tenant": company } }),
+          fetch("/api/locations", { headers: { "x-tenant": company } }),
         ]);
 
         const suppliersData = await suppliersRes.json();
@@ -600,12 +614,20 @@ export default function PurchasePage() {
         const despatchData = await despatchRes.json();
         const paymentData = await paymentRes.json();
         const currencyData = await currencyRes.json();
+        const warehousesData = await warehousesRes.json();
+        const locationsData = await locationsRes.json();
         if (!active) return;
         setAllSuppliers(Array.isArray(suppliersData) ? suppliersData : suppliersData.data || []);
         setAllDespatchTerms(despatchData?.data || []);
         setAllPaymentTerms(paymentData?.data || []);
         setAllCurrencies(currencyData?.data || []);
         setAllTaxes(taxesData?.data || []);
+        setAllWarehouses(warehousesData?.data || []);
+        setAllLocations(locationsData?.data || []);
+        
+        if (user?.warehouse_id) {
+          setSelectedWarehouseId(String(user.warehouse_id));
+        }
       } catch (err) {
         console.error("Failed to load purchase data", err);
       } finally {
@@ -1039,10 +1061,6 @@ export default function PurchasePage() {
   };
 
 
-  const billToSupplier = allSuppliers.find((s) => String(s.id) === String(computedHeader.bill_to));
-  const shipToSupplier = allSuppliers.find((s) => String(s.id) === String(computedHeader.ship_to));
-  const billToAddress = getSupplierAddress(billToSupplier);
-  const shipToAddress = getSupplierAddress(shipToSupplier);
   const currencyCode = getCurrencyCode(computedHeader.currency);
   const formatMoney = (value: number) => Number(value || 0).toFixed(2);
   const itemsSubtotal = Number(computedHeader.subtotal || 0);
@@ -1137,8 +1155,10 @@ export default function PurchasePage() {
           allDespatchTerms={allDespatchTerms}
           allPaymentTerms={allPaymentTerms}
           currencyCode={currencyCode}
-          billToAddress={billToAddress}
-          shipToAddress={shipToAddress}
+          allWarehouses={allWarehouses}
+          allLocations={allLocations}
+          selectedWarehouseId={selectedWarehouseId}
+          setSelectedWarehouseId={setSelectedWarehouseId}
           setAttachmentFile={setAttachmentFile}
         />
 
@@ -1152,7 +1172,13 @@ export default function PurchasePage() {
             removeRow={removeRow}
             totalQty={totals.totalQty}
             totalAmount={totals.totalAmount}
-            onAddItems={() => setShowProductPopup(true)}
+            onAddItems={() => {
+              if (!header.supplier_id) {
+                notify("Supplier is required before adding items.", { severity: "error" });
+                return;
+              }
+              setShowProductPopup(true);
+            }}
             showAddItems={true}
             onAddNewProduct={() => setShowAddProductModal(true)}
             barcodeValue={barcodeValue}

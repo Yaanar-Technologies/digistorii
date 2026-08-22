@@ -107,7 +107,13 @@ type WarehouseSetupForm = {
   name: string;
   location_id: string;
   type: "global" | "local";
-  address: string;
+  same_as_ship_to: boolean;
+  address_line_1: string;
+  address_line_2: string;
+  city: string;
+  state: string;
+  country: string;
+  pincode: string;
   effective_from: string;
   effective_to: string;
   description: string;
@@ -252,7 +258,13 @@ const defaultWarehouse: WarehouseSetupForm = {
   name: "",
   location_id: "",
   type: "global",
-  address: "",
+  same_as_ship_to: true,
+  address_line_1: "",
+  address_line_2: "",
+  city: "",
+  state: "",
+  country: "India",
+  pincode: "",
   effective_from: "",
   effective_to: "",
   description: "",
@@ -324,41 +336,7 @@ const loadRazorpayScript = () => {
   });
 };
 
-function Stepper({ currentStep }: { currentStep: number }) {
-  return (
-    <div className="overflow-x-auto pb-2">
-      <div
-        className="min-w-[900px] grid gap-3"
-        style={{ gridTemplateColumns: `repeat(${ONBOARDING_STEPS.length}, minmax(0, 1fr))` }}
-      >
-        {ONBOARDING_STEPS.map((step) => {
-          const isCompleted = step.id < currentStep;
-          const isCurrent = step.id === currentStep;
-          return (
-            <div key={step.id} className="flex items-center gap-2">
-              <div
-                className={`h-8 w-8 shrink-0 rounded-full flex items-center justify-center text-xs font-bold ${isCompleted
-                  ? "bg-green-600 text-white"
-                  : isCurrent
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-200 text-gray-600"
-                  }`}
-              >
-                {step.id}
-              </div>
-              <span
-                className={`text-xs font-semibold ${isCurrent ? "text-blue-700" : isCompleted ? "text-green-700" : "text-gray-500"
-                  }`}
-              >
-                {step.label}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+// Removed horizontal Stepper in favor of vertical stepper inside OnboardingWizard
 
 function getDefaultResponsibilityId(options: ResponsibilityOption[]) {
   const preferred =
@@ -374,8 +352,8 @@ export default function OnboardingWizard({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  // const [stage, setStage] = useState<SetupStage>("ACCOUNT_CREATED");
-  const [currentStep, setCurrentStep] = useState(2);
+  const [currentStep, setCurrentStep] = useState(1);
+  const [viewingStepSummary, setViewingStepSummary] = useState<number | null>(null);
   const persistedPlan = readPersistedSelectedPlan();
   const [selectedPlan, setSelectedPlan] = useState<PlanOption | null>(
     persistedPlan && (!initialPlanId || persistedPlan.plan_id === initialPlanId) ? persistedPlan : null
@@ -904,145 +882,23 @@ export default function OnboardingWizard({
       }
     }
 
-    // FINAL SANITIZATION BEFORE API CALL:
-    // If gstAvailable is false, explicitly set gst_number and pan_number to ""
+
     const payload = {
       ...businessSettings,
-      gst_number: gstAvailable ? businessSettings.gst_number : "",
-      pan_number: gstAvailable ? normalizePan(businessSettings.pan_number) : "",
+      country: "India",
+      gst_available: gstAvailable,
+      gst_number: gstAvailable
+        ? businessSettings.gst_number
+        : "",
+      pan_number: gstAvailable
+        ? normalizePan(businessSettings.pan_number)
+        : "",
       currency: businessSettings.currency.toUpperCase(),
     };
 
     await saveStep("BUSINESS_SETUP", payload);
   };
-  const handleWarehouseSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    setError("");
 
-    const noSymbolsRegex = /^[a-zA-Z0-9\s,.\-\/]*$/;
-    const validationErrors: Record<string, string> = {};
-
-    if (warehouse.name && !noSymbolsRegex.test(warehouse.name)) {
-      validationErrors.name = "Symbols are not allowed in the warehouse name.";
-    }
-    if (warehouse.description && !noSymbolsRegex.test(warehouse.description)) {
-      validationErrors.description = "Symbols are not allowed in the description.";
-    }
-
-    const phoneRegex = /^\d{10}$/;
-    if (warehouse.landline && !phoneRegex.test(warehouse.landline)) {
-      validationErrors.landline = "Must be only 10 digit numbers";
-    }
-    if (warehouse.mobile_no && !phoneRegex.test(warehouse.mobile_no)) {
-      validationErrors.mobile_no = "Must be only 10 digit numbers";
-    }
-    if (warehouse.contact_person_mobile && !phoneRegex.test(warehouse.contact_person_mobile)) {
-      validationErrors.contact_person_mobile = "Must be only 10 digit numbers";
-    }
-
-    const faxInvalidRegex = /[^0-9\s()+-]/;
-    if (warehouse.fax && faxInvalidRegex.test(warehouse.fax)) {
-      validationErrors.fax = "Invalid characters. Only numbers, spaces, hyphens, (), and + are allowed.";
-    }
-
-    if (warehouse.contact_person_name && !noSymbolsRegex.test(warehouse.contact_person_name)) {
-      validationErrors.contact_person_name = "Symbols are not allowed.";
-    }
-
-
-    if (Object.keys(validationErrors).length > 0) {
-      setErrors(validationErrors);
-      return;
-    }
-    setErrors({});
-
-    const success = await saveStep("WAREHOUSE_SETUP", warehouse);
-    if (success) {
-      await loadWarehouseOptions();
-    }
-  };
-
-  const handleLocationSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    setError("");
-
-    const noSymbolsRegex = /^[a-zA-Z0-9\s,.\-\/]*$/;
-    const validationErrors: Record<string, string> = {};
-
-
-
-    if (location.name && !noSymbolsRegex.test(location.name)) {
-      validationErrors.name = "Symbols are not allowed in the location name.";
-    }
-    if (location.description && !noSymbolsRegex.test(location.description)) {
-      validationErrors.description = "Symbols are not allowed in the description.";
-    }
-    if (location.registered_address_line_1 && !noSymbolsRegex.test(location.registered_address_line_1)) {
-      validationErrors.registered_address_line1 = "Symbols are not allowed.";
-    }
-    if (location.registered_address_line_2 && !noSymbolsRegex.test(location.registered_address_line_2)) {
-      validationErrors.registered_address_line2 = "Symbols are not allowed.";
-    }
-    if (location.bill_address_line_1 && !noSymbolsRegex.test(location.bill_address_line_1)) {
-      validationErrors.bill_address_line1 = "Symbols are not allowed.";
-    }
-    if (location.bill_address_line_2 && !noSymbolsRegex.test(location.bill_address_line_2)) {
-      validationErrors.bill_address_line2 = "Symbols are not allowed.";
-    }
-    if (location.ship_address_line_1 && !noSymbolsRegex.test(location.ship_address_line_1)) {
-      validationErrors.ship_address_line1 = "Symbols are not allowed.";
-    }
-    if (location.ship_address_line_2 && !noSymbolsRegex.test(location.ship_address_line_2)) {
-      validationErrors.ship_address_line2 = "Symbols are not allowed.";
-    }
-
-
-    const pincodeRegex = /^[0-9]{1,6}$/;
-    if (location.registered_pincode && !pincodeRegex.test(location.registered_pincode)) {
-      validationErrors.registered_pincode = "Pincode must be 6 digits.";
-    }
-    if (location.bill_pincode && !pincodeRegex.test(location.bill_pincode)) {
-      validationErrors.bill_pincode = "Pincode must be 6 digits.";
-    }
-    if (location.ship_pincode && !pincodeRegex.test(location.ship_pincode)) {
-      validationErrors.ship_pincode = "Pincode must be 6 digits.";
-    }
-
-    const phoneRegex = /^\d{10}$/;
-    if (location.landline && !phoneRegex.test(location.landline)) {
-      validationErrors.landline = "Must be only 10 digit numbers";
-    }
-    if (location.mobile && !phoneRegex.test(location.mobile)) {
-      validationErrors.mobile = "Must be only 10 digit numbers";
-    }
-
-    const faxInvalidRegex = /[^0-9\s()+-]/;
-    if (location.fax && faxInvalidRegex.test(location.fax)) {
-      validationErrors.fax = "Invalid characters. Only numbers, spaces, hyphens, (), and + are allowed.";
-    }
-
-    if (location.contact_person && !noSymbolsRegex.test(location.contact_person)) {
-      validationErrors.contact_person = "Symbols are not allowed.";
-    }
-
-
-    if (Object.keys(validationErrors).length > 0) {
-      setErrors(validationErrors);
-      return; // Stops execution and prevents saving
-    }
-    setErrors({});
-
-    const success = await saveStep("LOCATION_SETUP", location);
-    if (success) {
-      setLocation(defaultLocation);
-      await loadLocationOptions();
-    }
-  };
-
-  const handleStaffSubmit = async () => {
-    if (!validateStaffs()) return;
-    await saveStep("STAFF_SETUP", { users: staffUsers });
-  };
 
   const handleSendOtp = async () => {
     if (!companyId) {
@@ -1371,1507 +1227,610 @@ export default function OnboardingWizard({
   const checkboxClass = "h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500";
 
   if (loading) {
-    return <div className="text-gray-600">Loading onboarding wizard...</div>;
+    return <div className="text-gray-600 p-8">Loading onboarding wizard...</div>;
   }
 
+  const activeViewStep = viewingStepSummary ?? currentStep;
+
   return (
-    <div className="space-y-8">
-      <header className="flex items-center justify-between gap-4 border-b border-gray-100 pb-4">
-        <div className="space-y-1">
-          <h1 className="text-3xl font-bold text-gray-900">Company Onboarding</h1>
-          <p className="text-sm text-gray-600">
-            Company: <span className="font-semibold">{companyName}</span> ({company})
-          </p>
-        </div>
+    <div className="min-h-screen w-full bg-slate-50 flex flex-col md:flex-row font-sans">
+      {/* Left Sidebar Stepper */}
+      <aside className="w-full md:w-80 lg:w-96 bg-gradient-to-b from-slate-900 to-indigo-950 text-white p-6 md:p-8 flex flex-col justify-between shrink-0">
+        <div>
+          <div className="mb-10">
+            <h1 className="text-2xl font-bold mb-2">Company Onboarding</h1>
+            <p className="text-sm text-indigo-200">
+              Company: <span className="font-semibold text-white">{companyName}</span> ({company})
+            </p>
+          </div>
 
-        {/* Top-Right Redirect Icon */}
-        <Link
-          href="/"
-          title="Return to Main Page"
-          className="flex items-center justify-center p-2.5 rounded-xl border border-gray-200 bg-white text-gray-600 hover:text-blue-600 hover:border-blue-200 hover:bg-blue-50 transition-all shadow-sm"
-        >
-          <HiHome className="w-5 h-5" />
-        </Link>
-      </header>
+          <div className="space-y-6">
+            {ONBOARDING_STEPS.map((step, index) => {
+              const isCompleted = step.id < currentStep;
+              const isCurrent = step.id === currentStep;
+              const isUpcoming = step.id > currentStep;
+              const isViewing = step.id === activeViewStep;
 
-      {/* Stepper underneath header */}
-      <Stepper currentStep={currentStep} />
+              return (
+                <div key={step.id} className="relative flex gap-4 cursor-pointer group"
+                  onClick={() => {
+                    if (isCompleted || isCurrent) {
+                      setViewingStepSummary(isCurrent ? null : step.id);
+                    }
+                  }}
+                >
+                  {/* Connecting Line */}
+                  {index < ONBOARDING_STEPS.length - 1 && (
+                    <div className={`absolute left-4 top-10 bottom-[-24px] w-0.5 z-0 ${isCompleted ? "bg-emerald-500" : "bg-slate-700"}`} />
+                  )}
 
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
-          {error}
-        </div>
-      )}
+                  {/* Step Circle */}
+                  <div className={`relative z-10 shrink-0 h-8 w-8 rounded-full flex items-center justify-center transition-colors ${isCompleted ? "bg-emerald-500 text-white" :
+                    isCurrent ? "bg-blue-600 ring-4 ring-blue-500/30 text-white" :
+                      "border-2 border-slate-700 bg-slate-900 text-slate-500"
+                    }`}>
+                    {isCompleted ? (
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    ) : (
+                      <span className="text-sm font-bold">{step.id}</span>
+                    )}
+                  </div>
 
-      <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-        {currentStep === 2 && (
-          <div className="space-y-5">
-            <h2 className="text-2xl font-bold text-gray-900">Step 2: Phone Verification</h2>
-            <div className="rounded-xl border border-blue-100 bg-blue-50 p-5 space-y-4 text-sm">
-              <div>
-                <p className="font-semibold text-gray-900">Get OTP to your Phone Number</p>
-                <p className="mt-1 text-gray-700">
-                  Phone Number: <span className="font-semibold">+91 {ownerPhone || "-"}</span>
-                </p>
-              </div>
-              {phoneVerified ? (
-                <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-green-700">
-                  Phone number verified successfully.
+                  {/* Step Label */}
+                  <div className={`pt-1.5 ${isViewing ? "opacity-100" : isUpcoming ? "opacity-50" : "opacity-90"} group-hover:opacity-100 transition-opacity`}>
+                    <p className={`text-sm font-bold ${isCurrent ? "text-blue-400" : isCompleted ? "text-emerald-400" : "text-slate-300"}`}>
+                      {step.label}
+                    </p>
+                    {isCompleted && !isCurrent && (
+                      <p className="text-xs text-slate-400 mt-0.5">Click to view summary</p>
+                    )}
+                  </div>
                 </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="flex flex-wrap gap-3">
-                    <button
-                      type="button"
-                      onClick={handleSendOtp}
-                      disabled={saving || otpCooldown > 0}
-                      className="rounded-lg bg-blue-600 px-4 py-2 text-white font-semibold hover:bg-blue-700 disabled:opacity-70"
-                    >
-                      {otpSent ? "Resend OTP" : "Send OTP"}
-                    </button>
-                    {/* <button
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Contact Us Box */}
+        <div className="mt-12 rounded-xl border border-slate-800 bg-slate-900/60 p-4 flex items-center gap-3">
+          <div className="h-10 w-10 shrink-0 rounded-full bg-slate-800 flex items-center justify-center text-slate-300 font-bold">?</div>
+          <div>
+            <p className="text-xs text-slate-400">Having troubles!</p>
+            <a href="mailto:workpro@yaanartech.com" className="text-sm font-semibold text-white hover:underline transition-all">Contact Us</a>
+          </div>
+        </div>
+      </aside>
+
+      {/* Right Canvas */}
+      <main className="flex-1 p-6 md:p-10 lg:p-14 overflow-y-auto max-h-screen">
+        <header className="flex justify-end mb-8">
+          <Link
+            href="/"
+            title="Return to Main Page"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 bg-white text-gray-600 hover:text-blue-600 hover:border-blue-200 hover:bg-blue-50 transition-all shadow-sm font-semibold text-sm"
+          >
+            <HiHome className="w-4 h-4" />
+            Home
+          </Link>
+        </header>
+
+        {error && (
+          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600 shadow-sm animate-fade-in">
+            {error}
+          </div>
+        )}
+
+        <div className="max-w-4xl">
+          {viewingStepSummary && viewingStepSummary !== currentStep ? (
+            <div className="space-y-6 animate-fade-in">
+              <button
+                onClick={() => setViewingStepSummary(null)}
+                className="text-sm font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-2 mb-4 transition-colors"
+              >
+                &larr; Back to Current Step
+              </button>
+
+              <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-2xl font-bold text-gray-900">
+                    Step {viewingStepSummary} Summary
+                  </h2>
+                  <span className="px-3 py-1 bg-green-100 text-green-800 text-xs font-bold rounded-full uppercase tracking-wider">
+                    Completed
+                  </span>
+                </div>
+
+                {viewingStepSummary === 1 && (
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-sm text-gray-500 font-medium">Owner Phone</p>
+                      <p className="text-lg font-semibold text-gray-900">{ownerPhone || "Verified"}</p>
+                    </div>
+                  </div>
+                )}
+
+                {viewingStepSummary === 2 && (
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-sm text-gray-500 font-medium">Selected Plan</p>
+                      <p className="text-lg font-semibold text-gray-900">{subscription?.plan_name || subscription?.plan_code || "Unknown"}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500 font-medium">Status</p>
+                      <p className="text-lg font-semibold text-gray-900 capitalize">{subscription?.status || "Active"}</p>
+                    </div>
+                  </div>
+                )}
+
+                {viewingStepSummary === 3 && (
+                  <div className="grid md:grid-cols-2 gap-6">
+                    <div>
+                      <p className="text-sm text-gray-500 font-medium">Country</p>
+                      <p className="text-lg font-semibold text-gray-900">India</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500 font-medium">State / City</p>
+                      <p className="text-lg font-semibold text-gray-900">{businessSettings.state} / {businessSettings.city}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500 font-medium">Currency</p>
+                      <p className="text-lg font-semibold text-gray-900">{businessSettings.currency}</p>
+                    </div>
+                    {gstAvailable && (
+                      <>
+                        <div>
+                          <p className="text-sm text-gray-500 font-medium">GSTIN</p>
+                          <p className="text-lg font-semibold text-gray-900 font-mono">{businessSettings.gst_number}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-gray-500 font-medium">PAN Number</p>
+                          <p className="text-lg font-semibold text-gray-900 font-mono">{businessSettings.pan_number}</p>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <>
+              {currentStep === 1 && (
+                <div className="space-y-5 rounded-2xl border border-gray-200 bg-white p-8 shadow-sm animate-fade-in">
+                  <h2 className="text-3xl font-bold text-gray-900">Step 1: Phone Verification</h2>
+                  <div className="rounded-xl border border-blue-100 bg-blue-50 p-6 space-y-5 text-sm">
+                    <div>
+                      <p className="font-semibold text-gray-900">Get OTP to your Phone Number</p>
+                      <p className="mt-1 text-gray-700">
+                        Phone Number: <span className="font-semibold">+91 {ownerPhone || "-"}</span>
+                      </p>
+                    </div>
+                    {phoneVerified ? (
+                      <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-green-700">
+                        Phone number verified successfully.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="flex flex-wrap gap-3">
+                          <button
+                            type="button"
+                            onClick={handleSendOtp}
+                            disabled={saving || otpCooldown > 0}
+                            className="rounded-lg bg-blue-600 px-4 py-2 text-white font-semibold hover:bg-blue-700 disabled:opacity-70"
+                          >
+                            {otpSent ? "Resend OTP" : "Send OTP"}
+                          </button>
+                          {/* <button
                       type="button"
                       disabled
                       className="rounded-lg border border-gray-200 bg-white px-4 py-2 font-semibold text-gray-400"
                     >
                       Change Number
                     </button> */}
-                    {otpCooldown > 0 && (
-                      <span className="self-center text-gray-600">Resend available in {otpCooldown}s</span>
+                          {otpCooldown > 0 && (
+                            <span className="self-center text-gray-600">Resend available in {otpCooldown}s</span>
+                          )}
+                        </div>
+                        {otpSent && (
+                          <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                            <input
+                              value={otp}
+                              onChange={(e) => setOtp(e.target.value)}
+                              inputMode="numeric"
+                              maxLength={6}
+                              placeholder="Enter OTP"
+                              className={formFieldClass}
+                            />
+                            <button
+                              type="button"
+                              onClick={handleVerifyOtp}
+                              disabled={saving || otp.trim().length < 4}
+                              className="rounded-lg bg-green-600 px-5 py-3 text-white font-semibold hover:bg-green-700 disabled:opacity-70"
+                            >
+                              Verify OTP
+                            </button>
+                          </div>
+                        )}
+                        {otpMessage && (
+                          <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-green-700">
+                            {otpMessage}
+                          </div>
+                        )}
+                        {otpError && (
+                          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-red-600">
+                            {otpError}
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
-                  {otpSent && (
-                    <div className="grid gap-3 md:grid-cols-[1fr_auto]">
-                      <input
-                        value={otp}
-                        onChange={(e) => setOtp(e.target.value)}
-                        inputMode="numeric"
-                        maxLength={6}
-                        placeholder="Enter OTP"
-                        className={formFieldClass}
-                      />
-                      <button
-                        type="button"
-                        onClick={handleVerifyOtp}
-                        disabled={saving || otp.trim().length < 4}
-                        className="rounded-lg bg-green-600 px-5 py-3 text-white font-semibold hover:bg-green-700 disabled:opacity-70"
-                      >
-                        Verify OTP
-                      </button>
-                    </div>
-                  )}
-                  {otpMessage && (
-                    <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-green-700">
-                      {otpMessage}
-                    </div>
-                  )}
-                  {otpError && (
-                    <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-red-600">
-                      {otpError}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={handlePhoneVerifiedStep}
-              disabled={saving || !phoneVerified}
-              className="rounded-lg bg-blue-600 px-5 py-3 text-white font-semibold hover:bg-blue-700 disabled:opacity-70"
-            >
-              {saving ? "Saving..." : "Continue to Payment →"}
-            </button>
-          </div>
-        )}
-
-        {currentStep === 3 && (
-          <Pricing
-            mode="onboarding"
-            selectedPlanId={selectedPlan?.plan_id || initialPlanId || null}
-            selectedBillingInterval={selectedBillingInterval}
-            onlySelectedPlan={false}
-            onSelectPlan={(plan) => {
-              setSelectedPlan(plan);
-              persistSelectedPlan(plan);
-            }}
-            onSelectBillingInterval={setSelectedBillingInterval}
-            onContinue={handlePlanContinue}
-            loading={saving}
-          />
-        )}
-        {currentStep === 4 && (
-          <form onSubmit={handleBusinessSubmit} className="space-y-6 bg-white p-6 rounded-xl shadow">
-            <h2 className="text-2xl font-bold text-gray-900">Step 4: Business Setup</h2>
-            <div className="grid md:grid-cols-3 gap-6">
-              <div>
-                <label className={formLabelClass}>Country <span className="text-red-500">*</span></label>
-                <select
-                  value={businessSettings.country}
-                  onChange={(e) =>
-                    setBusinessSettings((prev) => {
-                      const nextCountry = e.target.value;
-                      const defaultCurrency = getDefaultCurrencyCodeForCountry(nextCountry);
-                      return {
-                        ...prev,
-                        country: nextCountry,
-                        state: "",
-                        city: "",
-                        currency: defaultCurrency || prev.currency,
-                      };
-                    })
-                  }
-                  className={formFieldClass}
-                  required
-                  disabled
-                >
-                  <option value="India">India</option>
-                  {countryOptions.map((country) => (
-                    <option key={country.isoCode} value={country.name}>
-                      {country.name}
-                    </option>
-                  ))}
-                </select>
-                {errors.country && <p className="text-red-500 text-sm mt-1">{errors.country}</p>}
-              </div>
-
-              <div>
-                <label className={formLabelClass}>State <span className="text-red-500">*</span></label>
-                <select
-                  data-field="state"
-                  value={businessSettings.state}
-                  onChange={(e) => {
-                    const nextState = e.target.value;
-                    const stateCode = getGstStateCodeForState(nextState);
-
-                    setBusinessSettings((prev) => ({
-                      ...prev,
-                      state: nextState,
-                      city: "",
-                      // STRICT GUARD: If GST Available is false, force empty strings!
-                      gst_number: gstAvailable ? formatGstinInput(prev.gst_number, stateCode) : "",
-                      pan_number: gstAvailable ? getNextPanValue(prev.gst_number, prev.pan_number, isPanManuallyEdited) : "",
-                    }));
-                  }}
-                  className={formFieldClass}
-                  required
-                >
-                  <option value="">Select State</option>
-                  {businessStateOptions.map((state) => (
-                    <option key={state.isoCode} value={state.name}>
-                      {state.name}
-                    </option>
-                  ))}
-                </select>
-                {errors.state && <p className="text-red-500 text-sm mt-1">{errors.state}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>City</label>
-                <select
-                  data-field="city"
-                  value={businessSettings.city}
-                  onChange={(e) =>
-                    setBusinessSettings((prev) => ({ ...prev, city: e.target.value }))
-                  }
-                  className={formFieldClass}
-                >
-                  <option value="">Select City</option>
-                  {businessCityOptions.map((city) => (
-                    <option
-                      key={`${city.name}-${city.latitude}-${city.longitude}`}
-                      value={city.name}
-                    >
-                      {city.name}
-                    </option>
-                  ))}
-                </select>
-                {errors.city && <p className="text-red-500 text-sm mt-1">{errors.city}</p>}
-              </div>
-
-              <div className="md:col-span-2">
-                <label className={formLabelClass}>Business Address</label>
-                <textarea
-                  data-field="business_address"
-                  data-rules="no-symbols"
-                  data-optional="true"
-                  value={businessSettings.business_address}
-                  onChange={(e) =>
-                    setBusinessSettings((prev) => ({ ...prev, business_address: e.target.value }))
-                  }
-                  rows={3}
-                  placeholder="Optional"
-                  className={formFieldClass}
-                />
-                {errors.business_address && <p className="text-red-500 text-sm mt-1">{errors.business_address}</p>}
-              </div>
-
-              <div>
-                <label className={formLabelClass}>Currency</label>
-                <select
-                  data-field="currency"
-                  data-optional="true"
-                  value={businessSettings.currency}
-                  onChange={(e) =>
-                    setBusinessSettings((prev) => ({ ...prev, currency: e.target.value }))
-                  }
-                  className={formFieldClass}
-                >
-                  <option value="">Select Currency</option>
-                  {currencyOptions.map((currency) => (
-                    <option key={currency.id} value={currency.currency_code}>
-                      {currency.currency_code} - {currency.currency_name}
-                    </option>
-                  ))}
-                </select>
-                {errors.currency && <p className="text-red-500 text-sm mt-1">{errors.currency}</p>}
-              </div>
-
-              <div className="md:col-span-3 rounded-lg border border-gray-200 p-4 space-y-4">
-                <label className="inline-flex items-center gap-2 text-sm text-gray-700 font-semibold cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={gstAvailable}
-                    onChange={(e) => {
-                      const checked = e.target.checked;
-                      setGstAvailable(checked);
-                      setIsPanManuallyEdited(false);
-
-                      setBusinessSettings((prev) => {
-                        // If unchecked: purge GST and PAN entirely
-                        if (!checked) {
-                          return { ...prev, gst_number: "", pan_number: "" };
-                        }
-
-                        // If checked: rebuild state code digits automatically
-                        const gst_number = formatGstinInput(prev.gst_number, businessGstStateCode);
-                        return {
-                          ...prev,
-                          gst_number,
-                          pan_number: getNextPanValue(gst_number, prev.pan_number, false),
-                        };
-                      });
-                    }}
-                    className={checkboxClass}
-                  />
-                  GST Available
-                </label>
-
-                {/* Render GST and PAN inputs ONLY when GST Available is checked */}
-                {gstAvailable && (
-                  <div className="grid md:grid-cols-2 gap-6 pt-2">
-                    <div>
-                      <label className={formLabelClass}>
-                        GST Number <span className="text-red-500">*</span>
-                      </label>
-                      <div
-                        className={`mt-2 flex overflow-hidden rounded-lg ${shouldShowBusinessGstError
-                          ? "border border-red-500 focus-within:ring-2 focus-within:ring-red-500"
-                          : isBusinessGstValid
-                            ? "border border-green-500 focus-within:ring-2 focus-within:ring-green-500"
-                            : "border border-gray-300 focus-within:ring-2 focus-within:ring-indigo-500"
-                          }`}
-                      >
-                        <span className="flex items-center bg-gray-100 px-3 text-sm font-bold text-gray-700 border-r border-gray-300">
-                          {businessGstStateCode || "--"}
-                        </span>
-                        <input
-                          data-field="gst_number"
-                          data-rules="code"
-                          type="text"
-                          required
-                          value={businessGstSuffix}
-                          onChange={(e) => updateBusinessGst(e.target.value)}
-                          maxLength={13}
-                          className="w-full p-3 outline-none uppercase font-mono tracking-wider"
-                          placeholder="AAAAA1111A1Z5"
-                        />
-                      </div>
-                      {shouldShowBusinessGstError && (
-                        <p className="text-red-500 text-xs mt-1">
-                          Please enter valid remaining 13 GSTIN characters.
-                        </p>
-                      )}
-                      {errors.gst_number && <p className="text-red-500 text-sm mt-1">{errors.gst_number}</p>}
-                    </div>
-
-                    <div>
-                      <label className={formLabelClass}>PAN Number</label>
-                      <input
-                        data-field="pan_number"
-                        data-rules="code"
-                        type="text"
-                        value={businessSettings.pan_number}
-                        onChange={(e) => {
-                          setIsPanManuallyEdited(true);
-                          setBusinessSettings((prev) => ({
-                            ...prev,
-                            pan_number: normalizePan(e.target.value),
-                          }));
-                        }}
-                        maxLength={10}
-                        className={`${formFieldClass} uppercase font-mono tracking-wider`}
-                        placeholder="AAAAA1111A"
-                      />
-                      {errors.pan_number && <p className="text-red-500 text-sm mt-1">{errors.pan_number}</p>}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-lg bg-blue-600 px-5 py-2.5 text-white font-semibold hover:bg-blue-700 disabled:opacity-70 transition-colors"
-            >
-              {saving ? "Saving..." : "Save & Continue"}
-            </button>
-          </form>
-        )}
-
-        {currentStep === 5 && (
-          <form onSubmit={handleLocationSubmit} className="space-y-6 bg-white p-6 rounded-xl shadow">
-            <h2 className="text-2xl font-bold text-gray-900">Step 5: Store Location Setup</h2>
-            <p className="text-sm text-gray-600">
-              Plan limit: {planLimits.maxLocations} location(s)
-            </p>
-            <div className="grid md:grid-cols-4 gap-6">
-              <div>
-                <label className={formLabelClass}>
-                  Store Location Name <span className="text-red-500">*</span>
-                </label>
-                <input
-                  data-field="name"
-                  data-rules="no-symbols"
-                  type="text"
-                  required
-                  value={location.name}
-                  onChange={(e) => updateLocation((prev) => ({ ...prev, name: e.target.value }))}
-                  className={formFieldClass}
-                />
-                {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>Type</label>
-                <select
-                  data-field="type"
-                  data-optional="true"
-                  value={location.type}
-                  onChange={(e) =>
-                    updateLocation((prev) => ({
-                      ...prev,
-                      type: e.target.value as LocationSetupForm["type"],
-                    }))
-                  }
-                  className={formFieldClass}
-                >
-                  <option value="global">Global</option>
-                  <option value="local">Local</option>
-                </select>
-                {errors.type && <p className="text-red-500 text-sm mt-1">{errors.type}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>Inactive Date</label>
-                <input
-                  data-field="inactive_date"
-                  data-rules="date"
-                  data-optional="true"
-                  type="date"
-                  value={location.inactive_date}
-                  min={new Date().toISOString().split("T")[0]}
-                  onChange={(e) =>
-                    updateLocation((prev) => ({ ...prev, inactive_date: e.target.value }))
-                  }
-                  className={formFieldClass}
-                />
-                {errors.inactive_date && <p className="text-red-500 text-sm mt-1">{errors.inactive_date}</p>}
-              </div>
-              <div className="md:col-span-3">
-                <label className={formLabelClass}>Description</label>
-                <textarea
-                  data-field="description"
-                  data-rules="no-symbols"
-                  data-optional="true"
-                  value={location.description}
-                  onChange={(e) =>
-                    updateLocation((prev) => ({ ...prev, description: e.target.value }))
-                  }
-                  placeholder="Optional"
-                  className={formFieldClass}
-                />
-                {errors.description && <p className="text-red-500 text-sm mt-1">{errors.description}</p>}
-              </div>
-              <div className="md:col-span-4">
-                <h3 className="text-base font-semibold text-gray-900">Registered Address</h3>
-              </div>
-              <div className="md:col-span-2">
-                <label className={formLabelClass}>Address Line 1</label>
-                <input
-                  data-field="registered_address_line1"
-                  data-rules="no-symbols"
-                  data-optional="true"
-                  type="text"
-                  value={location.registered_address_line_1}
-                  onChange={(e) =>
-                    updateLocation((prev) => ({
-                      ...prev,
-                      registered_address_line_1: e.target.value,
-                    }))
-                  }
-                  className={formFieldClass}
-                />
-                {errors.registered_address_line1 && <p className="text-red-500 text-sm mt-1">{errors.registered_address_line1}</p>}
-              </div>
-              <div className="md:col-span-2">
-                <label className={formLabelClass}>Address Line 2</label>
-                <input
-                  data-field="registered_address_line2"
-                  data-rules="no-symbols"
-                  data-optional="true"
-                  type="text"
-                  value={location.registered_address_line_2}
-                  onChange={(e) =>
-                    updateLocation((prev) => ({
-                      ...prev,
-                      registered_address_line_2: e.target.value,
-                    }))
-                  }
-                  className={formFieldClass}
-                />
-                {errors.registered_address_line2 && <p className="text-red-500 text-sm mt-1">{errors.registered_address_line2}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>Country</label>
-                <select
-                  data-field="registered_country"
-                  data-optional="true"
-                  disabled
-                  value={location.registered_country}
-                  onChange={(e) =>
-                    updateLocation((prev) => ({
-                      ...prev,
-                      registered_country: e.target.value,
-                      registered_state: "",
-                      registered_city: "",
-                    }))
-                  }
-                  className={formFieldClass}
-                >
-                  <option value="">Select Country</option>
-                  {countryOptions.map((country) => (
-                    <option key={country.isoCode} value={country.name}>
-                      {country.name}
-                    </option>
-                  ))}
-                </select>
-                {errors.registered_country && <p className="text-red-500 text-sm mt-1">{errors.registered_country}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>State</label>
-                <select
-                  data-field="registered_state"
-                  data-optional="true"
-                  value={location.registered_state}
-                  onChange={(e) =>
-                    updateLocation((prev) => ({
-                      ...prev,
-                      registered_state: e.target.value,
-                      registered_city: "",
-                    }))
-                  }
-                  className={formFieldClass}
-                >
-                  <option value="">Select State</option>
-                  {registeredStateOptions.map((state) => (
-                    <option key={state.isoCode} value={state.name}>
-                      {state.name}
-                    </option>
-                  ))}
-                </select>
-                {errors.registered_state && <p className="text-red-500 text-sm mt-1">{errors.registered_state}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>City</label>
-                <select
-                  data-field="registered_city"
-                  data-optional="true"
-                  value={location.registered_city}
-                  onChange={(e) =>
-                    updateLocation((prev) => ({ ...prev, registered_city: e.target.value }))
-                  }
-                  className={formFieldClass}
-                >
-                  <option value="">Select City</option>
-                  {registeredCityOptions.map((city) => (
-                    <option
-                      key={`${city.name}-${city.latitude}-${city.longitude}`}
-                      value={city.name}
-                    >
-                      {city.name}
-                    </option>
-                  ))}
-                </select>
-                {errors.registered_city && <p className="text-red-500 text-sm mt-1">{errors.registered_city}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>Pincode</label>
-                <input
-                  data-field="registered_pincode"
-                  data-rules="numeric-string"
-                  data-optional="true"
-                  type="text"
-                  value={location.registered_pincode}
-                  onChange={(e) =>
-                    updateLocation((prev) => ({ ...prev, registered_pincode: e.target.value }))
-                  }
-                  className={formFieldClass}
-                />
-                {errors.registered_pincode && <p className="text-red-500 text-sm mt-1">{errors.registered_pincode}</p>}
-              </div>
-              <div className="md:col-span-4 rounded-lg border border-gray-200 p-4">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={location.same_as_registered}
-                    onChange={(e) =>
-                      updateLocation((prev) => ({
-                        ...prev,
-                        same_as_registered: e.target.checked,
-                      }))
-                    }
-                    className={checkboxClass}
-                  />
-                  <label className="text-sm text-gray-700">Same As Registered Address</label>
-                </div>
-              </div>
-
-              <div className="md:col-span-4">
-                <h3 className="text-base font-semibold text-gray-900">Bill To Address</h3>
-              </div>
-              <div className="md:col-span-2">
-                <label className={formLabelClass}>Address Line 1</label>
-                <input
-                  data-field="bill_address_line1"
-                  data-rules="no-symbols"
-                  data-optional="true"
-                  type="text"
-                  value={location.bill_address_line_1}
-                  onChange={(e) =>
-                    updateLocation((prev) => ({ ...prev, bill_address_line_1: e.target.value }))
-                  }
-                  className={formFieldClass}
-                />
-                {errors.bill_address_line1 && <p className="text-red-500 text-sm mt-1">{errors.bill_address_line1}</p>}
-              </div>
-              <div className="md:col-span-2">
-                <label className={formLabelClass}>Address Line 2</label>
-                <input
-                  data-field="bill_address_line2"
-                  data-rules="no-symbols"
-                  data-optional="true"
-                  type="text"
-                  value={location.bill_address_line_2}
-                  onChange={(e) =>
-                    updateLocation((prev) => ({ ...prev, bill_address_line_2: e.target.value }))
-                  }
-                  className={formFieldClass}
-                />
-                {errors.bill_address_line2 && <p className="text-red-500 text-sm mt-1">{errors.bill_address_line2}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>Country</label>
-                <select
-                  data-field="bill_country"
-                  data-optional="true"
-                  disabled
-                  value={location.bill_country}
-                  onChange={(e) =>
-                    updateLocation((prev) => ({
-                      ...prev,
-                      bill_country: e.target.value,
-                      bill_state: "",
-                      bill_city: "",
-                    }))
-                  }
-                  className={formFieldClass}
-                >
-                  <option value="">Select Country</option>
-                  {countryOptions.map((country) => (
-                    <option key={country.isoCode} value={country.name}>
-                      {country.name}
-                    </option>
-                  ))}
-                </select>
-                {errors.bill_country && <p className="text-red-500 text-sm mt-1">{errors.bill_country}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>State</label>
-                <select
-                  data-field="bill_state"
-                  data-optional="true"
-                  value={location.bill_state}
-                  onChange={(e) =>
-                    updateLocation((prev) => ({
-                      ...prev,
-                      bill_state: e.target.value,
-                      bill_city: "",
-                    }))
-                  }
-                  className={formFieldClass}
-                >
-                  <option value="">Select State</option>
-                  {billStateOptions.map((state) => (
-                    <option key={state.isoCode} value={state.name}>
-                      {state.name}
-                    </option>
-                  ))}
-                </select>
-                {errors.bill_state && <p className="text-red-500 text-sm mt-1">{errors.bill_state}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>City</label>
-                <select
-                  data-field="bill_city"
-                  data-optional="true"
-                  value={location.bill_city}
-                  onChange={(e) => updateLocation((prev) => ({ ...prev, bill_city: e.target.value }))}
-                  className={formFieldClass}
-                >
-                  <option value="">Select City</option>
-                  {billCityOptions.map((city) => (
-                    <option
-                      key={`${city.name}-${city.latitude}-${city.longitude}`}
-                      value={city.name}
-                    >
-                      {city.name}
-                    </option>
-                  ))}
-                </select>
-                {errors.bill_city && <p className="text-red-500 text-sm mt-1">{errors.bill_city}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>Pincode</label>
-                <input
-                  data-field="bill_pincode"
-                  data-rules="numeric-string"
-                  data-optional="true"
-                  type="text"
-                  value={location.bill_pincode}
-                  onChange={(e) =>
-                    updateLocation((prev) => ({ ...prev, bill_pincode: e.target.value }))
-                  }
-                  className={formFieldClass}
-                />
-                {errors.bill_pincode && <p className="text-red-500 text-sm mt-1">{errors.bill_pincode}</p>}
-              </div>
-              <div className="md:col-span-4 rounded-lg border border-gray-200 p-4">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={location.same_as_bill_to}
-                    onChange={(e) =>
-                      updateLocation((prev) => ({
-                        ...prev,
-                        same_as_bill_to: e.target.checked,
-                      }))
-                    }
-                    className={checkboxClass}
-                  />
-                  <label className="text-sm text-gray-700">Same As Bill To Address</label>
-                </div>
-              </div>
-
-              <div className="md:col-span-4">
-                <h3 className="text-base font-semibold text-gray-900">Ship To Address</h3>
-              </div>
-              <div className="md:col-span-2">
-                <label className={formLabelClass}>Address Line 1</label>
-                <input
-                  data-field="ship_address_line1"
-                  data-rules="no-symbols"
-                  data-optional="true"
-                  type="text"
-                  value={location.ship_address_line_1}
-                  onChange={(e) =>
-                    updateLocation((prev) => ({ ...prev, ship_address_line_1: e.target.value }))
-                  }
-                  className={formFieldClass}
-                />
-                {errors.ship_address_line1 && <p className="text-red-500 text-sm mt-1">{errors.ship_address_line1}</p>}
-              </div>
-              <div className="md:col-span-2">
-                <label className={formLabelClass}>Address Line 2</label>
-                <input
-                  data-field="ship_address_line2"
-                  data-rules="no-symbols"
-                  data-optional="true"
-                  type="text"
-                  value={location.ship_address_line_2}
-                  onChange={(e) =>
-                    updateLocation((prev) => ({ ...prev, ship_address_line_2: e.target.value }))
-                  }
-                  className={formFieldClass}
-                />
-                {errors.ship_address_line2 && <p className="text-red-500 text-sm mt-1">{errors.ship_address_line2}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>Country</label>
-                <select
-                  data-field="ship_country"
-                  data-optional="true"
-                  disabled
-                  value={location.ship_country}
-                  onChange={(e) =>
-                    updateLocation((prev) => ({
-                      ...prev,
-                      ship_country: e.target.value,
-                      ship_state: "",
-                      ship_city: "",
-                    }))
-                  }
-                  className={formFieldClass}
-                >
-                  <option value="">Select Country</option>
-                  {countryOptions.map((country) => (
-                    <option key={country.isoCode} value={country.name}>
-                      {country.name}
-                    </option>
-                  ))}
-                </select>
-                {errors.ship_country && <p className="text-red-500 text-sm mt-1">{errors.ship_country}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>State</label>
-                <select
-                  data-field="ship_state"
-                  data-optional="true"
-                  value={location.ship_state}
-                  onChange={(e) =>
-                    updateLocation((prev) => ({
-                      ...prev,
-                      ship_state: e.target.value,
-                      ship_city: "",
-                    }))
-                  }
-                  className={formFieldClass}
-                >
-                  <option value="">Select State</option>
-                  {shipStateOptions.map((state) => (
-                    <option key={state.isoCode} value={state.name}>
-                      {state.name}
-                    </option>
-                  ))}
-                </select>
-                {errors.ship_state && <p className="text-red-500 text-sm mt-1">{errors.ship_state}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>City</label>
-                <select
-                  data-field="ship_city"
-                  data-optional="true"
-                  value={location.ship_city}
-                  onChange={(e) => updateLocation((prev) => ({ ...prev, ship_city: e.target.value }))}
-                  className={formFieldClass}
-                >
-                  <option value="">Select City</option>
-                  {shipCityOptions.map((city) => (
-                    <option
-                      key={`${city.name}-${city.latitude}-${city.longitude}`}
-                      value={city.name}
-                    >
-                      {city.name}
-                    </option>
-                  ))}
-                </select>
-                {errors.ship_city && <p className="text-red-500 text-sm mt-1">{errors.ship_city}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>Pincode</label>
-                <input
-                  data-field="ship_pincode"
-                  data-rules="numeric-string"
-                  data-optional="true"
-                  type="text"
-                  value={location.ship_pincode}
-                  onChange={(e) =>
-                    updateLocation((prev) => ({ ...prev, ship_pincode: e.target.value }))
-                  }
-                  className={formFieldClass}
-                />
-                {errors.ship_pincode && <p className="text-red-500 text-sm mt-1">{errors.ship_pincode}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>Landline</label>
-                <input
-                  data-field="landline"
-                  data-rules="phone"
-                  data-optional="true"
-                  type="text"
-                  value={location.landline}
-                  onChange={(e) =>
-                    updateLocation((prev) => ({ ...prev, landline: e.target.value }))
-                  }
-                  className={formFieldClass}
-                />
-                {errors.landline && <p className="text-red-500 text-sm mt-1">{errors.landline}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>Mobile</label>
-                <input
-                  data-field="mobile"
-                  data-rules="phone"
-                  data-optional="true"
-                  type="text"
-                  value={location.mobile}
-                  onChange={(e) => updateLocation((prev) => ({ ...prev, mobile: e.target.value }))}
-                  className={formFieldClass}
-                />
-                {errors.mobile && <p className="text-red-500 text-sm mt-1">{errors.mobile}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>Fax</label>
-                <input
-                  data-field="fax"
-                  data-rules="phone"
-                  data-optional="true"
-                  type="text"
-                  value={location.fax}
-                  onChange={(e) => updateLocation((prev) => ({ ...prev, fax: e.target.value }))}
-                  className={formFieldClass}
-                />
-                {errors.fax && <p className="text-red-500 text-sm mt-1">{errors.fax}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>Email</label>
-                <input
-                  data-field="email"
-                  data-rules="email"
-                  data-optional="true"
-                  type="email"
-                  value={location.email}
-                  onChange={(e) => updateLocation((prev) => ({ ...prev, email: e.target.value }))}
-                  className={formFieldClass}
-                />
-                {errors.email && <p className="text-red-500 text-sm mt-1">{errors.email}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>Contact Person</label>
-                <input
-                  data-field="contact_person"
-                  data-rules="alpha-name"
-                  data-optional="true"
-                  type="text"
-                  value={location.contact_person}
-                  onChange={(e) =>
-                    updateLocation((prev) => ({ ...prev, contact_person: e.target.value }))
-                  }
-                  className={formFieldClass}
-                />
-                {errors.contact_person && <p className="text-red-500 text-sm mt-1">{errors.contact_person}</p>}
-              </div>
-              <div className="md:col-span-3 rounded-lg border border-gray-200 p-4">
-                <div className="grid md:grid-cols-1 gap-3">
-                  <label className="inline-flex items-center gap-2 text-sm text-gray-700">
-                    <input
-                      type="checkbox"
-                      checked={location.is_default}
-                      onChange={(e) =>
-                        updateLocation((prev) => ({ ...prev, is_default: e.target.checked }))
-                      }
-                      className={checkboxClass}
-                    />
-                    Mark as default location
-                  </label>
-                </div>
-              </div>
-            </div>
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-white font-semibold hover:bg-blue-700 disabled:opacity-70"
-            >
-              {saving ? "Saving..." : "Save & Continue"}
-            </button>
-          </form>
-        )}
-
-        {currentStep === 6 && (
-          <form onSubmit={handleWarehouseSubmit} className="space-y-6 bg-white p-6 rounded-xl shadow">
-            <h2 className="text-2xl font-bold text-gray-900">Step 6: Warehouse Setup</h2>
-            <p className="text-sm text-gray-600">
-              Plan limit: {planLimits.maxWarehouses} warehouse(s)
-            </p>
-            <div className="grid md:grid-cols-4 gap-6">
-              <div>
-                <label className={formLabelClass}>
-                  Warehouse Code <span className="text-red-500">*</span>
-                </label>
-                <input
-                  data-field="code"
-                  data-rules="code"
-                  type="text"
-                  required
-                  value={warehouse.code}
-                  onChange={(e) => setWarehouse((prev) => ({ ...prev, code: e.target.value }))}
-                  className={formFieldClass}
-                />
-                {errors.code && <p className="text-red-500 text-sm mt-1">{errors.code}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>
-                  Warehouse Name <span className="text-red-500">*</span>
-                </label>
-                <input
-                  data-field="name"
-                  data-rules="no-symbols"
-                  type="text"
-                  required
-                  value={warehouse.name}
-                  onChange={(e) => setWarehouse((prev) => ({ ...prev, name: e.target.value }))}
-                  className={formFieldClass}
-                />
-                {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>
-                  Location <span className="text-red-500">*</span>
-                </label>
-                <select
-                  data-field="location_id"
-                  value={warehouse.location_id}
-                  onChange={(e) =>
-                    setWarehouse((prev) => ({ ...prev, location_id: e.target.value }))
-                  }
-                  className={formFieldClass}
-                  required
-                >
-                  <option value="">Select Location</option>
-                  {locationOptions.map((loc) => (
-                    <option key={loc.id} value={String(loc.id)}>
-                      {loc.name}
-                    </option>
-                  ))}
-                </select>
-                {errors.location_id && <p className="text-red-500 text-sm mt-1">{errors.location_id}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>Type</label>
-                <select
-                  data-field="type"
-                  data-optional="true"
-                  value={warehouse.type}
-                  onChange={(e) =>
-                    setWarehouse((prev) => ({
-                      ...prev,
-                      type: e.target.value as WarehouseSetupForm["type"],
-                    }))
-                  }
-                  className={formFieldClass}
-                >
-                  <option value="global">Global</option>
-                  <option value="local">Local</option>
-                </select>
-                {errors.type && <p className="text-red-500 text-sm mt-1">{errors.type}</p>}
-              </div>
-              {/* <div className="md:col-span-2">
-                <label className={formLabelClass}>Address</label>
-                <input
-                  type="text"
-                  value={warehouse.address}
-                  onChange={(e) => setWarehouse((prev) => ({ ...prev, address: e.target.value }))}
-                  className={formFieldClass}
-                />
-              </div> */}
-              <div>
-                <label className={formLabelClass}>Effective From</label>
-                <input
-                  data-field="effective_from"
-                  data-rules="date"
-                  data-optional="true"
-                  type="date"
-                  value={warehouse.effective_from}
-                  onChange={(e) =>
-                    setWarehouse((prev) => ({ ...prev, effective_from: e.target.value }))
-                  }
-                  className={formFieldClass}
-                />
-                {errors.effective_from && <p className="text-red-500 text-sm mt-1">{errors.effective_from}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>Effective To</label>
-                <input
-                  data-field="effective_to"
-                  data-rules="date"
-                  data-optional="true"
-                  type="date"
-                  min={new Date().toISOString().split("T")[0]}
-                  value={warehouse.effective_to}
-                  onChange={(e) =>
-                    setWarehouse((prev) => ({ ...prev, effective_to: e.target.value }))
-                  }
-                  className={formFieldClass}
-                />
-                {errors.effective_to && <p className="text-red-500 text-sm mt-1">{errors.effective_to}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>Description</label>
-                <input
-                  data-field="description"
-                  data-rules="no-symbols"
-                  data-optional="true"
-                  type="text"
-                  value={warehouse.description}
-                  onChange={(e) =>
-                    setWarehouse((prev) => ({ ...prev, description: e.target.value }))
-                  }
-                  className={formFieldClass}
-                />
-                {errors.description && <p className="text-red-500 text-sm mt-1">{errors.description}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>Landline</label>
-                <input
-                  data-field="landline"
-                  data-rules="phone"
-                  data-optional="true"
-                  type="text"
-                  value={warehouse.landline}
-                  onChange={(e) =>
-                    setWarehouse((prev) => ({ ...prev, landline: e.target.value }))
-                  }
-                  className={formFieldClass}
-                />
-                {errors.landline && <p className="text-red-500 text-sm mt-1">{errors.landline}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>Mobile</label>
-                <input
-                  data-field="mobile_no"
-                  data-rules="phone"
-                  data-optional="true"
-                  type="text"
-                  value={warehouse.mobile_no}
-                  onChange={(e) =>
-                    setWarehouse((prev) => ({ ...prev, mobile_no: e.target.value }))
-                  }
-                  className={formFieldClass}
-                />
-                {errors.mobile_no && <p className="text-red-500 text-sm mt-1">{errors.mobile_no}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>Fax</label>
-                <input
-                  data-field="fax"
-                  data-rules="phone"
-                  data-optional="true"
-                  type="text"
-                  value={warehouse.fax}
-                  onChange={(e) => setWarehouse((prev) => ({ ...prev, fax: e.target.value }))}
-                  className={formFieldClass}
-                />
-                {errors.fax && <p className="text-red-500 text-sm mt-1">{errors.fax}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>Email</label>
-                <input
-                  data-field="email"
-                  data-rules="email"
-                  data-optional="true"
-                  type="email"
-                  value={warehouse.email}
-                  onChange={(e) => setWarehouse((prev) => ({ ...prev, email: e.target.value }))}
-                  className={formFieldClass}
-                />
-                {errors.email && <p className="text-red-500 text-sm mt-1">{errors.email}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>Contact Person Name</label>
-                <input
-                  data-field="contact_person_name"
-                  data-rules="alpha-name"
-                  data-optional="true"
-                  type="text"
-                  value={warehouse.contact_person_name}
-                  onChange={(e) =>
-                    setWarehouse((prev) => ({ ...prev, contact_person_name: e.target.value }))
-                  }
-                  className={formFieldClass}
-                />
-                {errors.contact_person_name && <p className="text-red-500 text-sm mt-1">{errors.contact_person_name}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>Contact Person Mobile</label>
-                <input
-                  data-field="contact_person_mobile"
-                  data-rules="phone"
-                  data-optional="true"
-                  type="text"
-                  value={warehouse.contact_person_mobile}
-                  onChange={(e) =>
-                    setWarehouse((prev) => ({ ...prev, contact_person_mobile: e.target.value }))
-                  }
-                  className={formFieldClass}
-                />
-                {errors.contact_person_mobile && <p className="text-red-500 text-sm mt-1">{errors.contact_person_mobile}</p>}
-              </div>
-              <div>
-                <label className={formLabelClass}>Contact Person Email</label>
-                <input
-                  data-field="contact_person_email"
-                  data-rules="email"
-                  data-optional="true"
-                  type="email"
-                  value={warehouse.contact_person_email}
-                  onChange={(e) =>
-                    setWarehouse((prev) => ({ ...prev, contact_person_email: e.target.value }))
-                  }
-                  className={formFieldClass}
-                />
-                {errors.contact_person_email && <p className="text-red-500 text-sm mt-1">{errors.contact_person_email}</p>}
-              </div>
-              <div className="md:col-span-3">
-                <label className="inline-flex items-center gap-2 text-sm text-gray-700">
-                  <input
-                    type="checkbox"
-                    checked={warehouse.is_default}
-                    onChange={(e) =>
-                      setWarehouse((prev) => ({ ...prev, is_default: e.target.checked }))
-                    }
-                    className={checkboxClass}
-                  />
-                  Mark as default warehouse
-                </label>
-              </div>
-
-            </div>
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-white font-semibold hover:bg-blue-700 disabled:opacity-70"
-            >
-              {saving ? "Saving..." : "Save & Continue"}
-            </button>
-          </form>
-        )}
-
-        {currentStep === 7 && (
-          <div className="space-y-6 bg-white p-6 rounded-xl shadow">
-            <h2 className="text-2xl font-bold text-gray-900">Step 7: Staff Setup</h2>
-            <p className="text-sm text-gray-600">Plan user limit: {planLimits.maxUsers}</p>
-            <button
-              type="button"
-              onClick={addStaffRow}
-              className="rounded-lg bg-gray-800 px-4 py-2 text-sm font-semibold text-white"
-            >
-              Add Staff
-            </button>
-            <div className="space-y-4">
-              {staffUsers.map((user, index) => (
-
-                <div key={index} className="relative rounded-xl border border-gray-200 p-5 bg-gray-50/50">
                   <button
                     type="button"
-                    onClick={() => removeStaffRow(index)}
-                    className="absolute top-4 right-4 p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-200 z-10"
-                    title="Remove Staff"
+                    onClick={handlePhoneVerifiedStep}
+                    disabled={saving || !phoneVerified}
+                    className="rounded-lg bg-blue-600 px-5 py-3 text-white font-semibold hover:bg-blue-700 disabled:opacity-70"
                   >
-                    <TrashIcon className="w-5 h-5" />
+                    {saving ? "Saving..." : "Continue to Payment →"}
                   </button>
+                </div>
+              )}
 
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pr-0 md:pr-8">
-                    <div>
-                      <label className={formLabelClass}>
-                        Name <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        data-field={`staff_name_${index}`}
-                        data-rules="alpha-name"
-                        value={user.name}
-                        onChange={(e) => updateStaffRow(index, { name: e.target.value })}
-                        className={formFieldClass}
-                      />
-                      {(staffErrors[index]?.name || errors[`staff_name_${index}`]) && (
-                        <p className="mt-2 text-sm text-red-600">{staffErrors[index]?.name || errors[`staff_name_${index}`]}</p>
-                      )}
-                    </div>
-                    <div>
-                      <label className={formLabelClass}>
-                        Username <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        data-field={`staff_username_${index}`}
-                        data-rules="no-symbols"
-                        value={user.username || ""}
-                        onChange={(e) => updateStaffRow(index, { username: e.target.value })}
-                        className={formFieldClass}
-                      />
-                      {(staffErrors[index]?.username || errors[`staff_username_${index}`]) && (
-                        <p className="mt-2 text-sm text-red-600">{staffErrors[index]?.username || errors[`staff_username_${index}`]}</p>
-                      )}
-                    </div>
-                    <div>
-                      <label className={formLabelClass}>
-                        Email <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        data-field={`staff_email_${index}`}
-                        data-rules="email"
-                        value={user.email}
-                        onChange={(e) => updateStaffRow(index, { email: e.target.value })}
-                        className={formFieldClass}
-                      />
-                      {(staffErrors[index]?.email || errors[`staff_email_${index}`]) && (
-                        <p className="mt-2 text-sm text-red-600">{staffErrors[index]?.email || errors[`staff_email_${index}`]}</p>
-                      )}
-                    </div>
-                    <div>
-                      <label className={formLabelClass}>
-                        Password <span className="text-red-500">*</span>
-                      </label>
-
-                      <div className="relative">
-                        <input
-                          data-field={`staff_password_${index}`}
-                          type={showPasswords[index] ? "text" : "password"}
-                          value={user.password || ""}
-                          onChange={(e) =>
-                            updateStaffRow(index, { password: e.target.value })
-                          }
-                          className={`${formFieldClass} pr-10`}
-                        />
-
-                        <button
-                          type="button"
-                          onClick={() => togglePassword(index)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
-                        >
-                          {showPasswords[index] ? (
-                            <HiEyeOff size={18} />
-                          ) : (
-                            <HiEye size={18} />
-                          )}
-                        </button>
+              {currentStep === 2 && (
+                <Pricing
+                  mode="onboarding"
+                  selectedPlanId={selectedPlan?.plan_id || initialPlanId || null}
+                  selectedBillingInterval={selectedBillingInterval}
+                  onlySelectedPlan
+                  onSelectPlan={(plan) => {
+                    setSelectedPlan(plan);
+                    persistSelectedPlan(plan);
+                  }}
+                  onSelectBillingInterval={setSelectedBillingInterval}
+                  onContinue={handlePlanContinue}
+                  loading={saving}
+                />
+              )}
+              {currentStep === 3 && (
+                <form onSubmit={handleBusinessSubmit} className="space-y-6 bg-white p-6 rounded-xl shadow">
+                  {/* Context Card for Step 3 */}
+                  {subscription && (
+                    <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-4 mb-4 flex justify-between items-center shadow-sm">
+                      <div>
+                        <p className="text-sm text-indigo-700 font-semibold">Active Plan</p>
+                        <p className="text-lg font-bold text-gray-900">{subscription.plan_name || subscription.plan_code}</p>
                       </div>
-                      {(staffErrors[index]?.password || errors[`staff_password_${index}`]) && (
-                        <p className="mt-2 text-sm text-red-600">{staffErrors[index]?.password || errors[`staff_password_${index}`]}</p>
-                      )}
+                      <div className="text-right">
+                        <p className="text-sm text-indigo-700 font-semibold">Status</p>
+                        <p className="text-lg font-bold text-green-600">{subscription.status}</p>
+                      </div>
                     </div>
+                  )}
+                  <h2 className="text-2xl font-bold text-gray-900">Step 3: Business Setup</h2>
+                  <div className="grid md:grid-cols-3 gap-6">
                     <div>
-                      <label className={formLabelClass}>
-                        Phone <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        data-field={`staff_phone_${index}`}
-                        data-rules="phone"
-                        value={user.phone}
-                        onChange={(e) => updateStaffRow(index, { phone: e.target.value })}
-                        className={formFieldClass}
-                      />
-                      {(staffErrors[index]?.phone || errors[`staff_phone_${index}`]) && (
-                        <p className="mt-2 text-sm text-red-600">{staffErrors[index]?.phone || errors[`staff_phone_${index}`]}</p>
-                      )}
-                    </div>
-                    <div>
-                      <label className={formLabelClass}>
-                        Responsibility <span className="text-red-500">*</span>
-                      </label>
+                      <label className={formLabelClass}>Country <span className="text-red-500">*</span></label>
                       <select
-                        data-field={`staff_responsibility_id_${index}`}
-                        value={user.responsibility_id}
+                        value={businessSettings.country}
                         onChange={(e) =>
-                          updateStaffRow(index, {
-                            responsibility_id: e.target.value,
+                          setBusinessSettings((prev) => {
+                            const nextCountry = e.target.value;
+                            const defaultCurrency = getDefaultCurrencyCodeForCountry(nextCountry);
+                            return {
+                              ...prev,
+                              country: nextCountry,
+                              state: "",
+                              city: "",
+                              currency: defaultCurrency || prev.currency,
+                            };
                           })
                         }
                         className={formFieldClass}
+                        required
+                        disabled
                       >
-                        <option value="">Select Responsibility</option>
-                        {responsibilityOptions.map((responsibility) => (
-                          <option key={responsibility.id} value={String(responsibility.id)}>
-                            {responsibility.responsibility_name}
+                        <option value="India">India</option>
+                        {countryOptions.map((country) => (
+                          <option key={country.isoCode} value={country.name}>
+                            {country.name}
                           </option>
                         ))}
                       </select>
-                      {(staffErrors[index]?.responsibility_id || errors[`staff_responsibility_id_${index}`]) && (
-                        <p className="mt-2 text-sm text-red-600">{staffErrors[index]?.responsibility_id || errors[`staff_responsibility_id_${index}`]}</p>
-                      )}
+                      {errors.country && <p className="text-red-500 text-sm mt-1">{errors.country}</p>}
                     </div>
+
                     <div>
-                      <label className={formLabelClass}>
-                        Location <span className="text-red-500">*</span>
-                      </label>
+                      <label className={formLabelClass}>State <span className="text-red-500">*</span></label>
                       <select
-                        data-field={`staff_location_id_${index}`}
-                        value={user.location_id}
+                        data-field="state"
+                        value={businessSettings.state}
                         onChange={(e) => {
-                          const nextLocationId = e.target.value;
-                          const selectedWarehouseMatchesLocation = warehouseOptions.some(
-                            (wh) =>
-                              String(wh.id) === user.warehouse_id &&
-                              String(wh.location_id) === nextLocationId
-                          );
-                          updateStaffRow(index, {
-                            location_id: nextLocationId,
-                            warehouse_id: selectedWarehouseMatchesLocation ? user.warehouse_id : "",
-                          });
+                          const nextState = e.target.value;
+                          const stateCode = getGstStateCodeForState(nextState);
+
+                          setBusinessSettings((prev) => ({
+                            ...prev,
+                            state: nextState,
+                            city: "",
+                            // STRICT GUARD: If GST Available is false, force empty strings!
+                            gst_number: gstAvailable ? formatGstinInput(prev.gst_number, stateCode) : "",
+                            pan_number: gstAvailable ? getNextPanValue(prev.gst_number, prev.pan_number, isPanManuallyEdited) : "",
+                          }));
                         }}
                         className={formFieldClass}
                         required
                       >
-                        <option value="">Select Location</option>
-                        {locationOptions.map((loc) => (
-                          <option key={loc.id} value={String(loc.id)}>
-                            {loc.name}
+                        <option value="">Select State</option>
+                        {businessStateOptions.map((state) => (
+                          <option key={state.isoCode} value={state.name}>
+                            {state.name}
                           </option>
                         ))}
                       </select>
-                      {(staffErrors[index]?.location_id || errors[`staff_location_id_${index}`]) && (
-                        <p className="mt-2 text-sm text-red-600">{staffErrors[index]?.location_id || errors[`staff_location_id_${index}`]}</p>
-                      )}
+                      {errors.state && <p className="text-red-500 text-sm mt-1">{errors.state}</p>}
                     </div>
                     <div>
-                      <label className={formLabelClass}>
-                        Warehouse <span className="text-red-500">*</span>
-                      </label>
+                      <label className={formLabelClass}>City</label>
                       <select
-                        data-field={`staff_warehouse_id_${index}`}
-                        value={user.warehouse_id}
-                        onChange={(e) => updateStaffRow(index, { warehouse_id: e.target.value })}
+                        data-field="city"
+                        value={businessSettings.city}
+                        onChange={(e) =>
+                          setBusinessSettings((prev) => ({ ...prev, city: e.target.value }))
+                        }
                         className={formFieldClass}
-                        required
                       >
-                        <option value="">Select Warehouse</option>
-                        {warehouseOptions
-                          .filter(
-                            (wh) =>
-                              !user.location_id ||
-                              String(wh.location_id) === String(user.location_id)
-                          )
-                          .map((wh) => (
-                            <option key={wh.id} value={String(wh.id)}>
-                              {wh.name}
-                            </option>
-                          ))}
+                        <option value="">Select City</option>
+                        {businessCityOptions.map((city) => (
+                          <option
+                            key={`${city.name}-${city.latitude}-${city.longitude}`}
+                            value={city.name}
+                          >
+                            {city.name}
+                          </option>
+                        ))}
                       </select>
-                      {(staffErrors[index]?.warehouse_id || errors[`staff_warehouse_id_${index}`]) && (
-                        <p className="mt-2 text-sm text-red-600">{staffErrors[index]?.warehouse_id || errors[`staff_warehouse_id_${index}`]}</p>
-                      )}
+                      {errors.city && <p className="text-red-500 text-sm mt-1">{errors.city}</p>}
                     </div>
 
+                    <div className="md:col-span-2">
+                      <label className={formLabelClass}>Business Address</label>
+                      <textarea
+                        data-field="business_address"
+                        data-rules="no-symbols"
+                        data-optional="true"
+                        value={businessSettings.business_address}
+                        onChange={(e) =>
+                          setBusinessSettings((prev) => ({ ...prev, business_address: e.target.value }))
+                        }
+                        rows={3}
+                        placeholder="Optional"
+                        className={formFieldClass}
+                      />
+                      {errors.business_address && <p className="text-red-500 text-sm mt-1">{errors.business_address}</p>}
+                    </div>
+
+                    <div>
+                      <label className={formLabelClass}>Currency</label>
+                      <select
+                        data-field="currency"
+                        data-optional="true"
+                        value={businessSettings.currency}
+                        onChange={(e) =>
+                          setBusinessSettings((prev) => ({ ...prev, currency: e.target.value }))
+                        }
+                        className={formFieldClass}
+                      >
+                        <option value="">Select Currency</option>
+                        {currencyOptions.map((currency) => (
+                          <option key={currency.id} value={currency.currency_code}>
+                            {currency.currency_code} - {currency.currency_name}
+                          </option>
+                        ))}
+                      </select>
+                      {errors.currency && <p className="text-red-500 text-sm mt-1">{errors.currency}</p>}
+                    </div>
+
+                    <div className="md:col-span-3 rounded-lg border border-gray-200 p-4 space-y-4">
+                      <label className="inline-flex items-center gap-2 text-sm text-gray-700 font-semibold cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={gstAvailable}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setGstAvailable(checked);
+                            setIsPanManuallyEdited(false);
+
+                            setBusinessSettings((prev) => {
+                              // If unchecked: purge GST and PAN entirely
+                              if (!checked) {
+                                return { ...prev, gst_number: "", pan_number: "" };
+                              }
+
+                              // If checked: rebuild state code digits automatically
+                              const gst_number = formatGstinInput(prev.gst_number, businessGstStateCode);
+                              return {
+                                ...prev,
+                                gst_number,
+                                pan_number: getNextPanValue(gst_number, prev.pan_number, false),
+                              };
+                            });
+                          }}
+                          className={checkboxClass}
+                        />
+                        GST Available
+                      </label>
+
+                      {/* Render GST and PAN inputs ONLY when GST Available is checked */}
+                      {gstAvailable && (
+                        <div className="grid md:grid-cols-2 gap-6 pt-2">
+                          <div>
+                            <label className={formLabelClass}>
+                              GST Number <span className="text-red-500">*</span>
+                            </label>
+                            <div
+                              className={`mt-2 flex overflow-hidden rounded-lg ${shouldShowBusinessGstError
+                                ? "border border-red-500 focus-within:ring-2 focus-within:ring-red-500"
+                                : isBusinessGstValid
+                                  ? "border border-green-500 focus-within:ring-2 focus-within:ring-green-500"
+                                  : "border border-gray-300 focus-within:ring-2 focus-within:ring-indigo-500"
+                                }`}
+                            >
+                              <span className="flex items-center bg-gray-100 px-3 text-sm font-bold text-gray-700 border-r border-gray-300">
+                                {businessGstStateCode || "--"}
+                              </span>
+                              <input
+                                data-field="gst_number"
+                                data-rules="code"
+                                type="text"
+                                required
+                                value={businessGstSuffix}
+                                onChange={(e) => updateBusinessGst(e.target.value)}
+                                maxLength={13}
+                                className="w-full p-3 outline-none uppercase font-mono tracking-wider"
+                                placeholder="AAAAA1111A1Z5"
+                              />
+                            </div>
+                            {shouldShowBusinessGstError && (
+                              <p className="text-red-500 text-xs mt-1">
+                                Please enter valid remaining 13 GSTIN characters.
+                              </p>
+                            )}
+                            {errors.gst_number && <p className="text-red-500 text-sm mt-1">{errors.gst_number}</p>}
+                          </div>
+
+                          <div>
+                            <label className={formLabelClass}>PAN Number</label>
+                            <input
+                              data-field="pan_number"
+                              data-rules="code"
+                              type="text"
+                              value={businessSettings.pan_number}
+                              onChange={(e) => {
+                                setIsPanManuallyEdited(true);
+                                setBusinessSettings((prev) => ({
+                                  ...prev,
+                                  pan_number: normalizePan(e.target.value),
+                                }));
+                              }}
+                              maxLength={10}
+                              className={`${formFieldClass} uppercase font-mono tracking-wider`}
+                              placeholder="AAAAA1111A"
+                            />
+                            {errors.pan_number && <p className="text-red-500 text-sm mt-1">{errors.pan_number}</p>}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-            <button
-              type="button"
-              disabled={saving}
-              onClick={handleStaffSubmit}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-white font-semibold hover:bg-blue-700 disabled:opacity-70"
-            >
-              {saving ? "Saving..." : "Save & Continue"}
-            </button>
-          </div>
-        )}
 
-        {currentStep === 8 && (
-          <div className="space-y-6">
-            <h2 className="text-2xl font-bold text-gray-900">Step 8: Email Activation &amp; Launch</h2>
-            {/* Workspace Summary Panel (Always Visible on Step 8) */}
-            <div className="rounded-2xl border border-gray-200 bg-gradient-to-br from-slate-50 to-blue-50 p-6 space-y-4">
-              <h3 className="text-lg font-bold text-gray-900">🚀 Your Workspace Summary</h3>
-              <div className="grid md:grid-cols-3 gap-4">
-                <div className="rounded-xl bg-white border border-gray-100 p-4 text-center shadow-sm">
-                  <p className="text-3xl font-bold text-blue-600">{planLimits.maxUsers}</p>
-                  <p className="text-xs text-gray-500 mt-1">System Users</p>
-                </div>
-                <div className="rounded-xl bg-white border border-gray-100 p-4 text-center shadow-sm">
-                  <p className="text-3xl font-bold text-blue-600">{planLimits.maxLocations}</p>
-                  <p className="text-xs text-gray-500 mt-1">Locations</p>
-                </div>
-                <div className="rounded-xl bg-white border border-gray-100 p-4 text-center shadow-sm">
-                  <p className="text-3xl font-bold text-blue-600">{planLimits.maxWarehouses}</p>
-                  <p className="text-xs text-gray-500 mt-1">Warehouses</p>
-                </div>
-              </div>
-              <div className="grid md:grid-cols-2 gap-3 text-sm">
-                <div className="rounded-lg bg-white border border-gray-100 px-4 py-3">
-                  <span className="text-gray-500">Admin Console</span>
-                  <p className="font-semibold text-blue-700 mt-0.5">{`digistorii/${company}/admin`}</p>
-                </div>
-                <div className="rounded-lg bg-white border border-gray-100 px-4 py-3">
-                  <span className="text-gray-500">Operations Portal URL</span>
-                  <p className="font-semibold text-blue-700 mt-0.5">{`digistorii/${company}/workspace`}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Dynamic Status Logic Container */}
-            {stage === "LIVE" ? (
-              /* ── STATE C: Verified & Celebration View ── */
-              <div className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-green-50 to-emerald-50 p-8 text-center space-y-4 shadow-md animate-fade-in">
-                <div className="mx-auto w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
-                  <svg className="h-8 w-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
-                </div>
-                <h3 className="text-2xl font-bold text-green-800">🎉 Onboarding Completed!</h3>
-                <p className="text-green-700 max-w-md mx-auto leading-relaxed">
-                  Your tenant setup is complete and your workspace is now <strong>LIVE</strong>.
-                </p>
-                <div className="pt-2">
-                  <a
-                    href={`${company}/workspace/login`}
-                    className="inline-block rounded-xl bg-green-600 px-6 py-3 text-white font-semibold shadow hover:bg-green-700 transition-all"
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="rounded-lg bg-blue-600 px-5 py-2.5 text-white font-semibold hover:bg-blue-700 disabled:opacity-70 transition-colors"
                   >
-                    Go to My Dashboard →
-                  </a>
-                </div>
-              </div>
-            ) : emailSent ? (
-              /* ── STATE B: Waiting on Inbox Link Verification ── */
-              <div className="rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50 p-8 text-center space-y-5 shadow-sm">
-                <div className="mx-auto w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center animate-pulse">
-                  <svg className="h-8 w-8 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                  </svg>
-                </div>
-                <h3 className="text-xl font-bold text-blue-900">Activation Email Sent!</h3>
-                <p className="text-slate-600 max-w-md mx-auto leading-relaxed text-sm">
-                  We have sent a secure confirmation link to your email address.
-                  Please <strong>check your inbox and click the button</strong> to activate this workspace.
-                </p>
+                    {saving ? "Saving..." : "Save & Continue"}
+                  </button>
+                </form>
+              )}
 
-                <div className="flex items-center justify-center gap-2 text-xs text-indigo-600 font-medium bg-white/80 border border-indigo-100 rounded-lg px-4 py-2 inline-flex">
-                  <svg className="animate-spin h-4 w-4 text-indigo-600" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  Waiting for verification... This page will update automatically.
+              {currentStep === 4 && (
+                <div className="max-w-xl mx-auto space-y-6 py-4 animate-fade-in">
+                  {subscription && (
+                    <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-4 mb-4 flex justify-between items-center shadow-sm">
+                      <div>
+                        <p className="text-sm text-indigo-700 font-semibold">Active Plan</p>
+                        <p className="text-lg font-bold text-gray-900">{subscription.plan_name || subscription.plan_code}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm text-indigo-700 font-semibold">Status</p>
+                        <p className="text-lg font-bold text-green-600">{subscription.status}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Center Hero Information Card */}
+                  <div className="rounded-2xl border border-blue-100 bg-gradient-to-b from-blue-50/60 to-white p-8 text-center shadow-sm space-y-4">
+                    {/* Information Center Icon */}
+                    <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600/10 text-blue-600 shadow-inner">
+                      <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                      </svg>
+                    </div>
+
+                    {/* Few Words Title & Subtitle */}
+                    <div className="space-y-1">
+                      <h2 className="text-2xl font-bold tracking-tight text-slate-900">Email Verification Required</h2>
+                      <p className="text-sm text-slate-500 max-w-sm mx-auto leading-relaxed">
+                        Almost ready! Click below to send a secure activation link to your registered business inbox.
+                      </p>
+                    </div>
+
+                    {/* Target Email Indicator */}
+                    <div className="inline-flex items-center gap-2 rounded-lg bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-700 border border-slate-200/80 shadow-xs">
+                      <span className="text-slate-400">Sending to:</span>
+                      <span className="text-blue-600 font-mono">{"owner@yourdomain.com"}</span>
+                    </div>
+                  </div>
+
+                  {/* Dynamic Status Action States */}
+                  {stage === "LIVE" ? (
+                    /* STATE C: Verified & Celebration View */
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 text-center space-y-3 shadow-xs">
+                      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+                        <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      </div>
+                      <h3 className="text-lg font-bold text-emerald-900">Workspace is Live!</h3>
+                      <p className="text-xs text-emerald-700">Your email has been verified successfully.</p>
+                      <a
+                        href={`/${company}/workspace/login`}
+                        className="inline-block w-full rounded-xl bg-emerald-600 py-3 text-sm font-semibold text-white shadow-md hover:bg-emerald-700 transition-all"
+                      >
+                        Launch My Dashboard →
+                      </a>
+                    </div>
+                  ) : emailSent ? (
+                    /* STATE B: Waiting on Inbox Link Verification */
+                    <div className="rounded-2xl border border-blue-200 bg-blue-50/70 p-6 text-center space-y-4 shadow-xs">
+                      <div className="flex items-center justify-center gap-2 text-xs font-semibold text-blue-700">
+                        <svg className="animate-spin h-4 w-4 text-blue-600" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        Activation Link Sent — Checking Inbox...
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        Click the verification button in your email to instantly unlock your workspace dashboard.
+                      </p>
+                    </div>
+                  ) : (
+                    /* STATE A: Initial Trigger Button */
+                    <button
+                      type="button"
+                      onClick={handleSendLaunchEmail}
+                      disabled={emailSending}
+                      className="w-full rounded-xl bg-blue-600 py-3.5 text-sm font-bold text-white shadow-md hover:bg-blue-700 active:scale-[0.99] disabled:opacity-70 transition-all cursor-pointer"
+                    >
+                      {emailSending ? (
+                        <span className="flex items-center justify-center gap-2">
+                          <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24" fill="none">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                          </svg>
+                          Sending Activation Email…
+                        </span>
+                      ) : (
+                        "Verify Email & Launch Workspace"
+                      )}
+                    </button>
+                  )}
                 </div>
-              </div>
-            ) : (
-              /* ── STATE A: Initial Form State (Hasn't clicked button yet) ── */
-              <button
-                type="button"
-                onClick={handleSendLaunchEmail}
-                disabled={emailSending}
-                className="w-full rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 text-white font-bold text-lg hover:from-blue-700 hover:to-indigo-700 disabled:opacity-70 transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
-              >
-                {emailSending ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                    Sending Activation Email…
-                  </span>
-                ) : (
-                  "Verify Email & Launch Workspace"
-                )}
-              </button>
-            )}
-          </div>
-        )}
-      </section>
+              )}
+            </>
+          )}
+        </div>
+      </main>
     </div>
   );
 }

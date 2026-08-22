@@ -114,26 +114,10 @@ const navItems: NavItem[] = [
     ],
   },
   {
-    name: "Settings",
+    name: "Administration",
     icon: <IconSettings />,
     permission: "settings_access",
-    subItems: [
-      { name: "Categories", path: "/workspace/inventory/categories", pro: false },
-      { name: "Fittings", path: "/workspace/inventory/fittings", pro: false },
-      { name: "Colors", path: "/workspace/inventory/colors", pro: false },
-      { name: "Materials", path: "/workspace/inventory/materials", pro: false },
-      { name: "UOM", path: "/workspace/inventory/uom", pro: false },
-      { name: "Tax", path: "/workspace/inventory/tax", pro: false },
-      { name: "Payment Modes", path: "/workspace/inventory/payment-mode", pro: false },
-      { name: "Payment Terms", path: "/workspace/inventory/payment-terms", pro: false },
-      // { name: "Currencies", path: "/workspace/inventory/currencies", pro: false },
-      { name: "Currencies", path: "/workspace/inventory/currency-rate", pro: false },
-      { name: "Store Location", path: "/workspace/inventory/location", pro: false },
-      { name: "Warehouse", path: "/workspace/inventory/warehouse", pro: false },
-      { name: "Locator", path: "/workspace/inventory/locator", pro: false },
-      { name: "Despatch Terms", path: "/workspace/inventory/despatch-terms", pro: false },
-
-    ],
+    path: "/workspace/administration/masters",
   }
   // {
   //   name: "Transactions",

@@ -1,4 +1,6 @@
 "use client";
+import Link from "next/link";
+import { ArrowLeftIcon } from "@heroicons/react/24/outline";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -214,6 +216,11 @@ export default function PaymentTermsMasterPage() {
           <p className="text-sm text-gray-500">Define credit periods, due dates, and payment terms for invoices.</p>
         </div>
         {!showForm && (
+          <div className="flex items-center gap-3">
+          <Link className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors" href={`/${company}/workspace/administration/masters`}>
+            <ArrowLeftIcon className="w-4 h-4 text-gray-500"/>
+            Back to Masters
+          </Link>
           <button
             onClick={() => {
               setForm(initialForm());
@@ -225,6 +232,7 @@ export default function PaymentTermsMasterPage() {
             <PlusIcon className="w-4 h-4" />
             Add Payment Terms
           </button>
+        </div>
         )}
       </div>
 

@@ -234,6 +234,91 @@ ORDER BY d.id
       `);
 
       return NextResponse.json({ success: true, data: result.rows });
+    } else if (type === "po_supplier_lookup") {
+      const supplierId = req.nextUrl.searchParams.get("supplier_id");
+      if (!supplierId) {
+        return NextResponse.json(
+          { success: false, message: "Supplier ID required" },
+          { status: 400 }
+        );
+      }
+
+      console.log("Fetching PO product lookup data for supplier:", supplierId);
+      result = await client.query(
+        `
+        SELECT
+          pv.id::int AS variant_id,
+          pv.id::int AS id,
+          p.id::int AS product_id,
+          p.product_code AS code,
+          p.product_code,
+          pv.sku,
+          pcl.color_name as color,
+          p.name,
+          p.description,
+          COALESCE(pc.path_string, pc.category_name, p.category) AS category_name,
+          COALESCE(pc.path_string, pc.category_name, p.category) AS category,
+          stock.current_stock AS current_stock,
+          COALESCE(pp.final_selling_price, 0) AS selling_price,
+          p.${productTypeColumn} AS type,
+          p.source,
+          p.uom,
+          u.uom_code,
+          u.uom_name,
+          p.hsn_code,
+          pv.barcode,
+          last_supplier_price.price AS last_price_this_supplier,
+          lowest_price.price AS lowest_price_overall,
+          lowest_price.supplier_name AS lowest_price_supplier_name,
+          lowest_price.price_date AS lowest_price_date
+        FROM "${schema}".product_variants pv
+        INNER JOIN "${schema}".products p
+          ON p.id = pv.product_id
+        LEFT JOIN "${schema}".product_categories pc
+          ON pc.id::text = p.category::text
+        LEFT JOIN "${schema}".uom u
+          ON u.id::text = p.uom
+        LEFT JOIN "${schema}".product_colors pcl
+          on pcl.id::text = pv.color_id::text
+        LEFT JOIN LATERAL (
+          SELECT COALESCE(SUM(cs.current_stock), 0) AS current_stock
+          FROM "${schema}".current_stock cs
+          WHERE cs.product_id = pv.id
+            AND cs.tenant_id = $1
+            AND ($2::int IS NULL OR cs.warehouse_id = $2::int)
+        ) stock
+          ON TRUE
+        LEFT JOIN "${schema}".product_pricing pp
+          ON pp.variant_id = pv.id
+          AND pp.tenant_id = $1
+          AND pp.is_active = TRUE
+        LEFT JOIN LATERAL (
+          SELECT d.rate as price
+          FROM "${schema}".purchase_detail d
+          INNER JOIN "${schema}".purchase_header h ON h.id = d.purchase_id
+          WHERE d.product_id::text = pv.id::text
+            AND h.supplier_id = $3
+          ORDER BY h.purchase_date DESC, h.id DESC
+          LIMIT 1
+        ) last_supplier_price ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT d.rate as price, s.name as supplier_name, h.purchase_date as price_date
+          FROM "${schema}".purchase_detail d
+          INNER JOIN "${schema}".purchase_header h ON h.id = d.purchase_id
+          LEFT JOIN "${schema}".suppliers s ON s.id = h.supplier_id
+          WHERE d.product_id::text = pv.id::text
+          ORDER BY d.rate ASC, h.purchase_date DESC
+          LIMIT 1
+        ) lowest_price ON TRUE
+        WHERE p.status = 1
+          AND pv.status IN ('draft', 'active')
+          ${salesProductFilter}
+          ${warehouseSourceFilter}
+        ORDER BY stock.current_stock ASC
+        `
+        , [company, targetWarehouseId, supplierId]);
+      return NextResponse.json({ success: true, data: result.rows });
+
     } else if (type === "lookup") {
       console.log("Fetching product lookup data...110");
       result = await client.query(

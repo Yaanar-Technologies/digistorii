@@ -1,4 +1,6 @@
 "use client";
+import Link from "next/link";
+import { ArrowLeftIcon } from "@heroicons/react/24/outline";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -66,6 +68,7 @@ function flattenCategories(nodes: CategoryNode[], parentPath: string[] = [], par
 function LoadingOverlay({ loading }: { loading: boolean }) {
   if (!loading) return null;
 
+
   return createPortal(
     <div className="fixed inset-0 z-[99999] bg-black/20 backdrop-blur-sm flex items-center justify-center">
       <div className="bg-white p-8 rounded-xl shadow-2xl flex flex-col items-center gap-3">
@@ -77,6 +80,7 @@ function LoadingOverlay({ loading }: { loading: boolean }) {
   );
 }
 function PageHeader({ showForm, onAdd }: any) {
+  const { company } = useTenant();
   return (
     <div className="flex justify-between items-center">
       <div>
@@ -87,13 +91,24 @@ function PageHeader({ showForm, onAdd }: any) {
       </div>
 
       {!showForm && (
-        <button
-          onClick={onAdd}
-          className="bg-[var(--color-blue-500)] flex items-center gap-2 text-white px-4 py-2 rounded-lg"
-        >
-          <PlusIcon className="w-4 h-4" />
-          Add Category
-        </button>
+        <div className="flex items-center gap-3">
+          <Link
+            href={`/${company}/workspace/administration/masters`}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:text-gray-900 transition-colors shadow-sm"
+          >
+            <ArrowLeftIcon className="w-4 h-4 text-gray-500" />
+            Back to Masters
+          </Link>
+
+          <button
+            type="button"
+            onClick={onAdd}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[var(--color-blue-500)] hover:bg-[var(--color-blue-600)] rounded-lg transition-colors shadow-sm"
+          >
+            <PlusIcon className="w-4 h-4" />
+            Add Category
+          </button>
+        </div>
       )}
     </div>
   );

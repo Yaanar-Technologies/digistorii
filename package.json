@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --webpack",
-    "build": "next build --webpack",
-    "start": "next start",
+    "dev": "node server.js",
+    "build": "next build",
+    "start": "node server.js",
     "lint": "eslint"
   },
   "dependencies": {
@@ -28,6 +28,7 @@
     "country-state-city": "^3.2.1",
     "currency-codes": "^2.2.0",
     "decimal.js": "^10.6.0",
+    "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",
     "file-type": "^22.0.1",
     "flatpickr": "^4.6.13",
@@ -49,8 +50,11 @@
     "react-icons": "^5.5.0",
     "react-select": "^5.10.2",
     "react-to-print": "^3.3.0",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.1.17",
+    "tsx": "^4.23.12",
     "xlsx": "^0.18.5",
     "zod": "^4.3.6",
     "zustand": "^5.0.12"

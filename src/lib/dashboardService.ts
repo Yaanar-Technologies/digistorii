@@ -76,34 +76,36 @@ export const getDashboardMetrics = async (schema: string) => {
 };
  
  
-export const getMonthlySales = async (schema: string) => {
+export const getMonthlySales = async (schema: string, yearType: string, fromDate: string, toDate: string) => {
   try {
-    // console.log("Monthly Sales Fetch Start");
-    // console.log("Tenant Schema:", schema);
- 
+    const isFiscal = yearType === 'fiscal';
+    
+    // Create an ordered list of months depending on the year type
+    // Fiscal: 4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3
+    // Calendar: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
+    const monthValues = isFiscal
+      ? "(1,4),(2,5),(3,6),(4,7),(5,8),(6,9),(7,10),(8,11),(9,12),(10,1),(11,2),(12,3)"
+      : "(1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10),(11,11),(12,12)";
+
     const result = await pool.query(`
       SELECT
         m.month,
         COALESCE(SUM(p.total_amount),0) AS sales
-      FROM generate_series(1,12) m(month)
+      FROM (VALUES ${monthValues}) m(idx, month)
       LEFT JOIN ${schema}.sales_header p
-      ON EXTRACT(MONTH FROM p.created_at) = m.month
-      AND EXTRACT(YEAR FROM p.created_at) = EXTRACT(YEAR FROM CURRENT_DATE)
-      GROUP BY m.month
-      ORDER BY m.month
-    `);
- 
+        ON EXTRACT(MONTH FROM p.created_at) = m.month
+        AND p.created_at >= $1::date 
+        AND p.created_at <= $2::date
+      GROUP BY m.idx, m.month
+      ORDER BY m.idx
+    `, [fromDate, toDate]);
+
     const monthlySales = result.rows.map((row: any) => Number(row.sales));
- 
-    // console.log("Monthly Sales Result:", monthlySales);
- 
+
     return monthlySales;
   } catch (error: any) {
     console.error("Monthly Sales DB Error");
     console.error("Message:", error.message);
-    console.error("Code:", error.code);
-    console.error("Detail:", error.detail);
-    console.error("Stack:", error.stack);
     throw new Error("Database error while fetching monthly sales");
   }
 };
@@ -156,44 +158,44 @@ export const getMonthlyTargetMetrics = async (schema: string, salesTarget: numbe
   }
 };
  
-export const getStatisticsChart = async (schema: string) => {
+export const getStatisticsChart = async (schema: string, yearType: string, fromDate: string, toDate: string) => {
   try {
-    // console.log("Statistics Chart Fetch Start");
-    // console.log("Tenant Schema:", schema);
- 
+    const isFiscal = yearType === 'fiscal';
+    const monthValues = isFiscal
+      ? "(1,4),(2,5),(3,6),(4,7),(5,8),(6,9),(7,10),(8,11),(9,12),(10,1),(11,2),(12,3)"
+      : "(1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10),(11,11),(12,12)";
+
     const result = await pool.query(`
       SELECT
         m.month,
         COALESCE(COUNT(p.id),0) AS sales,
         COALESCE(SUM(p.total_amount),0) AS revenue
-      FROM generate_series(1,12) m(month)
+      FROM (VALUES ${monthValues}) m(idx, month)
       LEFT JOIN ${schema}.sales_header p
-      ON EXTRACT(MONTH FROM p.created_at) = m.month
-      AND EXTRACT(YEAR FROM p.created_at) = EXTRACT(YEAR FROM CURRENT_DATE)
-      GROUP BY m.month
-      ORDER BY m.month
-    `);
- 
+        ON EXTRACT(MONTH FROM p.created_at) = m.month
+        AND p.created_at >= $1::date
+        AND p.created_at <= $2::date
+      GROUP BY m.idx, m.month
+      ORDER BY m.idx
+    `, [fromDate, toDate]);
+
     const sales: number[] = [];
     const revenue: number[] = [];
- 
+
     result.rows.forEach((row: any) => {
       sales.push(Number(row.sales));
       revenue.push(Number(row.revenue));
     });
- 
+
     const data = {
       sales,
       revenue
     };
- 
-    // console.log("Statistics Chart Result:", data);
+
     return data;
   } catch (error: any) {
     console.error("Statistics Chart DB Error");
     console.error("Message:", error.message);
-    console.error("Code:", error.code);
-    console.error("Stack:", error.stack);
     throw new Error("Database error while fetching statistics chart");
   }
 };

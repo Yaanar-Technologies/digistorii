@@ -9,10 +9,17 @@ const nextConfig = {
     });
     return config;
   },
-  // next.config.js
-experimental: {
-  optimizePackageImports: ['antd', '@ant-design/icons'],
-},
+  experimental: {
+    optimizePackageImports: ['antd', '@ant-design/icons'],
+  },
+  turbopack: {
+    rules: {
+      "*.svg": {
+        loaders: ["@svgr/webpack"],
+        as: "*.js",
+      },
+    },
+  },
 };
 
 module.exports = nextConfig;

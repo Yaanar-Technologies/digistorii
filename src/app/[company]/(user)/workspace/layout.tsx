@@ -6,9 +6,10 @@ import { usePathname, useParams, useRouter } from "next/navigation";
 import { SidebarProvider } from "@/context/SidebarContext";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { TenantProvider } from "@/context/TenantContext";
-// import { CurrentUserProvider } from "@/context/CurrentUserContext";
+
 import useIdleLogout from "@/hooks/useIdleLogout";
 import { useUser } from "@/context/CurrentUserContext";
+
 const AdminLayout = dynamic(() => import("@/layout/AdminLayout"), {
   ssr: false,
 });
@@ -28,21 +29,14 @@ export default function CompanyLayout({
   const router = useRouter();
 
   const companyParam = params.company;
+  const tenant = Array.isArray(companyParam)
+    ? companyParam[0]
+    : companyParam || "default-tenant";
 
-  // Ensure tenant is always a string
-  const tenant =
-    Array.isArray(companyParam)
-      ? companyParam[0]
-      : companyParam || "default-tenant"; // fallback if undefined
-
-  // Idle logout after 20 minutes
   useIdleLogout(tenant, "/workspace/login");
 
   const [checkingAuth, setCheckingAuth] = useState(true);
-  const [hasError, setHasError] = useState(false);
-
-  const { user } = useUser();
-
+  const { user, setUser } = useUser();
   useEffect(() => {
     const checkAuthAndOnboarding = async () => {
       try {
@@ -54,11 +48,7 @@ export default function CompanyLayout({
           return;
         }
 
-        if (!user) {
-          router.replace(`/${tenant}/workspace/login`);
-          return;
-        }
-        if (user.company_name !== tenant) {
+        if (!user || user.company_name !== tenant) {
           router.replace(`/${tenant}/workspace/login`);
           return;
         }
@@ -78,17 +68,36 @@ export default function CompanyLayout({
           }
         }
 
+        // ONE-TIME REDIRECT: Auto-mark as completed & redirect once
+        const configPath = `/${tenant}/workspace/administration/business-configuration`;
+        if (!user.has_completed_guided_setup) {
+          // 1. Immediately update state so layout never redirects again
+          setUser({ ...user, has_completed_guided_setup: true });
+
+          // 2. Persist to DB in the background
+          fetch(`/api/guided-setup`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ company: user.subdomain_url || tenant }),
+          }).catch((err) => console.error("Failed to update guided setup flag", err));
+
+          // 3. Redirect to configuration page if not already there
+          if (pathname !== configPath) {
+            router.replace(configPath);
+            return;
+          }
+        }
+
         setCheckingAuth(false);
       } catch (err) {
         console.error("Auth check failed", err);
-        router.replace(`/${tenant}/workspace/login`); // force logout on error
+        router.replace(`/${tenant}/workspace/login`);
       }
     };
 
     checkAuthAndOnboarding();
-  }, [user, pathname, tenant, router]);
+  }, [user, pathname, tenant, router, setUser]);
 
-  // Prevent UI flash before auth check
   if (checkingAuth) {
     return (
       <div className="flex items-center justify-center h-screen text-gray-500">
@@ -97,20 +106,23 @@ export default function CompanyLayout({
     );
   }
 
-  // LOGIN PAGE ALLOWED
-  if (pathname?.endsWith("/workspace/login") || pathname?.endsWith("/workspace/reset-password")
+  if (
+    pathname?.endsWith("/workspace/login") ||
+    pathname?.endsWith("/workspace/reset-password")
   ) {
     return <div className={inter.className}>{children}</div>;
   }
 
-
-
-
   const isLiveBilling = pathname?.includes("/workspace/transactions/sales/add");
-
+  console.log("--- CompanyLayout Diagnostic ---", {
+    AdminLayout: typeof AdminLayout,
+    TenantProvider: typeof TenantProvider,
+    ThemeProvider: typeof ThemeProvider,
+    SidebarProvider: typeof SidebarProvider,
+    isLiveBilling,
+  });
   return (
     <TenantProvider value={{ company: tenant }}>
-      {/* <CurrentUserProvider> */}
       <ThemeProvider>
         <SidebarProvider>
           <div
@@ -119,9 +131,7 @@ export default function CompanyLayout({
             {isLiveBilling ? children : <AdminLayout>{children}</AdminLayout>}
           </div>
         </SidebarProvider>
-
       </ThemeProvider>
-      {/* </CurrentUserProvider> */}
     </TenantProvider>
   );
 }

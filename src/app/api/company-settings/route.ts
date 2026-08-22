@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
         const { companyId, schema } = await getCompanyIdAndSchema(tenant);
         console.log("companyId : ", companyId);
         const res = await pool.query(`
-       SELECT cs.*,c.subdomain_url as companyName
+       SELECT cs.*, c.subdomain_url as companyName, c.year_type
   FROM ${schema}.company_settings cs
   JOIN public.companies c
     ON c.id = cs.company_id

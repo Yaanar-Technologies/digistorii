@@ -1,6 +1,6 @@
 import { createHash, randomInt } from "crypto";
 import { NextResponse } from "next/server";
-import { ensureDB } from "@/lib/ensure-db";
+//import { ensureDB } from "@/lib/ensure-db";
 import { pool } from "@/lib/db";
 
 function hashOtp(otp: string) {
@@ -8,7 +8,7 @@ function hashOtp(otp: string) {
 }
 
 export async function POST(req: Request) {
-  await ensureDB();
+  //await ensureDB();
   const client = await pool.connect();
 
   try {

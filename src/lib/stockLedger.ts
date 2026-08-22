@@ -1,4 +1,5 @@
 import { PoolClient } from "pg";
+import { checkLowStockAndNotify } from "./inventoryHook";
 
 export type StockLedgerEntry = {
   tenant_id: string;
@@ -113,6 +114,9 @@ export async function insertStockLedgerEntry(
       entry.qty_out
     ]
   );
+
+  // Trigger low stock check and notifications
+  await checkLowStockAndNotify(client, schema, entry.tenant_id, entry.product_id);
 }
 
 async function insertStockLayerEntry(

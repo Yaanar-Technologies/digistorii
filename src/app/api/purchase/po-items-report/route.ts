@@ -13,6 +13,7 @@ export async function GET(req: NextRequest) {
         const from = searchParams.get("from");
         const to = searchParams.get("to");
         const supplier = searchParams.get("supplier");
+        const product = searchParams.get("product");
  
         // BACKEND VALIDATION
  
@@ -35,12 +36,15 @@ export async function GET(req: NextRequest) {
             SELECT
             ph.purchase_no,
             ph.purchase_date,
+            ph.status AS po_status,
             s.supplier_code,
             s.name AS supplier_name,
             p.product_code,
             p.name AS product_name,
             pd.uom,
             pd.qty,
+            pd.rate AS price,
+            RANK() OVER (PARTITION BY pd.product_id ORDER BY pd.rate ASC) AS price_rank,
             u.uom_code,
             u.uom_name
             FROM ${schema}.purchase_header ph
@@ -54,9 +58,10 @@ export async function GET(req: NextRequest) {
                         ON u.id::text = pd.uom
             WHERE ph.purchase_date BETWEEN $1 AND $2
             AND ($3::int IS NULL OR ph.supplier_id = $3)
+            AND ($4::text IS NULL OR $4 = '' OR pd.product_id::text = $4)
             ORDER BY ph.purchase_date DESC
             `,
-            [from, to, supplier ? Number(supplier) : null]
+            [from, to, supplier ? Number(supplier) : null, product || null]
  
         );
  

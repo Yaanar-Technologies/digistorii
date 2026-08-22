@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { hashPassword } from "@/lib/hash";
 import { createCompanySchema } from "@/lib/schema";
-import { ensureDB } from "@/lib/ensure-db";
+//import { ensureDB } from "@/lib/ensure-db";
 import { ensureCompanyResponsibilities, getResponsibilitiesForCompany } from "@/lib/userResponsibilities";
 
 type SetupPayload = {
@@ -50,7 +50,7 @@ function normalizePayload(payload: SetupPayload) {
 }
 
 export async function POST(req: Request) {
-  await ensureDB();
+  //await ensureDB();
   const body = (await req.json()) as SetupPayload;
   const input = normalizePayload(body);
   const client = await pool.connect();

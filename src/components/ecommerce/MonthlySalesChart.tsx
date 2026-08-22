@@ -7,6 +7,8 @@ import React, { useEffect, useState, useRef } from "react";
 import { Dropdown } from "../ui/dropdown/Dropdown";
 import { useTenant } from "@/context/TenantContext";
 
+import { useCompanySettings } from "@/context/CompanySettingsContext";
+
 // Dynamically import the ReactApexChart component
 const ReactApexChart = dynamic(() => import("react-apexcharts"), {
   ssr: false,
@@ -15,17 +17,20 @@ const ReactApexChart = dynamic(() => import("react-apexcharts"), {
 export default function MonthlySalesChart() {
 
   const { company } = useTenant();
+  const { settings } = useCompanySettings();
   const loaded = useRef(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const loadMonthlySales = async () => {
-      if (!company) return;
-      if (loaded.current) return;
-      loaded.current = true;
+      if (!company || !settings) return;
+      
+      const { yearType, financialYearStart, financialYearEnd } = settings;
+      
       try {
         setLoading(true);
-        const res = await fetch("/api/dashboard/monthly-sales", {
+        const url = `/api/dashboard/monthly-sales?yearType=${yearType || 'fiscal'}&fromDate=${financialYearStart}&toDate=${financialYearEnd}`;
+        const res = await fetch(url, {
           method: "GET",
           headers: {
             "Content-Type": "application/json",
@@ -49,7 +54,11 @@ export default function MonthlySalesChart() {
       }
     };
     loadMonthlySales();
-  }, [company]);
+  }, [company, settings]);
+
+  const categories = settings?.yearType === 'calendar' 
+    ? ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    : ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
 
   const options: ApexOptions = {
     colors: ["#465fff"],
@@ -78,20 +87,7 @@ export default function MonthlySalesChart() {
       colors: ["transparent"],
     },
     xaxis: {
-      categories: [
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec",
-      ],
+      categories: categories,
       axisBorder: {
         show: false,
       },

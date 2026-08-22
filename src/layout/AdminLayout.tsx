@@ -16,9 +16,13 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
   const mainContentMargin = isMobileOpen
     ? "ml-0"
     : isExpanded || isHovered
-    ? "lg:ml-[290px]"
-    : "lg:ml-[90px]";
-
+      ? "lg:ml-[290px]"
+      : "lg:ml-[90px]";
+  console.log("--- AdminLayout Diagnostic ---", {
+    AppSidebar: typeof AppSidebar,
+    Backdrop: typeof Backdrop,
+    AppHeader: typeof AppHeader,
+  });
   return (
     <div className="min-h-screen xl:flex">
       {/* Sidebar */}
@@ -33,5 +37,6 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
     </div>
   );
 };
+
 
 export default AdminLayout;

@@ -39,4 +39,8 @@ export type ProductLookupItem = {
   uom_name?: string | null;
   hsn_code?: string | null;
   barcode?: string | null;
+  last_price_this_supplier?: number | null;
+  lowest_price_overall?: number | null;
+  lowest_price_supplier_name?: string | null;
+  lowest_price_date?: string | null;
 };

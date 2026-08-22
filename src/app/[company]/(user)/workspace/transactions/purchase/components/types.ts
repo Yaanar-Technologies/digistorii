@@ -143,3 +143,26 @@ export type ProductFiltersState = {
   category: string;
   source: string;
 };
+
+export type Warehouse = {
+  id: number;
+  name: string;
+  location_id: number;
+  address_line_1?: string;
+  address_line_2?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  pincode?: string;
+};
+
+export type LocationOption = {
+  id: number;
+  name: string;
+  bill_address_line_1?: string;
+  bill_address_line_2?: string;
+  bill_city?: string;
+  bill_state?: string;
+  bill_country?: string;
+  bill_pincode?: string;
+};

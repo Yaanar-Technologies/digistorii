@@ -1,6 +1,6 @@
 "use client";
 
-import type { Dispatch, SetStateAction } from "react";
+import { useEffect, type Dispatch, type SetStateAction } from "react";
 import { getRuleValidationError } from "@/lib/formValidationRules";
 import Select from "react-select";
 import type {
@@ -9,6 +9,8 @@ import type {
   PaymentTerm,
   PurchaseHeader,
   Supplier,
+  Warehouse,
+  LocationOption,
 } from "./types";
 
 type PurchaseHeaderFormProps = {
@@ -23,8 +25,10 @@ type PurchaseHeaderFormProps = {
   allDespatchTerms: DespatchTerm[];
   allPaymentTerms: PaymentTerm[];
   currencyCode: string;
-  billToAddress: string;
-  shipToAddress: string;
+  allWarehouses: Warehouse[];
+  allLocations: LocationOption[];
+  selectedWarehouseId: string;
+  setSelectedWarehouseId: Dispatch<SetStateAction<string>>;
   setAttachmentFile: Dispatch<SetStateAction<File | null>>;
 };
 
@@ -40,10 +44,55 @@ export default function PurchaseHeaderForm({
   allDespatchTerms,
   allPaymentTerms,
   currencyCode,
-  billToAddress,
-  shipToAddress,
+  allWarehouses,
+  allLocations,
+  selectedWarehouseId,
+  setSelectedWarehouseId,
   setAttachmentFile,
 }: PurchaseHeaderFormProps) {
+
+  // Auto-sync Bill To and Ship To addresses whenever selectedWarehouseId or data lists change
+  useEffect(() => {
+    if (!selectedWarehouseId || allWarehouses.length === 0) return;
+
+    const warehouse = allWarehouses.find((w) => String(w.id) === String(selectedWarehouseId));
+    if (!warehouse) return;
+
+    const location = allLocations.find((l) => String(l.id) === String(warehouse.location_id));
+
+    const shipToText = [
+      warehouse.address_line_1,
+      warehouse.address_line_2,
+      warehouse.city,
+      warehouse.state,
+      warehouse.country,
+      warehouse.pincode,
+    ].filter(Boolean).join(", ");
+
+    const billToText = location
+      ? [
+        location.bill_address_line_1,
+        location.bill_address_line_2,
+        location.bill_city,
+        location.bill_state,
+        location.bill_country,
+        location.bill_pincode,
+      ].filter(Boolean).join(", ")
+      : "";
+
+    setHeader((prev) => {
+      // Prevent unnecessary state updates if addresses are already identical
+      if (prev.bill_to === billToText && prev.ship_to === shipToText) {
+        return prev;
+      }
+      return {
+        ...prev,
+        bill_to: billToText,
+        ship_to: shipToText,
+      };
+    });
+  }, [selectedWarehouseId, allWarehouses, allLocations, setHeader]);
+
   return (
     <>
       <div className="flex gap-2 border-b pb-2">
@@ -51,8 +100,8 @@ export default function PurchaseHeaderForm({
           type="button"
           onClick={() => setActiveTab("items")}
           className={`px-4 py-2 rounded-lg text-sm font-semibold ${activeTab === "items"
-            ? "bg-[var(--color-blue-600)] text-white"
-            : "bg-gray-100 text-gray-700"
+              ? "bg-[var(--color-blue-600)] text-white"
+              : "bg-gray-100 text-gray-700"
             }`}
         >
           Items
@@ -61,8 +110,8 @@ export default function PurchaseHeaderForm({
           type="button"
           onClick={() => setActiveTab("additional")}
           className={`px-4 py-2 rounded-lg text-sm font-semibold ${activeTab === "additional"
-            ? "bg-[var(--color-blue-600)] text-white"
-            : "bg-gray-100 text-gray-700"
+              ? "bg-[var(--color-blue-600)] text-white"
+              : "bg-gray-100 text-gray-700"
             }`}
         >
           Additional Details
@@ -114,8 +163,8 @@ export default function PurchaseHeaderForm({
                 }
               }}
               className={`border p-2 rounded w-full ${header.po_type === "standard"
-                ? "bg-gray-100 text-indigo-600 font-semibold"
-                : ""
+                  ? "bg-gray-100 text-indigo-600 font-semibold"
+                  : ""
                 }`}
               readOnly={!isEditable || header.po_type === "standard"}
             />
@@ -170,13 +219,16 @@ export default function PurchaseHeaderForm({
                   }));
                 }
               }}
-              className={`border p-2 rounded w-full ${errors.req_date ? "border-red-500" : ""}`}
+              className={`border p-2 rounded w-full ${errors.req_date ? "border-red-500" : ""
+                }`}
             />
             {errors.req_date && (
               <p className="text-red-500 text-sm mt-1">{errors.req_date}</p>
             )}
           </div>
-          <div> <label className="text-sm font-semibold mb-1 block">Reference No</label>
+
+          <div>
+            <label className="text-sm font-semibold mb-1 block">Reference No</label>
             <input
               value={header.ref_no || ""}
               onChange={(e) => {
@@ -188,7 +240,8 @@ export default function PurchaseHeaderForm({
                   ref_no: error || "",
                 }));
               }}
-              className={`border p-2 rounded w-full ${errors.ref_no ? "border-red-500" : ""}`}
+              className={`border p-2 rounded w-full ${errors.ref_no ? "border-red-500" : ""
+                }`}
             />
             {errors.ref_no && (
               <p className="text-red-500 text-sm mt-1">{errors.ref_no}</p>
@@ -199,7 +252,6 @@ export default function PurchaseHeaderForm({
             <label className="text-sm font-semibold mb-1 block">
               Supplier <span className="text-red-500">*</span>
             </label>
-
             <Select
               isDisabled={!isEditable}
               placeholder="Select Supplier"
@@ -212,12 +264,6 @@ export default function PurchaseHeaderForm({
                   }))
                   .find((opt) => String(opt.value) === String(header.supplier_id)) || null
               }
-              // options={allSuppliers.map((s) => ({
-              //   value: s.id,
-              //   label: `${s.supplier_code}-${s.name}`,
-              //   supplier: s,
-
-              // }))}
               options={allSuppliers.map((s) => ({
                 value: s.id,
                 label: s.purchase_hold
@@ -230,7 +276,7 @@ export default function PurchaseHeaderForm({
               menuPortalTarget={document.body}
               menuPosition="fixed"
               styles={{
-                menuPortal: (base) => ({ ...base, zIndex: 9999 })
+                menuPortal: (base) => ({ ...base, zIndex: 9999 }),
               }}
               onChange={(option: any) => {
                 const supplierId = option?.value;
@@ -246,8 +292,6 @@ export default function PurchaseHeaderForm({
                   ...header,
                   supplier_id: supplierId,
                   currency: selectedSupplier?.currency || "",
-                  bill_to: supplierId,
-                  ship_to: supplierId,
                   despatch_terms: despatchId ? String(despatchId) : "",
                   payment_terms: paymentId ? String(paymentId) : "",
                 });
@@ -289,7 +333,7 @@ export default function PurchaseHeaderForm({
                 setHeader({
                   ...header,
                   conversion_rate: val === "" ? "" : Math.max(0, Number(val)),
-                })
+                });
               }}
             />
           </div>
@@ -329,10 +373,27 @@ export default function PurchaseHeaderForm({
       {activeTab === "additional" && (
         <div className="bg-white p-6 rounded-xl shadow space-y-6">
           <div className="grid md:grid-cols-4 gap-4">
+            <div className="md:col-span-4">
+              <label className="text-sm font-semibold mb-1 block">Warehouse</label>
+              <select
+                value={selectedWarehouseId}
+                disabled={!isEditable}
+                onChange={(e) => setSelectedWarehouseId(e.target.value)}
+                className="border p-2 rounded w-full md:w-1/4"
+              >
+                <option value="">Select Warehouse</option>
+                {allWarehouses.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div>
               <label className="text-sm font-semibold mb-1 block">Bill To</label>
               <textarea
-                value={billToAddress}
+                value={header.bill_to || ""}
                 readOnly
                 rows={3}
                 className="mt-2 border p-2 rounded w-full bg-gray-50"
@@ -342,7 +403,7 @@ export default function PurchaseHeaderForm({
             <div>
               <label className="text-sm font-semibold mb-1 block">Ship To</label>
               <textarea
-                value={shipToAddress}
+                value={header.ship_to || ""}
                 readOnly
                 rows={3}
                 className="mt-2 border p-2 rounded w-full bg-gray-50"
@@ -441,8 +502,7 @@ export default function PurchaseHeaderForm({
                     ...header,
                     packaging_amount: val === "" ? "" : Math.max(0, Number(val)),
                   });
-                }
-                }
+                }}
                 className="border p-2 rounded w-full"
               />
             </div>
@@ -452,10 +512,10 @@ export default function PurchaseHeaderForm({
             <div className="col-span-2">
               <label className="text-sm font-semibold mb-1 block">Notes</label>
               <textarea
-                value={header.notes || ''}
+                value={header.notes || ""}
                 disabled={!isEditable}
                 onChange={(e) => {
-                  const val = e.target.value ?? '';
+                  const val = e.target.value ?? "";
                   setHeader({ ...header, notes: val });
                   const error = getRuleValidationError("alphanumeric-spaces-hyphens", val);
                   setErrors((prev: any) => ({

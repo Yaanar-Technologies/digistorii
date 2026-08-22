@@ -1,4 +1,6 @@
 "use client";
+import Link from "next/link";
+import { ArrowLeftIcon } from "@heroicons/react/24/outline";
 
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -427,7 +429,12 @@ export default function TaxMasterPage() {
                 </div>
 
                 {!showForm && (
-                    <button
+                    <div className="flex items-center gap-3">
+          <Link className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors" href={`/${company}/workspace/administration/masters`}>
+            <ArrowLeftIcon className="w-4 h-4 text-gray-500"/>
+            Back to Masters
+          </Link>
+          <button
                         onClick={() => {
                             setShowForm(true);
                             setForm(initialState);
@@ -440,7 +447,8 @@ export default function TaxMasterPage() {
                         <PlusIcon className="w-4 h-4" />
                         Add Tax
                     </button>
-                )}
+                </div>
+        )}
             </div>
 
             {/* LIST */}

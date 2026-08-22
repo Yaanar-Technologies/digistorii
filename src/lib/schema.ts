@@ -222,6 +222,7 @@ export async function createCompanySchema(
     CREATE TABLE IF NOT EXISTS "${schema}".business_settings (
       id SERIAL PRIMARY KEY,
       gst_number VARCHAR(20),
+      gst_available BOOLEAN NOT NULL DEFAULT FALSE,
       pan_number VARCHAR(20),
       business_address TEXT,
       city VARCHAR(120),
@@ -582,14 +583,20 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
       location_id INT NOT NULL REFERENCES "${schema}".locations(id) ON DELETE RESTRICT,
       type VARCHAR(20) NOT NULL CHECK (type IN ('global', 'local')),
       is_default BOOLEAN DEFAULT FALSE,
-            effective_from DATE,
+      same_as_ship_to BOOLEAN DEFAULT TRUE,
+      effective_from DATE,
       effective_to DATE,
       description TEXT,
       landline VARCHAR(30),
       mobile_no VARCHAR(30),
       fax VARCHAR(30),
       email VARCHAR(150),
-      address TEXT,
+      address_line_1 TEXT,
+      address_line_2 TEXT,
+      city VARCHAR(100),
+      state VARCHAR(100),
+      country VARCHAR(100) DEFAULT 'India',
+      pincode VARCHAR(10),
       contact_person_name VARCHAR(150),
       contact_person_mobile VARCHAR(30),
       contact_person_email VARCHAR(150),
@@ -636,8 +643,8 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
             CHECK (po_type IN ('standard', 'manual')),
           purchase_no VARCHAR(30) UNIQUE NOT NULL,  
           ref_no VARCHAR(30),
-          bill_to BIGINT,
-          ship_to BIGINT,
+          bill_to TEXT,
+          ship_to TEXT,
           despatch_terms BIGINT,
           payment_terms BIGINT,
           freight_charges NUMERIC(10,2) DEFAULT 0,
@@ -932,6 +939,11 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
   `);
 
   await client.query(`
+  ALTER TABLE "${schema}".business_settings
+  ADD COLUMN IF NOT EXISTS gst_available BOOLEAN NOT NULL DEFAULT FALSE;
+  `);
+
+  await client.query(`
     ALTER TABLE "${schema}".sales_payments 
     ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(12,2) DEFAULT 0.00,
     ADD COLUMN IF NOT EXISTS actual_amount NUMERIC(12,2) DEFAULT 0.00,
@@ -1220,6 +1232,65 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
         created_at TIMESTAMP DEFAULT NOW()
       );
     `);
+
+  /* =========================================================
+     INVENTORY ALERTS & NOTIFICATIONS
+     ========================================================= */
+  
+  await client.query(`
+    ALTER TABLE "${schema}".business_settings
+      ADD COLUMN IF NOT EXISTS default_low_stock_threshold INT NOT NULL DEFAULT 5,
+      ADD COLUMN IF NOT EXISTS default_backorders_allowed BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS low_stock_notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      ADD COLUMN IF NOT EXISTS low_stock_email_notifications_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+  `);
+
+  await client.query(`
+    ALTER TABLE "${schema}".product_variants
+      ADD COLUMN IF NOT EXISTS low_stock_threshold INT,
+      ADD COLUMN IF NOT EXISTS backorders_allowed BOOLEAN,
+      ADD COLUMN IF NOT EXISTS last_low_stock_notified_at TIMESTAMPTZ;
+  `);
+
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "${schema}".notification_subscriptions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      event_type VARCHAR(50) NOT NULL,
+      user_id INTEGER NOT NULL,
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ DEFAULT now(),
+      UNIQUE (event_type, user_id)
+    );
+  `);
+
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "${schema}".notifications (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      type VARCHAR(50) NOT NULL,
+      title VARCHAR(255) NOT NULL,
+      message TEXT NOT NULL,
+      metadata JSONB,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "${schema}".notification_recipients (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      notification_id UUID NOT NULL REFERENCES "${schema}".notifications(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL,
+      is_read BOOLEAN NOT NULL DEFAULT FALSE,
+      read_at TIMESTAMPTZ,
+      delivered_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT now(),
+      UNIQUE (notification_id, user_id)
+    );
+  `);
+
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS idx_notif_recipients_user_unread 
+    ON "${schema}".notification_recipients (user_id, is_read);
+  `);
 }
 
 /**

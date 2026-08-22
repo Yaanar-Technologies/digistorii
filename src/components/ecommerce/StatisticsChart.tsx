@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { ApexOptions } from "apexcharts";
 import flatpickr from "flatpickr";
 import { useTenant } from "@/context/TenantContext";
+import { useCompanySettings } from "@/context/CompanySettingsContext";
 
 
 const Chart = dynamic(() => import("react-apexcharts"), { ssr: false });
@@ -11,17 +12,18 @@ const Chart = dynamic(() => import("react-apexcharts"), { ssr: false });
 export default function StatisticsChart() {
   const datePickerRef = useRef<HTMLInputElement>(null);
   const { company } = useTenant();
+  const { settings } = useCompanySettings();
   const loaded = useRef(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const loadStatistics = async () => {
-      if (!company) return;
-      if (loaded.current) return;
-      loaded.current = true;
+      if (!company || !settings) return;
+      const { yearType, financialYearStart, financialYearEnd } = settings;
       try {
         setLoading(true);
-        const res = await fetch("/api/dashboard/statistics", {
+        const url = `/api/dashboard/statistics?yearType=${yearType || 'fiscal'}&fromDate=${financialYearStart}&toDate=${financialYearEnd}`;
+        const res = await fetch(url, {
           method: "GET",
           headers: {
             "Content-Type": "application/json",
@@ -49,7 +51,11 @@ export default function StatisticsChart() {
       }
     };
     loadStatistics();
-  }, [company]);
+  }, [company, settings]);
+
+  const categories = settings?.yearType === 'calendar' 
+    ? ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    : ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
 
   useEffect(() => {
     if (!datePickerRef.current) return;
@@ -65,6 +71,12 @@ export default function StatisticsChart() {
       dateFormat: "M d",
       defaultDate: [sevenDaysAgo, today],
       clickOpens: true,
+      onChange: (selectedDates) => {
+        if (selectedDates.length === 2) {
+          // console.log("Start Date:", selectedDates[0]);
+          // console.log("End Date:", selectedDates[1]);
+        }
+      },
       prevArrow:
         '<svg class="stroke-current" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12.5 15L7.5 10L12.5 5" stroke="" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
       nextArrow:
@@ -84,7 +96,7 @@ export default function StatisticsChart() {
       position: "top",
       horizontalAlign: "left",
     },
-    colors: ["#465FFF", "#9CB9FF"], // Define line colors
+    colors: ["#465fff", "#9cb9ff"], // Define line colors
     chart: {
       fontFamily: "Outfit, sans-serif",
       height: 310,
@@ -94,7 +106,7 @@ export default function StatisticsChart() {
       },
     },
     stroke: {
-      curve: "straight", // Define the line style (straight, smooth, or step)
+      curve: "smooth", // Define the line style (straight, smooth, or step)
       width: [2, 2], // Line width for each dataset
     },
 
@@ -136,20 +148,7 @@ export default function StatisticsChart() {
     },
     xaxis: {
       type: "category", // Category-based x-axis
-      categories: [
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec",
-      ],
+      categories: categories,
       axisBorder: {
         show: false, // Hide x-axis border
       },

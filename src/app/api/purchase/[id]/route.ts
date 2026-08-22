@@ -192,12 +192,6 @@ export async function GET(
               s.gstin as supplier_gstin,
               cr.currency_code as currency_code,
               CONCAT_WS(', ', s.address_line1, s.address_line2, s.address_line3, s.city, s.state, s.pincode) as supplier_address,
-              bt.supplier_code as bill_to_code,
-              bt.name as bill_to_name,
-              CONCAT_WS(', ', bt.address_line1, bt.address_line2, bt.address_line3, bt.city, bt.state, bt.pincode) as bill_to_address,
-              st.supplier_code as ship_to_code,
-              st.name as ship_to_name,
-              CONCAT_WS(', ', st.address_line1, st.address_line2, st.address_line3, st.city, st.state, st.pincode) as ship_to_address,
               dt.despatch_name as despatch_terms_name,
               pt.name as payment_terms_name
             FROM ${schema}.purchase_header ph
@@ -207,10 +201,6 @@ export async function GET(
               ON ph.supplier_id = s.id
             Left Join ${schema}.currencies c
 			  ON ph.currency=c.id
-            LEFT JOIN ${schema}.suppliers bt
-              ON ph.bill_to = bt.id
-            LEFT JOIN ${schema}.suppliers st
-              ON ph.ship_to = st.id
             LEFT JOIN "${schema}".despatch_terms dt
               ON ph.despatch_terms = dt.id
             LEFT JOIN "${schema}".payment_terms pt
@@ -517,8 +507,8 @@ export async function PUT(
         poType,
         purchaseNo || null,
         ref_no || null,
-        bill_to ? Number(bill_to) : null,
-        ship_to ? Number(ship_to) : null,
+        bill_to ? String(bill_to).trim() : null,
+        ship_to ? String(ship_to).trim() : null,
         despatch_terms ? Number(despatch_terms) : null,
         payment_terms ? Number(payment_terms) : null,
         Number(freight_charges || 0),

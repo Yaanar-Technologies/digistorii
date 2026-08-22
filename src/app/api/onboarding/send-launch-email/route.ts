@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
-import { ensureDB } from "@/lib/ensure-db";
+//import { ensureDB } from "@/lib/ensure-db";
 import nodemailer from "nodemailer";
 import { randomBytes } from "crypto";
 // ──────────────────────────────────────────────────────────────
@@ -29,7 +29,7 @@ const transporter = nodemailer.createTransport({
 });
 
 export async function POST(req: NextRequest) {
-  await ensureDB();
+  //await ensureDB();
   const client = await pool.connect();
 
   try {

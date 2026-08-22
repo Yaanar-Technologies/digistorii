@@ -28,6 +28,7 @@ type User = {
   default_warehouse_id?: number | null;
   default_locator_id?: number | null;
   branch_name?: string | null;
+  has_completed_guided_setup?: boolean;
   ecommerce_access?: boolean;
 };
 

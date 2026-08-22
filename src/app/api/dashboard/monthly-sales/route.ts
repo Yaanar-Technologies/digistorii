@@ -3,12 +3,20 @@ import { getTenantSchema } from "@/lib/tenant";
 import { getMonthlySales } from "@/lib/dashboardService";
 
 export async function GET(req: NextRequest) {
-
   try {
-
     const { schema } = await getTenantSchema(req);
+    
+    // Parse query params
+    const searchParams = req.nextUrl.searchParams;
+    const yearType = searchParams.get("yearType") || "fiscal";
+    const fromDate = searchParams.get("fromDate");
+    const toDate = searchParams.get("toDate");
 
-    const data = await getMonthlySales(schema);
+    if (!fromDate || !toDate) {
+      return NextResponse.json({ success: false, error: "fromDate and toDate are required" }, { status: 400 });
+    }
+
+    const data = await getMonthlySales(schema, yearType, fromDate, toDate);
 
     return NextResponse.json({
       success: true,
@@ -16,10 +24,7 @@ export async function GET(req: NextRequest) {
     });
 
   } catch (err: any) {
-
-    console.error("Monthly Sales API Error");
-    console.error(err);
-
+    console.error("Monthly Sales API Error", err);
     return NextResponse.json(
       {
         success: false,
@@ -27,7 +32,5 @@ export async function GET(req: NextRequest) {
       },
       { status: 500 }
     );
-
   }
-
 }

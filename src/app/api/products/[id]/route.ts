@@ -16,8 +16,8 @@ type VariantInput = {
   sku?: string;
   qty?: number;
   status?: string;
-  low_stock_threshold?: number;
-  backorders_allowed?: boolean;
+  low_stock_threshold?: any;
+  backorders_allowed?: any;
   barcode?: string;
 };
 
@@ -377,8 +377,8 @@ export async function PUT(
       const variantStatus = normalizeVariantStatus(
         row.status ?? (existingVariant ? existingVariant.status : "draft")
       );
-      const lowStockThreshold = Number(row.low_stock_threshold ?? 5);
-      const backordersAllowed = row.backorders_allowed === true;
+      const lowStockThreshold = row.low_stock_threshold !== undefined && row.low_stock_threshold !== null && (row.low_stock_threshold as any) !== "" ? Number(row.low_stock_threshold) : null;
+      const backordersAllowed = row.backorders_allowed !== undefined && row.backorders_allowed !== null ? (row.backorders_allowed === true || (row.backorders_allowed as any) === "true") : null;
       const finalBarcode = inputBarcode || existingBarcode;
       if (finalBarcode) {
         validateBarcodeOrThrow(finalBarcode);

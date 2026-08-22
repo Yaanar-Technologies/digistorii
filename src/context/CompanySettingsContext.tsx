@@ -10,6 +10,7 @@ type CompanySettings = {
     financialYearEnd: string;
     companyName: string;
     salesTarget: number;
+    yearType?: string;
 };
  
 type CompanySettingsContextType = {
@@ -49,13 +50,17 @@ export const CompanySettingsProvider = ({ children }: { children: React.ReactNod
                 if (result.success) {
                     console.log("CompanySettingsContext :", result.data);
                     const data = result.data;
+                    const { getYearRange } = await import("@/lib/dateRange");
+                    const range = getYearRange(data.year_type || "fiscal");
+
                     setSettings({
                         companyName: data.companyname || company || "",
                         baseCurrency: data.base_currency || "",
                         dateFormat: data.date_format || "DD/MM/YYYY",
                         // timeZone: data.time_zone || "",
-                        financialYearStart: data.financial_year_start || "",
-                        financialYearEnd: data.financial_year_end || "",
+                        yearType: data.year_type || "fiscal",
+                        financialYearStart: range.from,
+                        financialYearEnd: range.to,
                         salesTarget: Number(data.sales_target)
                     });
                 }
@@ -67,7 +72,7 @@ export const CompanySettingsProvider = ({ children }: { children: React.ReactNod
         };
  
         fetchSettings();
-    }, []);
+    }, [company]);
  
     return (
         <CompanySettingsContext.Provider value={{ settings,setSettings, loading }}>
