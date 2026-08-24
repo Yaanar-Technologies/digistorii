@@ -347,6 +347,11 @@ async function upgradeTenantSchemas(client: any) {
     console.log(`Upgrading schema: ${schema}`);
 
     await client.query(`
+      ALTER TABLE "${schema}".company_settings
+        ADD COLUMN IF NOT EXISTS sales_target NUMERIC DEFAULT 0;
+    `);
+
+    await client.query(`
       ALTER TABLE "${schema}".business_settings
         ADD COLUMN IF NOT EXISTS default_low_stock_threshold INT NOT NULL DEFAULT 5,
         ADD COLUMN IF NOT EXISTS default_backorders_allowed BOOLEAN NOT NULL DEFAULT FALSE,

@@ -210,6 +210,7 @@ export async function createCompanySchema(
   time_zone VARCHAR(50) ,
   financial_year_start DATE,
   financial_year_end DATE,
+  sales_target NUMERIC DEFAULT 0,
   created_by VARCHAR(100),
   created_at TIMESTAMP ,
   updated_by VARCHAR(100),
