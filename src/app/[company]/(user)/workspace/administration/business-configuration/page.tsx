@@ -67,7 +67,8 @@ export default function BusinessConfigurationPage() {
   const { user, setUser } = useUser();
 
   const router = useRouter();
-  const tenant = user?.subdomain_url || "";
+  const { company } = useTenant();
+  const tenant = company || user?.subdomain_url || "";
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -88,7 +89,6 @@ export default function BusinessConfigurationPage() {
     subscribed_users: [],
   });
 
-  const { company } = useTenant();
   const [locations, setLocations] = useState<Location[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [message, setMessage] = useState("");
@@ -345,7 +345,7 @@ export default function BusinessConfigurationPage() {
                   <td className="px-4 py-3 text-gray-600">{businessSettings.state || "-"}</td>
                   <td className="px-4 py-3 text-gray-600">{businessSettings.city || "-"}</td>
                   <td className="px-4 py-3 text-gray-600 uppercase">{businessSettings.currency || "-"}</td>
-                  <td className="px-4 py-3 text-gray-600">{businessSettings.year_type === 'calendar' ? 'Calendar Year (Jan–Dec)' : 'Fiscal Year (Apr–Mar)'}</td>
+                  <td className="px-4 py-3 text-gray-600">{businessSettings.year_type === 'calendar' ? 'Calendar Year (Jan–Dec)' : 'Financial Year (Apr–Mar)'}</td>
                   <td className="px-4 py-3 font-mono text-gray-600">{businessSettings.gst_number || "-"}</td>
                   <td className="px-4 py-3 font-mono text-gray-600">{businessSettings.pan_number || "-"}</td>
                   <td className="px-4 py-3 text-right">
@@ -441,7 +441,7 @@ export default function BusinessConfigurationPage() {
                   onChange={e => setBusinessSettings({ ...businessSettings, year_type: e.target.value as "fiscal" | "calendar" })}
                   className={fieldClass}
                 >
-                  <option value="fiscal">Fiscal Year (Apr - Mar)</option>
+                  <option value="fiscal">Financial Year (Apr - Mar)</option>
                   <option value="calendar">Calendar Year (Jan - Dec)</option>
                 </select>
               </div>

@@ -22,13 +22,23 @@ export async function GET(req: NextRequest) {
         const { companyId, schema } = await getCompanyIdAndSchema(tenant);
         console.log("companyId : ", companyId);
         const res = await pool.query(`
-       SELECT cs.*, c.subdomain_url as companyName, c.year_type
-  FROM ${schema}.company_settings cs
-  JOIN public.companies c
-    ON c.id = cs.company_id
-  WHERE cs.company_id = $1
-  LIMIT 1
-    `, [companyId]);
+            SELECT 
+                COALESCE(cs.id, c.id) AS id,
+                c.id AS company_id,
+                COALESCE(cs.base_currency, 'INR') AS base_currency,
+                COALESCE(cs.date_format, 'DD/MM/YYYY') AS date_format,
+                COALESCE(cs.time_zone, 'Asia/Kolkata') AS time_zone,
+                cs.financial_year_start,
+                cs.financial_year_end,
+                COALESCE(cs.sales_target, 0) AS sales_target,
+                c.subdomain_url as companyName, 
+                COALESCE(c.year_type, 'fiscal') as year_type
+            FROM public.companies c
+            LEFT JOIN ${schema}.company_settings cs
+              ON c.id = cs.company_id
+            WHERE c.id = $1
+            LIMIT 1
+        `, [companyId]);
  
         return NextResponse.json({
             success: true,

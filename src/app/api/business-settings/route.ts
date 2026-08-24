@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
 
         const res = await pool.query(`
             SELECT 
-                c.company_name, c.subdomain_url, c.year_type,
+                c.company_name, c.subdomain_url, COALESCE(c.year_type, 'fiscal') AS year_type,
                 bs.gst_number, bs.pan_number, bs.business_address as address, 
                 bs.city, bs.state, bs.country, bs.currency,
                 bs.default_low_stock_threshold, bs.default_backorders_allowed, 

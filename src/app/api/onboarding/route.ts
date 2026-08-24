@@ -514,16 +514,17 @@ export async function POST(req: NextRequest) {
 
       await client.query(
         `UPDATE public.companies
-   SET gst_available = $2,
-       gst_number = $3,
-       pan_number = $4,
-       address = $5,
-       city = $6,
-       state = $7,
-       country = $8,
-       currency = $9,
-       updated_at = NOW()
-   WHERE id = $1`,
+    SET gst_available = $2,
+        gst_number = $3,
+        pan_number = $4,
+        address = $5,
+        city = $6,
+        state = $7,
+        country = $8,
+        currency = $9,
+        year_type = COALESCE(year_type, 'fiscal'),
+        updated_at = NOW()
+    WHERE id = $1`,
         [
           context.id,
           payload.gst_available,
