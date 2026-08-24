@@ -30,6 +30,7 @@ export default function StatisticsChart() {
             "x-tenant": company
           }
         });
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
         const result = await res.json();
         if (result.success) {
           console.log("Statistics Data:", result.data);
@@ -53,7 +54,7 @@ export default function StatisticsChart() {
     loadStatistics();
   }, [company, settings]);
 
-  const categories = settings?.yearType === 'calendar' 
+  const categories = settings?.yearType === 'calendar'
     ? ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
     : ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
 

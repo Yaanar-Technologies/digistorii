@@ -24,9 +24,9 @@ export default function MonthlySalesChart() {
   useEffect(() => {
     const loadMonthlySales = async () => {
       if (!company || !settings) return;
-      
+
       const { yearType, financialYearStart, financialYearEnd } = settings;
-      
+
       try {
         setLoading(true);
         const url = `/api/dashboard/monthly-sales?yearType=${yearType || 'fiscal'}&fromDate=${financialYearStart}&toDate=${financialYearEnd}`;
@@ -37,6 +37,7 @@ export default function MonthlySalesChart() {
             "x-tenant": company
           }
         });
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
         const result = await res.json();
         if (result.success) {
           console.log("Monthly Sales Data:", result.data);
@@ -56,7 +57,7 @@ export default function MonthlySalesChart() {
     loadMonthlySales();
   }, [company, settings]);
 
-  const categories = settings?.yearType === 'calendar' 
+  const categories = settings?.yearType === 'calendar'
     ? ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
     : ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
 
