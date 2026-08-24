@@ -18,8 +18,13 @@ export default function StatisticsChart() {
 
   useEffect(() => {
     const loadStatistics = async () => {
-      if (!company || !settings) return;
+      console.log("StatisticsChart: useEffect triggered. Company:", company, "Settings:", settings);
+      if (!company || !settings) {
+        console.log("StatisticsChart: returning early because company or settings is missing.");
+        return;
+      }
       const { yearType, financialYearStart, financialYearEnd } = settings;
+      console.log("StatisticsChart: fetching with parameters:", { yearType, financialYearStart, financialYearEnd });
       try {
         setLoading(true);
         const url = `/api/dashboard/statistics?yearType=${yearType || 'fiscal'}&fromDate=${financialYearStart}&toDate=${financialYearEnd}`;
@@ -32,6 +37,7 @@ export default function StatisticsChart() {
         });
         if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
         const result = await res.json();
+        console.log("StatisticsChart: fetch response:", result);
         if (result.success) {
           console.log("Statistics Data:", result.data);
           setSeries([

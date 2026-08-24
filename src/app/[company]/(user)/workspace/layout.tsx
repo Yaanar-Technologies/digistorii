@@ -6,6 +6,7 @@ import { usePathname, useParams, useRouter } from "next/navigation";
 import { SidebarProvider } from "@/context/SidebarContext";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { TenantProvider } from "@/context/TenantContext";
+import { CompanySettingsProvider } from "@/context/CompanySettingsContext";
 
 import useIdleLogout from "@/hooks/useIdleLogout";
 import { useUser } from "@/context/CurrentUserContext";
@@ -123,15 +124,17 @@ export default function CompanyLayout({
   });
   return (
     <TenantProvider value={{ company: tenant }}>
-      <ThemeProvider>
-        <SidebarProvider>
-          <div
-            className={`${inter.className} font-sans antialiased text-gray-800 dark:text-white/90`}
-          >
-            {isLiveBilling ? children : <AdminLayout>{children}</AdminLayout>}
-          </div>
-        </SidebarProvider>
-      </ThemeProvider>
+      <CompanySettingsProvider>
+        <ThemeProvider>
+          <SidebarProvider>
+            <div
+              className={`${inter.className} font-sans antialiased text-gray-800 dark:text-white/90`}
+            >
+              {isLiveBilling ? children : <AdminLayout>{children}</AdminLayout>}
+            </div>
+          </SidebarProvider>
+        </ThemeProvider>
+      </CompanySettingsProvider>
     </TenantProvider>
   );
 }

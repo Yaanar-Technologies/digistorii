@@ -23,9 +23,14 @@ export default function MonthlySalesChart() {
 
   useEffect(() => {
     const loadMonthlySales = async () => {
-      if (!company || !settings) return;
+      console.log("MonthlySalesChart: useEffect triggered. Company:", company, "Settings:", settings);
+      if (!company || !settings) {
+        console.log("MonthlySalesChart: returning early because company or settings is missing.");
+        return;
+      }
 
       const { yearType, financialYearStart, financialYearEnd } = settings;
+      console.log("MonthlySalesChart: fetching with parameters:", { yearType, financialYearStart, financialYearEnd });
 
       try {
         setLoading(true);
@@ -39,6 +44,7 @@ export default function MonthlySalesChart() {
         });
         if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
         const result = await res.json();
+        console.log("MonthlySalesChart: fetch response:", result);
         if (result.success) {
           console.log("Monthly Sales Data:", result.data);
           setSeries([
