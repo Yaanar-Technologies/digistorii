@@ -111,7 +111,24 @@ export async function loginUser(company: string, email: string, password: string
       );
       mappedUser = responsibilityResult.rows[0] || {};
     }
+    let defaultLocationId = mappedUser.location_id ?? null;
+    let defaultWarehouseId = mappedUser.warehouse_id ?? null;
 
+    if (!defaultLocationId || !defaultWarehouseId) {
+      try {
+        const defaultLocRes = await pool.query(`SELECT id FROM "${schema}".locations WHERE is_default = TRUE LIMIT 1`);
+        if (defaultLocRes.rowCount) {
+          defaultLocationId = defaultLocationId ?? defaultLocRes.rows[0].id;
+        }
+
+        const defaultWhRes = await pool.query(`SELECT id FROM "${schema}".warehouses WHERE is_default = TRUE LIMIT 1`);
+        if (defaultWhRes.rowCount) {
+          defaultWarehouseId = defaultWarehouseId ?? defaultWhRes.rows[0].id;
+        }
+      } catch (err) {
+        console.error("Failed to fetch default location/warehouse", err);
+      }
+    }
     const subscriptionResult = await pool.query(
       `SELECT
        cs.plan_id,
