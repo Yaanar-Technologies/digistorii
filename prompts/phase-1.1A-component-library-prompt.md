@@ -1,21 +1,14 @@
-# Phase 1.1 — Component Library Extraction (Prompt)
+# Phase 1.1A — Component Library Extraction (Prompt)
 
-## Context to give the assistant first
-Attach/open the template source folder alongside the project (e.g. as a second
-workspace root, or copied into `src/components/sampletemplate/`
-temporarily). Then paste the prompt below, filling in the actual template path.
 
----
+# Phase 1.1A — Storefront Shell & Navigation Extraction
 
-## Prompt
+Existing store link: `src\app\[company]\(store)\store`
+Template source: `src/components/sampletemplate`
+Target destination: `src/components/storefront/`
 
- Template source is at: `src/components/sampletemplate`
+Extract the foundational shell and navigation components from the template into modular, reusable React components. Do not hardcode tenant values.
 
- Extract a reusable, theme-driven component library from this template — do not
- generate a new site from scratch, and do not copy the template's markup
- verbatim with tenant values hardcoded. Read the template files first, then
- refactor each visual section into its own component under
- `src/app/[company]/(store)/store`.
 
  **Required components:**
  - Header/Nav (logo, category menu, search, cart icon, sign-in entry point)
