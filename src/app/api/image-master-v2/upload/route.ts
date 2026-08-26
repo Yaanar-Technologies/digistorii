@@ -113,10 +113,19 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      const targetPath = path.join(dir, finalName);
-      await writeFile(targetPath, buffer);
+      const isVercel = process.env.VERCEL === "1" || Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+      let filePath = "";
 
-      const filePath = `${tenant}/image-master/${finalName}`;
+      if (isVercel) {
+        const { put } = await import("@vercel/blob");
+        const blob = await put(`${tenant}/image-master/${finalName}`, buffer, { access: "public" });
+        filePath = blob.url;
+      } else {
+        const targetPath = path.join(dir, finalName);
+        await writeFile(targetPath, buffer);
+        filePath = `${tenant}/image-master/${finalName}`;
+      }
+
       const insertRes = await client.query(
         `
           INSERT INTO "${schema}".image_master

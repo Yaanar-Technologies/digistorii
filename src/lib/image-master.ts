@@ -78,9 +78,32 @@ export async function saveImageMasterFiles(
   tenant: string,
   files: File[]
 ): Promise<ImageMasterUpload[]> {
+  const isVercel = process.env.VERCEL === "1" || Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+  const saved: ImageMasterUpload[] = [];
+
+  if (isVercel) {
+    const { put } = await import("@vercel/blob");
+    for (const file of files) {
+      const original = sanitizeFilename(file.name);
+      const timestamp = Math.floor(Date.now() / 1000);
+      const parsed = path.parse(original);
+      const finalName = `${parsed.name}_${timestamp}${parsed.ext}`;
+      const content = Buffer.from(await file.arrayBuffer());
+
+      const blob = await put(`${tenant}/image-master/${finalName}`, content, {
+        access: "public",
+      });
+
+      saved.push({
+        filename: finalName,
+        file_path: blob.url,
+      });
+    }
+    return saved;
+  }
+
   const dir = getImageMasterDir(tenant);
   await ensureDir(dir);
-  const saved: ImageMasterUpload[] = [];
 
   for (const file of files) {
     const original = sanitizeFilename(file.name);
