@@ -1441,5 +1441,17 @@ export async function createEcomSchema(
       created_at TIMESTAMP DEFAULT NOW()
     );
   `);
+
+  // 10. Create store_theme_assets table
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "${schema}".store_theme_assets (
+      id SERIAL PRIMARY KEY,
+      asset_type VARCHAR(50) NOT NULL DEFAULT 'ecom',
+      url TEXT NOT NULL,
+      file_name VARCHAR(255) NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+  `);
 }
+
 

@@ -15,6 +15,7 @@ import {
   mockCategories,
   mockFooterSettings,
 } from "@/components/storefront";
+import ImageUploadInput from "@/components/ui/ImageUploadInput";
 
 type ThemeConfig = {
   logo_url?: string;
@@ -309,16 +310,15 @@ export default function ThemeCustomizationPage() {
           {/* Logo & Header */}
           <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
             <h2 className="text-lg font-bold text-gray-900 border-b pb-2">Logo & Header Branding</h2>
-            <div>
-              <label className="block text-sm font-semibold text-gray-700">Logo Image URL</label>
-              <input
-                type="text"
-                value={logoUrl}
-                onChange={(e) => setLogoUrl(e.target.value)}
-                placeholder="https://example.com/logo.png"
-                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none"
-              />
-            </div>
+            <ImageUploadInput
+              label="Logo Image"
+              value={logoUrl}
+              onChange={setLogoUrl}
+              company={company}
+              assetType="logo"
+              placeholder="https://example.com/logo.png"
+              helpText="Upload a store logo file or paste a direct image URL"
+            />
             <div>
               <label className="block text-sm font-semibold text-gray-700">Header Title text</label>
               <input
@@ -354,16 +354,15 @@ export default function ThemeCustomizationPage() {
                 className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none"
               />
             </div>
-            <div>
-              <label className="block text-sm font-semibold text-gray-700">Hero Banner Image URL</label>
-              <input
-                type="text"
-                value={heroBannerUrl}
-                onChange={(e) => setHeroBannerUrl(e.target.value)}
-                placeholder="https://example.com/banner.jpg"
-                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none"
-              />
-            </div>
+            <ImageUploadInput
+              label="Hero Banner Image"
+              value={heroBannerUrl}
+              onChange={setHeroBannerUrl}
+              company={company}
+              assetType="banner"
+              placeholder="https://example.com/banner.jpg"
+              helpText="Upload a hero banner image file or paste a direct image URL"
+            />
           </div>
 
           {/* Style & Layout Customization */}
