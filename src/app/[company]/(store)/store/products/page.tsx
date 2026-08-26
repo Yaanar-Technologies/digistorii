@@ -1,176 +1,176 @@
 "use client";
 
-import { useEffect, useMemo, useState, type InputHTMLAttributes, type ReactNode } from "react";
-import { useParams } from "next/navigation";
-import Button from "@/components/ui/button/Button";
-import Badge from "@/components/ui/badge/Badge";
-import { useCartStore, type CartState } from "../../../../../../store/cartStore";
-
-type TenantApiResponse = {
-  success?: boolean;
-  message?: string;
-};
-
-type ProductRow = {
-  id: string;
-  products: {
-    name: string;
-  };
-  product_pricing: {
-    price: number;
-  };
-  product_images: string[];
-};
-
-type CardProps = {
-  children: ReactNode;
-  className?: string;
-};
-
-type InputProps = InputHTMLAttributes<HTMLInputElement>;
-
-function Card({ children, className = "" }: CardProps) {
-  return (
-    <div className={`rounded-xl border border-gray-200 bg-white p-4 shadow-sm ${className}`}>
-      {children}
-    </div>
-  );
-}
-
-function Input(props: InputProps) {
-  return (
-    <input
-      {...props}
-      className={`w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none ${
-        props.className || ""
-      }`}
-    />
-  );
-}
+import React, { useEffect, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import {
+  StorefrontHeader,
+  ProductGrid,
+  StorefrontFooter,
+  CartDrawer,
+  CustomerAuthModal,
+  StorefrontTheme,
+  StorefrontProduct,
+  CategoryType,
+  FooterSettings,
+  CartItemType,
+  mockTheme,
+  mockFooterSettings,
+} from "@/components/storefront";
+import { useCartStore, type CartItem } from "@/store/cartStore";
 
 export default function StoreProductsPage() {
-  const params = useParams<{ company?: string | string[] }>();
-  const companyParam = params.company;
-  const company =
-    typeof companyParam === "string"
-      ? companyParam
-      : Array.isArray(companyParam)
-      ? companyParam[0]
-      : "";
+  const params = useParams();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const company = (params.company as string) || "";
 
-  const [tenantStatus, setTenantStatus] = useState<string>("Checking tenant...");
-  const [searchTerm, setSearchTerm] = useState<string>("");
-  const [products, setProducts] = useState<ProductRow[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const addItem = useCartStore((state: CartState) => state.addItem);
+  const [loading, setLoading] = useState(true);
+  const [theme, setTheme] = useState<StorefrontTheme>(mockTheme);
+  const [footerSettings, setFooterSettings] = useState<FooterSettings>(mockFooterSettings);
+  const [categories, setCategories] = useState<CategoryType[]>([]);
+  const [products, setProducts] = useState<StorefrontProduct[]>([]);
+  
+  const [isCartOpen, setIsCartOpen] = useState(false);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [wishlistIds, setWishlistIds] = useState<number[]>([]);
+
+  const cartItems = useCartStore((state) => state.items);
+  const addItemToCart = useCartStore((state) => state.addItem);
+  const removeItemFromCart = useCartStore((state) => state.removeItem);
+  const updateItemQty = useCartStore((state) => state.updateQuantity);
 
   useEffect(() => {
-    if (!company) {
-      setTenantStatus("Tenant not available");
-      setLoading(false);
-      return;
-    }
+    if (!company) return;
 
     const loadData = async () => {
       try {
         setLoading(true);
-        // Load tenant status
-        const response = await fetch(`/api/tenant/${company}`);
-        const data = (await response.json().catch(() => ({}))) as TenantApiResponse;
-        setTenantStatus(
-          data.message || (response.ok ? "Tenant loaded" : "Tenant data unavailable in products")
-        );
+        const res = await fetch(`/api/tenant/${company}/products`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && Array.isArray(data.products)) {
+            const mappedProducts: StorefrontProduct[] = data.products.map((p: any) => ({
+              variantId: Number(p.id),
+              name: p.products.name,
+              images: p.product_images || ["https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&auto=format&fit=crop&q=80"],
+              effectivePrice: Number(p.product_pricing.price || 0),
+              inStock: true,
+              sortOrder: 1,
+            }));
+            setProducts(mappedProducts);
+          }
+        }
 
-        // Load storefront products
-        const productsResponse = await fetch(`/api/tenant/${company}/products`);
-        const productsData = await productsResponse.json().catch(() => ({}));
-        if (productsData.success && Array.isArray(productsData.products)) {
-          setProducts(productsData.products);
+        const themeRes = await fetch(`/api/company/ecom-theme?company=${company}`);
+        if (themeRes.ok) {
+          const themeData = await themeRes.json();
+          if (themeData.success && themeData.theme) {
+            const pub = themeData.theme.published_theme || themeData.theme.draft_theme;
+            if (pub) {
+              setTheme({
+                primaryColor: pub.primary_color || "#2563eb",
+                secondaryColor: pub.secondary_color || "#1e40af",
+                logoUrl: pub.logo_url || "",
+                bannerImages: pub.hero_banner_url ? [pub.hero_banner_url] : mockTheme.bannerImages,
+                fontFamily: pub.font_family || "Inter",
+                socialLinks: {
+                  facebook: pub.social_facebook,
+                  instagram: pub.social_instagram,
+                  whatsapp: pub.social_whatsapp,
+                },
+              });
+            }
+          }
         }
       } catch (err) {
-        console.error("Failed to load products:", err);
+        console.error("Error loading products page:", err);
       } finally {
         setLoading(false);
       }
     };
 
-    void loadData();
+    loadData();
   }, [company]);
 
-  const filteredProducts = useMemo(
-    () =>
-      products.filter((product) =>
-        product.products.name.toLowerCase().includes(searchTerm.toLowerCase())
-      ),
-    [products, searchTerm]
-  );
+  const convertedCartItems: CartItemType[] = cartItems.map((ci: CartItem) => ({
+    variantId: Number(ci.id),
+    productName: ci.name,
+    image: ci.image,
+    price: ci.price,
+    quantity: ci.quantity,
+    inStock: true,
+  }));
+
+  const handleAddToCart = (product: StorefrontProduct) => {
+    addItemToCart({
+      id: String(product.variantId),
+      name: product.name,
+      price: product.effectivePrice,
+      image: product.images[0],
+      quantity: 1,
+    });
+    setIsCartOpen(true);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center text-gray-500 bg-gray-50">
+        Loading product catalog...
+      </div>
+    );
+  }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-      <div className="space-y-2">
-        <Badge variant="light" color="primary">
-          Product Listing
-        </Badge>
-        <h1 className="text-3xl font-bold tracking-tight text-gray-900">Store Products</h1>
-        <p className="text-sm text-gray-600">{tenantStatus}</p>
-      </div>
+    <div className="min-h-screen bg-white" style={{ fontFamily: theme.fontFamily }}>
+      <StorefrontHeader
+        theme={theme}
+        categories={categories}
+        cartCount={cartItems.reduce((acc, i) => acc + i.quantity, 0)}
+        wishlistCount={wishlistIds.length}
+        onOpenCart={() => setIsCartOpen(true)}
+        onOpenWishlist={() => router.push(`/${company}/store/wishlist`)}
+        onOpenAuth={() => setIsAuthOpen(true)}
+      />
 
-      <Card>
-        <label htmlFor="product-search" className="mb-2 block text-sm font-medium text-gray-700">
-          Search Products
-        </label>
-        <Input
-          id="product-search"
-          placeholder="Search by product name..."
-          value={searchTerm}
-          onChange={(event) => setSearchTerm(event.target.value)}
+      <main className="py-6">
+        <ProductGrid
+          theme={theme}
+          products={products}
+          categories={categories.map((c) => c.name)}
+          onProductClick={(p) => router.push(`/${company}/store/products/${p.variantId}`)}
+          onAddToCart={handleAddToCart}
+          onToggleWishlist={(p) =>
+            setWishlistIds((prev) =>
+              prev.includes(p.variantId) ? prev.filter((id) => id !== p.variantId) : [...prev, p.variantId]
+            )
+          }
+          wishlistIds={wishlistIds}
         />
-      </Card>
+      </main>
 
-      {loading ? (
-        <div className="flex h-64 items-center justify-center text-gray-500">
-          Loading products...
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {filteredProducts.map((product) => (
-            <Card key={product.id} className="flex h-full flex-col">
-              <img
-                src={product.product_images[0]}
-                alt={product.products.name}
-                className="h-40 w-full rounded-lg object-cover"
-              />
-              <div className="mt-3 flex flex-1 flex-col">
-                <h2 className="text-base font-semibold text-gray-900">{product.products.name}</h2>
-                <p className="mt-1 text-sm text-gray-600">
-                  Rs. {product.product_pricing.price.toLocaleString("en-IN")}
-                </p>
-                <div className="mt-4">
-                  <Button
-                    className="w-full"
-                    onClick={() =>
-                      addItem({
-                        id: product.id,
-                        name: product.products.name,
-                        price: product.product_pricing.price,
-                        image: product.product_images[0],
-                        quantity: 1,
-                      })
-                    }
-                  >
-                    Add To Cart
-                  </Button>
-                </div>
-              </div>
-            </Card>
-          ))}
-          {!filteredProducts.length && (
-            <div className="col-span-full py-12 text-center text-gray-500">
-              No live products found.
-            </div>
-          )}
-        </div>
-      )}
+      <StorefrontFooter theme={theme} settings={footerSettings} />
+
+      <CartDrawer
+        theme={theme}
+        isOpen={isCartOpen}
+        onClose={() => setIsCartOpen(false)}
+        items={convertedCartItems}
+        onUpdateQuantity={(variantId, newQty) => {
+          if (newQty <= 0) removeItemFromCart(String(variantId));
+          else updateItemQty(String(variantId), newQty);
+        }}
+        onRemoveItem={(variantId) => removeItemFromCart(String(variantId))}
+        onCheckout={() => {
+          setIsCartOpen(false);
+          router.push(`/${company}/store/checkout`);
+        }}
+      />
+
+      <CustomerAuthModal
+        theme={theme}
+        isOpen={isAuthOpen}
+        onClose={() => setIsAuthOpen(false)}
+      />
     </div>
   );
 }

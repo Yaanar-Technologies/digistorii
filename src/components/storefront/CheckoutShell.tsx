@@ -8,6 +8,8 @@ export interface CheckoutShellProps {
   items: CartItemType[];
   onPlaceOrder?: (orderDetails: any) => void;
   onBackToCart?: () => void;
+  savedAddresses?: any[];
+  isLoading?: boolean;
 }
 
 export const CheckoutShell: React.FC<CheckoutShellProps> = ({
@@ -15,6 +17,8 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
   items,
   onPlaceOrder,
   onBackToCart,
+  savedAddresses = [],
+  isLoading = false,
 }) => {
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
 
@@ -357,11 +361,12 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
                   </button>
                   <button
                     type="button"
+                    disabled={isLoading}
                     onClick={handleFinalPlaceOrder}
-                    className="rounded-xl px-8 py-3 text-base font-bold text-white shadow-lg transition-transform hover:scale-105"
+                    className="rounded-xl px-8 py-3 text-base font-bold text-white shadow-lg transition-transform hover:scale-105 disabled:opacity-50"
                     style={{ backgroundColor: theme.primaryColor }}
                   >
-                    Place Order (${grandTotal.toFixed(2)})
+                    {isLoading ? "Processing Order..." : `Place Order ($${grandTotal.toFixed(2)})`}
                   </button>
                 </div>
               </div>

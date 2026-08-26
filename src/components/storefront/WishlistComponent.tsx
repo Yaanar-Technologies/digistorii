@@ -7,6 +7,7 @@ export interface WishlistComponentProps {
   theme: StorefrontTheme;
   items: WishlistItemType[];
   onMoveToCart?: (item: WishlistItemType) => void;
+  onAddToCart?: (item: WishlistItemType) => void;
   onRemoveItem?: (variantId: number) => void;
   onContinueShopping?: () => void;
 }
@@ -15,6 +16,7 @@ export const WishlistComponent: React.FC<WishlistComponentProps> = ({
   theme,
   items,
   onMoveToCart,
+  onAddToCart,
   onRemoveItem,
   onContinueShopping,
 }) => {
@@ -95,7 +97,7 @@ export const WishlistComponent: React.FC<WishlistComponentProps> = ({
                     <button
                       type="button"
                       disabled={!item.inStock}
-                      onClick={() => onMoveToCart?.(item)}
+                      onClick={() => (onMoveToCart || onAddToCart)?.(item)}
                       className={`w-full rounded-xl py-2 px-3 text-xs font-semibold transition-all ${
                         item.inStock
                           ? "text-white hover:opacity-90"

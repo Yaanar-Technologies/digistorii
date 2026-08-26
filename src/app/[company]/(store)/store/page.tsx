@@ -1,107 +1,225 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useParams } from "next/navigation";
-import Button from "@/components/ui/button/Button";
-import Badge from "@/components/ui/badge/Badge";
-import { useCartStore, type CartItem } from "../../../../../store/cartStore";
-
-type TenantApiResponse = {
-  success?: boolean;
-  message?: string;
-};
-
-type CardProps = {
-  title: string;
-  description: string;
-  children?: ReactNode;
-};
-
-function Card({ title, description, children }: CardProps) {
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-      <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
-      <p className="mt-1 text-sm text-gray-600">{description}</p>
-      {children ? <div className="mt-4">{children}</div> : null}
-    </div>
-  );
-}
+import React, { useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import {
+  StorefrontHeader,
+  StorefrontHero,
+  CategoryGrid,
+  ProductGrid,
+  StorefrontFooter,
+  CartDrawer,
+  CustomerAuthModal,
+  StorefrontTheme,
+  StorefrontProduct,
+  CategoryType,
+  FooterSettings,
+  CartItemType,
+  mockTheme,
+  mockFooterSettings,
+} from "@/components/storefront";
+import { useCartStore, type CartItem } from "@/store/cartStore";
 
 export default function StoreHomePage() {
-  const params = useParams<{ company?: string | string[] }>();
-  const companyParam = params.company;
-  const company =
-    typeof companyParam === "string"
-      ? companyParam
-      : Array.isArray(companyParam)
-      ? companyParam[0]
-      : "";
+  const params = useParams();
+  const router = useRouter();
+  const company = (params.company as string) || "";
 
-  const [tenantStatus, setTenantStatus] = useState<string>("Checking tenant...");
-  const cartItems = useCartStore((state: { items: CartItem[] }) => state.items);
+  const [loading, setLoading] = useState(true);
+  const [theme, setTheme] = useState<StorefrontTheme>(mockTheme);
+  const [footerSettings, setFooterSettings] = useState<FooterSettings>(mockFooterSettings);
+  const [categories, setCategories] = useState<CategoryType[]>([]);
+  const [products, setProducts] = useState<StorefrontProduct[]>([]);
+  
+  // Modals & Drawers state
+  const [isCartOpen, setIsCartOpen] = useState(false);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [wishlistIds, setWishlistIds] = useState<number[]>([]);
+  const [customerName, setCustomerName] = useState<string | null>(null);
+
+  // Zustand Cart Store
+  const cartItems = useCartStore((state) => state.items);
+  const addItemToCart = useCartStore((state) => state.addItem);
+  const removeItemFromCart = useCartStore((state) => state.removeItem);
+  const updateItemQty = useCartStore((state) => state.updateQuantity);
+  const clearCart = useCartStore((state) => state.clearCart);
 
   useEffect(() => {
-    if (!company) {
-      setTenantStatus("Tenant not available");
-      return;
-    }
+    if (!company) return;
 
-    const loadTenant = async () => {
+    const loadStorefront = async () => {
       try {
-        const response = await fetch(`/api/tenant/${company}`);
-        const data = (await response.json().catch(() => ({}))) as TenantApiResponse;
-        setTenantStatus(
-          data.message || (response.ok ? "Tenant loaded" : "Tenant data unavailable main page")
-        );
-        console.log("fails")
-      } catch {
-        setTenantStatus("Tenant service unavailable");
+        setLoading(true);
+
+        // Fetch storefront products & published theme data
+        const res = await fetch(`/api/tenant/${company}/products`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && Array.isArray(data.products)) {
+            // Map to StorefrontProduct format
+            const mappedProducts: StorefrontProduct[] = data.products.map((p: any) => ({
+              variantId: Number(p.id),
+              name: p.products.name,
+              images: p.product_images || ["https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&auto=format&fit=crop&q=80"],
+              effectivePrice: Number(p.product_pricing.price || 0),
+              inStock: true,
+              sortOrder: 1,
+            }));
+            setProducts(mappedProducts);
+          }
+        }
+
+        // Fetch theme & settings
+        const themeRes = await fetch(`/api/company/ecom-theme?company=${company}`);
+        if (themeRes.ok) {
+          const themeData = await themeRes.json();
+          if (themeData.success && themeData.theme) {
+            const pub = themeData.theme.published_theme || themeData.theme.draft_theme;
+            if (pub) {
+              setTheme({
+                primaryColor: pub.primary_color || "#2563eb",
+                secondaryColor: pub.secondary_color || "#1e40af",
+                logoUrl: pub.logo_url || "",
+                bannerImages: pub.hero_banner_url ? [pub.hero_banner_url] : mockTheme.bannerImages,
+                fontFamily: pub.font_family || "Inter",
+                heroTitle: pub.hero_title || "Welcome to Our Storefront",
+                heroDescription: pub.hero_subtitle || "Explore our exclusive high-quality product collection.",
+                socialLinks: {
+                  facebook: pub.social_facebook,
+                  instagram: pub.social_instagram,
+                  whatsapp: pub.social_whatsapp,
+                },
+              });
+            }
+          }
+        }
+
+        // Check customer auth session
+        const authRes = await fetch("/api/storefront/auth/me");
+        if (authRes.ok) {
+          const authData = await authRes.json();
+          if (authData.authenticated && authData.customer) {
+            setCustomerName(authData.customer.name || authData.customer.email || authData.customer.phone);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load storefront data:", err);
+      } finally {
+        setLoading(false);
       }
     };
 
-    void loadTenant();
+    loadStorefront();
   }, [company]);
 
-  const totalItems = useMemo(
-    () => cartItems.reduce((sum: number, item: CartItem) => sum + item.quantity, 0),
-    [cartItems]
-  );
+  const convertedCartItems: CartItemType[] = cartItems.map((ci: CartItem) => ({
+    variantId: Number(ci.id),
+    productName: ci.name,
+    image: ci.image,
+    price: ci.price,
+    quantity: ci.quantity,
+    inStock: true,
+  }));
+
+  const handleToggleWishlist = (product: StorefrontProduct) => {
+    setWishlistIds((prev) =>
+      prev.includes(product.variantId)
+        ? prev.filter((id) => id !== product.variantId)
+        : [...prev, product.variantId]
+    );
+  };
+
+  const handleAddToCart = (product: StorefrontProduct) => {
+    addItemToCart({
+      id: String(product.variantId),
+      name: product.name,
+      price: product.effectivePrice,
+      image: product.images[0],
+      quantity: 1,
+    });
+    setIsCartOpen(true);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center text-gray-500 bg-gray-50">
+        Loading storefront...
+      </div>
+    );
+  }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-      <div className="space-y-2">
-        <Badge variant="light" color="primary">
-          Storefront
-        </Badge>
-        <h1 className="text-3xl font-bold tracking-tight text-gray-900">
-          Welcome to {company || "your"} Store
-        </h1>
-        <p className="text-sm text-gray-600">{tenantStatus}</p>
-      </div>
+    <div className="min-h-screen bg-white" style={{ fontFamily: theme.fontFamily }}>
+      {/* 1. Header / Navigation Shell */}
+      <StorefrontHeader
+        theme={theme}
+        categories={categories}
+        cartCount={cartItems.reduce((acc, i) => acc + i.quantity, 0)}
+        wishlistCount={wishlistIds.length}
+        onOpenCart={() => setIsCartOpen(true)}
+        onOpenWishlist={() => router.push(`/${company}/store/wishlist`)}
+        onOpenAuth={() => setIsAuthOpen(true)}
+        onSelectCategory={(slug) => router.push(`/${company}/store/products?category=${slug}`)}
+        onSearch={(q) => router.push(`/${company}/store/products?search=${encodeURIComponent(q)}`)}
+      />
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card
-          title="Browse Products"
-          description="Explore available products and add items to your cart."
-        >
-          <Link href={`/${company}/store/products`} className="inline-block">
-            <Button>View Products</Button>
-          </Link>
-        </Card>
+      {/* 2. Hero Welcome Banner */}
+      <StorefrontHero
+        theme={theme}
+        ctaText="Explore Catalog"
+        onCtaClick={() => router.push(`/${company}/store/products`)}
+      />
 
-        <Card
-          title="Your Cart"
-          description="Review selected items and continue to checkout."
-        >
-          <div className="mb-3 text-sm text-gray-700">
-            Items in cart: <span className="font-semibold">{totalItems}</span>
-          </div>
-          <Link href={`/${company}/store/cart`} className="inline-block">
-            <Button variant="outline">Open Cart</Button>
-          </Link>
-        </Card>
-      </div>
+      {/* 3. Category Grid */}
+      {categories.length > 0 && (
+        <CategoryGrid
+          theme={theme}
+          categories={categories}
+          onSelectCategory={(catSlug) => router.push(`/${company}/store/products?category=${catSlug}`)}
+        />
+      )}
+
+      {/* 4. Product Catalog Grid */}
+      <ProductGrid
+        theme={theme}
+        products={products}
+        categories={categories.map((c) => c.name)}
+        onProductClick={(p) => router.push(`/${company}/store/products/${p.variantId}`)}
+        onAddToCart={handleAddToCart}
+        onToggleWishlist={handleToggleWishlist}
+        wishlistIds={wishlistIds}
+      />
+
+      {/* 5. Footer Shell */}
+      <StorefrontFooter theme={theme} settings={footerSettings} />
+
+      {/* Cart Drawer */}
+      <CartDrawer
+        theme={theme}
+        isOpen={isCartOpen}
+        onClose={() => setIsCartOpen(false)}
+        items={convertedCartItems}
+        onUpdateQuantity={(variantId, newQty) => {
+          if (newQty <= 0) removeItemFromCart(String(variantId));
+          else updateItemQty(String(variantId), newQty);
+        }}
+        onRemoveItem={(variantId) => removeItemFromCart(String(variantId))}
+        onCheckout={() => {
+          setIsCartOpen(false);
+          router.push(`/${company}/store/checkout`);
+        }}
+      />
+
+      {/* Customer Auth OTP Modal */}
+      <CustomerAuthModal
+        theme={theme}
+        isOpen={isAuthOpen}
+        onClose={() => setIsAuthOpen(false)}
+        onSuccessAuth={(ident) => {
+          setCustomerName(ident);
+          setIsAuthOpen(false);
+        }}
+      />
     </div>
   );
 }

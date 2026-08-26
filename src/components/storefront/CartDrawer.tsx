@@ -11,6 +11,7 @@ export interface CartDrawerProps {
   onUpdateQuantity?: (variantId: number, quantity: number) => void;
   onRemoveItem?: (variantId: number) => void;
   onProceedToCheckout?: () => void;
+  onCheckout?: () => void;
   freeShippingThreshold?: number;
 }
 
@@ -22,6 +23,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   onUpdateQuantity,
   onRemoveItem,
   onProceedToCheckout,
+  onCheckout,
   freeShippingThreshold = 50,
 }) => {
   if (!isOpen) return null;
@@ -174,7 +176,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
               <button
                 type="button"
-                onClick={onProceedToCheckout}
+                onClick={onProceedToCheckout || onCheckout}
                 className="w-full rounded-xl py-3.5 px-4 text-center font-semibold text-white shadow-md transition-all hover:opacity-95 active:scale-98"
                 style={{ backgroundColor: theme.primaryColor }}
               >
