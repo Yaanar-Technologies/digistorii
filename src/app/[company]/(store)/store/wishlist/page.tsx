@@ -6,10 +6,9 @@ import {
   StorefrontHeader,
   WishlistComponent,
   StorefrontFooter,
-  StorefrontTheme,
   WishlistItemType,
-  mockTheme,
   mockFooterSettings,
+  useStorefrontTheme,
 } from "@/components/storefront";
 import { useCartStore } from "@/store/cartStore";
 
@@ -18,7 +17,7 @@ export default function WishlistPage() {
   const router = useRouter();
   const company = (params.company as string) || "";
 
-  const [theme] = useState<StorefrontTheme>(mockTheme);
+  const theme = useStorefrontTheme();
   const [footerSettings] = useState(mockFooterSettings);
   const [items, setItems] = useState<WishlistItemType[]>([
     {

@@ -7,10 +7,9 @@ import {
   CheckoutShell,
   StorefrontFooter,
   CustomerAuthModal,
-  StorefrontTheme,
   CartItemType,
-  mockTheme,
   mockFooterSettings,
+  useStorefrontTheme,
 } from "@/components/storefront";
 import { useCartStore, type CartItem } from "@/store/cartStore";
 
@@ -19,7 +18,7 @@ export default function CheckoutPage() {
   const router = useRouter();
   const company = (params.company as string) || "";
 
-  const [theme] = useState<StorefrontTheme>(mockTheme);
+  const theme = useStorefrontTheme();
   const [footerSettings] = useState(mockFooterSettings);
 
   const [customer, setCustomer] = useState<{ id: number; name: string; email?: string; phone?: string; addresses?: any[] } | null>(null);

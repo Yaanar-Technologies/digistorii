@@ -10,3 +10,4 @@ export * from "./CheckoutShell";
 export * from "./WishlistComponent";
 export * from "./CustomerAuthModal";
 export * from "./StorefrontFooter";
+export * from "./theme-context";

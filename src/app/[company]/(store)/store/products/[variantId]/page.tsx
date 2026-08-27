@@ -8,11 +8,10 @@ import {
   StorefrontFooter,
   CartDrawer,
   CustomerAuthModal,
-  StorefrontTheme,
   StorefrontProduct,
   CartItemType,
-  mockTheme,
   mockFooterSettings,
+  useStorefrontTheme,
 } from "@/components/storefront";
 import { useCartStore, type CartItem } from "@/store/cartStore";
 
@@ -22,8 +21,8 @@ export default function ProductDetailPage() {
   const company = (params.company as string) || "";
   const variantId = Number(params.variantId || 0);
 
+  const theme = useStorefrontTheme();
   const [loading, setLoading] = useState(true);
-  const [theme, setTheme] = useState<StorefrontTheme>(mockTheme);
   const [product, setProduct] = useState<StorefrontProduct | null>(null);
   
   const [isCartOpen, setIsCartOpen] = useState(false);

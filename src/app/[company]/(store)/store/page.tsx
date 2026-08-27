@@ -10,13 +10,12 @@ import {
   StorefrontFooter,
   CartDrawer,
   CustomerAuthModal,
-  StorefrontTheme,
   StorefrontProduct,
   CategoryType,
   FooterSettings,
   CartItemType,
-  mockTheme,
   mockFooterSettings,
+  useStorefrontTheme,
 } from "@/components/storefront";
 import { useCartStore, type CartItem } from "@/store/cartStore";
 
@@ -25,9 +24,8 @@ export default function StoreHomePage() {
   const router = useRouter();
   const company = (params.company as string) || "";
 
-  const [loading, setLoading] = useState(true);
-  const [theme, setTheme] = useState<StorefrontTheme>(mockTheme);
-  const [footerSettings, setFooterSettings] = useState<FooterSettings>(mockFooterSettings);
+  const theme = useStorefrontTheme();
+  const [footerSettings] = useState<FooterSettings>(mockFooterSettings);
   const [categories, setCategories] = useState<CategoryType[]>([]);
   const [products, setProducts] = useState<StorefrontProduct[]>([]);
   
@@ -49,9 +47,7 @@ export default function StoreHomePage() {
 
     const loadStorefront = async () => {
       try {
-        setLoading(true);
-
-        // Fetch storefront products & published theme data
+        // Fetch storefront products
         const res = await fetch(`/api/tenant/${company}/products`);
         if (res.ok) {
           const data = await res.json();
@@ -78,30 +74,6 @@ export default function StoreHomePage() {
           }
         }
 
-        // Fetch published theme via public route
-        const themeRes = await fetch(`/api/storefront/${company}/theme`);
-        if (themeRes.ok) {
-          const themeData = await themeRes.json();
-          if (themeData.success && themeData.published_theme) {
-            const pub = themeData.published_theme;
-            setTheme({
-              primaryColor: pub.primary_color || "#2563eb",
-              secondaryColor: pub.secondary_color || "#1e40af",
-              logoUrl: pub.logo_url || "",
-              bannerImages: pub.hero_banner_url ? [pub.hero_banner_url] : mockTheme.bannerImages,
-              fontFamily: pub.font_family || "Inter",
-              layoutVariant: pub.layout_variant || "standard",
-              heroTitle: pub.hero_title || "Welcome to Our Storefront",
-              heroDescription: pub.hero_subtitle || "Explore our exclusive high-quality product collection.",
-              socialLinks: {
-                facebook: pub.social_facebook,
-                instagram: pub.social_instagram,
-                whatsapp: pub.social_whatsapp,
-              },
-            });
-          }
-        }
-
         // Check customer auth session
         const authRes = await fetch("/api/storefront/auth/me");
         if (authRes.ok) {
@@ -112,8 +84,6 @@ export default function StoreHomePage() {
         }
       } catch (err) {
         console.error("Failed to load storefront data:", err);
-      } finally {
-        setLoading(false);
       }
     };
 
@@ -147,14 +117,6 @@ export default function StoreHomePage() {
     });
     setIsCartOpen(true);
   };
-
-  if (loading) {
-    return (
-      <div className="flex h-screen items-center justify-center text-gray-500 bg-gray-50">
-        Loading storefront...
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-white" style={{ fontFamily: theme.fontFamily }}>

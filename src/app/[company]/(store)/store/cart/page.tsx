@@ -6,10 +6,9 @@ import {
   StorefrontHeader,
   StorefrontFooter,
   CartDrawer,
-  StorefrontTheme,
   CartItemType,
-  mockTheme,
   mockFooterSettings,
+  useStorefrontTheme,
 } from "@/components/storefront";
 import { useCartStore, type CartItem } from "@/store/cartStore";
 
@@ -18,7 +17,7 @@ export default function CartPage() {
   const router = useRouter();
   const company = (params.company as string) || "";
 
-  const [theme] = useState<StorefrontTheme>(mockTheme);
+  const theme = useStorefrontTheme();
   const [footerSettings] = useState(mockFooterSettings);
 
   const cartItems = useCartStore((state) => state.items);
@@ -135,7 +134,8 @@ export default function CartPage() {
 
                   <button
                     onClick={() => router.push(`/${company}/store/checkout`)}
-                    className="w-full rounded-xl bg-blue-600 py-3.5 px-4 text-center text-sm font-semibold text-white shadow-md hover:bg-blue-700"
+                    className="w-full rounded-xl py-3.5 px-4 text-center text-sm font-semibold text-white shadow-md hover:opacity-95"
+                    style={{ backgroundColor: theme.primaryColor }}
                   >
                     Proceed to Checkout
                   </button>
