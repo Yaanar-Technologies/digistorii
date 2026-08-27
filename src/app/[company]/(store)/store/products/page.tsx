@@ -54,18 +54,26 @@ export default function StoreProductsPage() {
               name: p.products.name,
               images: p.product_images || ["https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&auto=format&fit=crop&q=80"],
               effectivePrice: Number(p.product_pricing.price || 0),
-              inStock: true,
+              inStock: Number(p.available_qty ?? 0) > 0,
               sortOrder: 1,
             }));
             setProducts(mappedProducts);
           }
         }
 
-        const themeRes = await fetch(`/api/company/ecom-theme?company=${company}`);
+        const catRes = await fetch(`/api/tenant/${company}/categories`);
+        if (catRes.ok) {
+          const catData = await catRes.json();
+          if (catData.success && Array.isArray(catData.categories)) {
+            setCategories(catData.categories);
+          }
+        }
+
+        const themeRes = await fetch(`/api/storefront/${company}/theme`);
         if (themeRes.ok) {
           const themeData = await themeRes.json();
-          if (themeData.success && themeData.theme) {
-            const pub = themeData.theme.published_theme || themeData.theme.draft_theme;
+          if (themeData.success && themeData.published_theme) {
+            const pub = themeData.published_theme;
             if (pub) {
               setTheme({
                 primaryColor: pub.primary_color || "#2563eb",

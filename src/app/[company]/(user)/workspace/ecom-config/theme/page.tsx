@@ -1,3 +1,4 @@
+//C:\Users\yanna\digistorii-ECom\src\app\[company]\(user)\workspace\ecom-config\theme\page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -270,11 +271,10 @@ export default function ThemeCustomizationPage() {
 
       {message && (
         <div
-          className={`p-4 rounded-lg text-sm ${
-            message.type === "success"
+          className={`p-4 rounded-lg text-sm ${message.type === "success"
               ? "bg-green-50 text-green-800 border border-green-200"
               : "bg-red-50 text-red-800 border border-red-200"
-          }`}
+            }`}
         >
           {message.text}
         </div>
@@ -368,7 +368,7 @@ export default function ThemeCustomizationPage() {
           {/* Style & Layout Customization */}
           <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
             <h2 className="text-lg font-bold text-gray-900 border-b pb-2">Brand Palette, Typography & Layout</h2>
-            
+
             <div>
               <label className="block text-sm font-semibold text-gray-700">Layout Variant</label>
               <select
@@ -489,22 +489,20 @@ export default function ThemeCustomizationPage() {
                 <button
                   type="button"
                   onClick={() => setViewportMode("desktop")}
-                  className={`rounded-md px-3 py-1.5 transition-colors ${
-                    viewportMode === "desktop"
+                  className={`rounded-md px-3 py-1.5 transition-colors ${viewportMode === "desktop"
                       ? "bg-white text-gray-900 shadow-xs"
                       : "text-gray-600 hover:text-gray-900"
-                  }`}
+                    }`}
                 >
                   Desktop
                 </button>
                 <button
                   type="button"
                   onClick={() => setViewportMode("mobile")}
-                  className={`rounded-md px-3 py-1.5 transition-colors ${
-                    viewportMode === "mobile"
+                  className={`rounded-md px-3 py-1.5 transition-colors ${viewportMode === "mobile"
                       ? "bg-white text-gray-900 shadow-xs"
                       : "text-gray-600 hover:text-gray-900"
-                  }`}
+                    }`}
                 >
                   Mobile
                 </button>
@@ -514,11 +512,10 @@ export default function ThemeCustomizationPage() {
             {/* Live Preview Render Container */}
             <div className="bg-gray-100 p-3 sm:p-4 rounded-xl overflow-hidden min-h-[500px]">
               <div
-                className={`transition-all duration-300 bg-white shadow-lg overflow-y-auto max-h-[750px] ${
-                  viewportMode === "mobile"
+                className={`transition-all duration-300 bg-white shadow-lg overflow-y-auto max-h-[750px] ${viewportMode === "mobile"
                     ? "w-[375px] mx-auto rounded-2xl border-4 border-gray-800"
                     : "w-full rounded-xl border border-gray-200"
-                }`}
+                  }`}
               >
                 {/* Storefront Navigation Header */}
                 <StorefrontHeader theme={liveStorefrontTheme} categories={mockCategories} />

@@ -1,3 +1,4 @@
+//C:\Users\yanna\digistorii-ECom\src\app\api\company\ecom-theme\route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { getTenantSchema } from "@/lib/tenant";
@@ -94,7 +95,7 @@ export async function POST(req: NextRequest) {
          SET is_live = is_selected_draft,
              updated_at = NOW()
          WHERE company_id = $1`,
-         [companyId]
+        [companyId]
       );
 
       await client.query("COMMIT");

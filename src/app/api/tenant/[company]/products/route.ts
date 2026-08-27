@@ -59,7 +59,11 @@ export async function GET(
             LIMIT 1
           ),
           0.00
-        ) AS final_selling_price
+        ) AS final_selling_price,
+        COALESCE(
+          (SELECT available_qty FROM "${schema}".ecom_available_stock WHERE variant_id = pv.id LIMIT 1),
+          0
+        ) AS available_qty
       FROM "${schema}".product_variants pv
       INNER JOIN "${schema}".products p ON p.id = pv.product_id
       INNER JOIN "${schema}".storefront_products sp ON sp.variant_id = pv.id
@@ -78,6 +82,7 @@ export async function GET(
         price: Number(row.final_selling_price || 0),
       },
       product_images: row.image_url ? [row.image_url] : ["https://placehold.co/600x400?text=Image+Not+Available"],
+      available_qty: Number(row.available_qty || 0),
     }));
 
     return NextResponse.json({
