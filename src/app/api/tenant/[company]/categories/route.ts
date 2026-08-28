@@ -35,16 +35,18 @@ export async function GET(
     const { schema_name: schema } = tenantRes.rows[0];
 
     const result = await client.query(
-      `SELECT id, category_name
+      `SELECT id, category_name, level, COALESCE(path_string, category_name) AS path_string
        FROM "${schema}".product_categories
        WHERE inactive_date IS NULL
-       ORDER BY category_name ASC`
+       ORDER BY path_string ASC`
     );
 
     const categories = result.rows.map((row: any) => ({
       id: Number(row.id),
       name: row.category_name,
       slug: row.category_name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),
+      level: Number(row.level || 1),
+      path_string: row.path_string || row.category_name,
       image: "",
     }));
 

@@ -12,6 +12,7 @@ export type StorefrontTheme = {
     instagram?: string;
     whatsapp?: string;
   };
+  featuredCategoryIds?: number[];
 };
 
 export type StorefrontProduct = {
@@ -35,11 +36,13 @@ export type FooterSettings = {
 };
 
 export type CategoryType = {
-  id: string;
+  id: number | string;
   name: string;
   slug: string;
   image?: string;
   itemCount?: number;
+  level?: number;
+  path_string?: string;
 };
 
 export type CartItemType = {

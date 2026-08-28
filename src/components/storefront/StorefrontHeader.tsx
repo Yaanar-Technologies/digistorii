@@ -36,6 +36,17 @@ export const StorefrontHeader: React.FC<StorefrontHeaderProps> = ({
     }
   };
 
+  const navCategories = React.useMemo(() => {
+    if (!categories || categories.length === 0) return [];
+    if (theme.featuredCategoryIds && theme.featuredCategoryIds.length > 0) {
+      const selectedSet = new Set(theme.featuredCategoryIds.map(Number));
+      return categories.filter((c) => selectedSet.has(Number(c.id)));
+    }
+    // Backward compatibility fallback (B4): show top-level (level = 1) categories
+    const topLevel = categories.filter((c) => c.level === 1);
+    return topLevel.length > 0 ? topLevel : categories;
+  }, [categories, theme.featuredCategoryIds]);
+
   return (
     <header
       className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-gray-100 shadow-sm transition-all"
@@ -158,7 +169,7 @@ export const StorefrontHeader: React.FC<StorefrontHeaderProps> = ({
         </div>
 
         {/* Desktop Category Navigation */}
-        {categories.length > 0 && (
+        {navCategories.length > 0 && (
           <nav className="hidden md:flex space-x-8 border-t border-gray-100 py-2.5">
             <button
               onClick={() => onSelectCategory && onSelectCategory("all")}
@@ -166,7 +177,7 @@ export const StorefrontHeader: React.FC<StorefrontHeaderProps> = ({
             >
               All Categories
             </button>
-            {categories.map((cat) => (
+            {navCategories.map((cat) => (
               <button
                 key={cat.id}
                 onClick={() => onSelectCategory && onSelectCategory(cat.slug)}
@@ -203,7 +214,7 @@ export const StorefrontHeader: React.FC<StorefrontHeaderProps> = ({
             >
               All Products
             </button>
-            {categories.map((cat) => (
+            {navCategories.map((cat) => (
               <button
                 key={cat.id}
                 onClick={() => {

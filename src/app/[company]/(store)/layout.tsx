@@ -7,6 +7,7 @@ import {
   mockTheme,
   StorefrontThemeProvider,
 } from "@/components/storefront";
+import { getGoogleFontUrl } from "@/lib/font-utils";
 
 export default function StorefrontLayout({
   children,
@@ -47,6 +48,7 @@ export default function StorefrontLayout({
                 instagram: pub.social_instagram,
                 whatsapp: pub.social_whatsapp,
               },
+              featuredCategoryIds: pub.featured_category_ids || [],
             });
           } else {
             // Graceful fallback to mockTheme if no published theme exists yet
@@ -65,6 +67,35 @@ export default function StorefrontLayout({
 
     fetchPublicTheme();
   }, [company]);
+
+  useEffect(() => {
+    // Add Google Fonts preconnect tags if not present
+    if (!document.getElementById("google-fonts-preconnect")) {
+      const p1 = document.createElement("link");
+      p1.rel = "preconnect";
+      p1.href = "https://fonts.googleapis.com";
+      document.head.appendChild(p1);
+
+      const p2 = document.createElement("link");
+      p2.id = "google-fonts-preconnect";
+      p2.rel = "preconnect";
+      p2.href = "https://fonts.gstatic.com";
+      p2.crossOrigin = "anonymous";
+      document.head.appendChild(p2);
+    }
+
+    const fontUrl = getGoogleFontUrl(theme.fontFamily);
+    if (!fontUrl) return;
+
+    let link = document.getElementById("storefront-public-google-font") as HTMLLinkElement;
+    if (!link) {
+      link = document.createElement("link");
+      link.id = "storefront-public-google-font";
+      link.rel = "stylesheet";
+      document.head.appendChild(link);
+    }
+    link.href = fontUrl;
+  }, [theme.fontFamily]);
 
   if (loading) {
     return (

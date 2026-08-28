@@ -17,6 +17,7 @@ import {
   mockFooterSettings,
 } from "@/components/storefront";
 import ImageUploadInput from "@/components/ui/ImageUploadInput";
+import { getGoogleFontUrl, getFontFamilyCss } from "@/lib/font-utils";
 
 type ThemeConfig = {
   logo_url?: string;
@@ -31,6 +32,7 @@ type ThemeConfig = {
   social_whatsapp?: string;
   font_family?: string;
   layout_variant?: string;
+  featured_category_ids?: number[];
 };
 
 // Thin mapping layer to translate raw backend snake_case config to/from StorefrontTheme contract
@@ -48,6 +50,7 @@ export const toStorefrontTheme = (config: ThemeConfig): StorefrontTheme => ({
     instagram: config.social_instagram || "",
     whatsapp: config.social_whatsapp || "",
   },
+  featuredCategoryIds: config.featured_category_ids || [],
 });
 
 export const fromStorefrontTheme = (theme: StorefrontTheme): ThemeConfig => ({
@@ -62,6 +65,7 @@ export const fromStorefrontTheme = (theme: StorefrontTheme): ThemeConfig => ({
   social_facebook: theme.socialLinks?.facebook,
   social_instagram: theme.socialLinks?.instagram,
   social_whatsapp: theme.socialLinks?.whatsapp,
+  featured_category_ids: theme.featuredCategoryIds || [],
 });
 
 export default function ThemeCustomizationPage() {
@@ -88,6 +92,8 @@ export default function ThemeCustomizationPage() {
   const [socialWhatsapp, setSocialWhatsapp] = useState("");
   const [fontFamily, setFontFamily] = useState("Inter");
   const [layoutVariant, setLayoutVariant] = useState("standard");
+  const [featuredCategoryIds, setFeaturedCategoryIds] = useState<number[]>([]);
+  const [workspaceCategories, setWorkspaceCategories] = useState<any[]>([]);
 
   // Viewport mode for live preview frame
   const [viewportMode, setViewportMode] = useState<"desktop" | "mobile">("desktop");
@@ -120,12 +126,22 @@ export default function ThemeCustomizationPage() {
             setSocialWhatsapp(config.social_whatsapp || "");
             setFontFamily(config.font_family || "Inter");
             setLayoutVariant(config.layout_variant || "standard");
+            setFeaturedCategoryIds(config.featured_category_ids || []);
 
             setVersion(data.theme.version || 0);
             setPublishedTheme(data.theme.published_theme || null);
             setPublishedAt(data.theme.published_at || null);
             setPublishedBy(data.theme.published_by || null);
             setIsSetupComplete(data.is_setup_complete === true);
+          }
+        }
+
+        // Fetch categories for theme header category picker
+        const catRes = await apiFetch(`/api/tenant/${company}/categories`, company);
+        if (catRes.ok) {
+          const catData = await catRes.json();
+          if (catData.success && Array.isArray(catData.categories)) {
+            setWorkspaceCategories(catData.categories);
           }
         }
       } catch (err) {
@@ -137,6 +153,21 @@ export default function ThemeCustomizationPage() {
 
     fetchTheme();
   }, [company]);
+
+  // Client-side dynamic preview Google Font loading
+  useEffect(() => {
+    const fontUrl = getGoogleFontUrl(fontFamily);
+    if (!fontUrl) return;
+
+    let link = document.getElementById("theme-editor-google-font") as HTMLLinkElement;
+    if (!link) {
+      link = document.createElement("link");
+      link.id = "theme-editor-google-font";
+      link.rel = "stylesheet";
+      document.head.appendChild(link);
+    }
+    link.href = fontUrl;
+  }, [fontFamily]);
 
   const getThemePayload = (): ThemeConfig => {
     return {
@@ -152,6 +183,7 @@ export default function ThemeCustomizationPage() {
       social_whatsapp: socialWhatsapp,
       font_family: fontFamily,
       layout_variant: layoutVariant,
+      featured_category_ids: featuredCategoryIds,
     };
   };
 
@@ -331,6 +363,49 @@ export default function ThemeCustomizationPage() {
             </div>
           </div>
 
+          {/* Header Navigation Categories Selection */}
+          <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
+            <div className="flex items-center justify-between border-b pb-2">
+              <h2 className="text-lg font-bold text-gray-900">Header Navigation Categories</h2>
+              <span className="text-xs font-semibold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-200">
+                {featuredCategoryIds.length} Selected
+              </span>
+            </div>
+            <p className="text-xs text-gray-500">
+              Select specific categories (from any level) to feature in top header navigation. If none selected, top-level categories will display by default.
+            </p>
+            {workspaceCategories.length === 0 ? (
+              <p className="text-sm text-gray-400 italic">No active categories found in inventory.</p>
+            ) : (
+              <div className="max-h-56 overflow-y-auto space-y-1.5 border border-gray-200 rounded-md p-3 bg-gray-50/50">
+                {workspaceCategories.map((cat: any) => {
+                  const catId = Number(cat.id);
+                  const isChecked = featuredCategoryIds.includes(catId);
+                  return (
+                    <label
+                      key={catId}
+                      className="flex items-center gap-3 text-sm font-medium text-gray-700 hover:bg-gray-100 p-1.5 rounded cursor-pointer transition-colors"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setFeaturedCategoryIds((prev) => [...prev, catId]);
+                          } else {
+                            setFeaturedCategoryIds((prev) => prev.filter((id) => id !== catId));
+                          }
+                        }}
+                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>{cat.path_string || cat.name}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           {/* Hero Banner Section */}
           <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
             <h2 className="text-lg font-bold text-gray-900 border-b pb-2">Hero Welcome Banner</h2>
@@ -489,20 +564,22 @@ export default function ThemeCustomizationPage() {
                 <button
                   type="button"
                   onClick={() => setViewportMode("desktop")}
-                  className={`rounded-md px-3 py-1.5 transition-colors ${viewportMode === "desktop"
+                  className={`rounded-md px-3 py-1.5 transition-colors ${
+                    viewportMode === "desktop"
                       ? "bg-white text-gray-900 shadow-xs"
                       : "text-gray-600 hover:text-gray-900"
-                    }`}
+                  }`}
                 >
                   Desktop
                 </button>
                 <button
                   type="button"
                   onClick={() => setViewportMode("mobile")}
-                  className={`rounded-md px-3 py-1.5 transition-colors ${viewportMode === "mobile"
+                  className={`rounded-md px-3 py-1.5 transition-colors ${
+                    viewportMode === "mobile"
                       ? "bg-white text-gray-900 shadow-xs"
                       : "text-gray-600 hover:text-gray-900"
-                    }`}
+                  }`}
                 >
                   Mobile
                 </button>
@@ -512,13 +589,18 @@ export default function ThemeCustomizationPage() {
             {/* Live Preview Render Container */}
             <div className="bg-gray-100 p-3 sm:p-4 rounded-xl overflow-hidden min-h-[500px]">
               <div
-                className={`transition-all duration-300 bg-white shadow-lg overflow-y-auto max-h-[750px] ${viewportMode === "mobile"
+                className={`transition-all duration-300 bg-white shadow-lg overflow-y-auto max-h-[750px] ${
+                  viewportMode === "mobile"
                     ? "w-[375px] mx-auto rounded-2xl border-4 border-gray-800"
                     : "w-full rounded-xl border border-gray-200"
-                  }`}
+                }`}
+                style={{ fontFamily: getFontFamilyCss(fontFamily) }}
               >
                 {/* Storefront Navigation Header */}
-                <StorefrontHeader theme={liveStorefrontTheme} categories={mockCategories} />
+                <StorefrontHeader
+                  theme={liveStorefrontTheme}
+                  categories={workspaceCategories.length > 0 ? workspaceCategories : mockCategories}
+                />
 
                 {/* Hero Welcome Banner */}
                 <StorefrontHero theme={liveStorefrontTheme} />
