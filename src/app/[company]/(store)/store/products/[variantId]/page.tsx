@@ -10,6 +10,7 @@ import {
   CustomerAuthModal,
   StorefrontProduct,
   CartItemType,
+  FooterSettings,
   mockFooterSettings,
   useStorefrontTheme,
 } from "@/components/storefront";
@@ -24,6 +25,7 @@ export default function ProductDetailPage() {
   const theme = useStorefrontTheme();
   const [loading, setLoading] = useState(true);
   const [product, setProduct] = useState<StorefrontProduct | null>(null);
+  const [footerSettings, setFooterSettings] = useState<FooterSettings>(mockFooterSettings);
   
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
@@ -37,26 +39,64 @@ export default function ProductDetailPage() {
   useEffect(() => {
     if (!company || !variantId) return;
 
-    const loadProduct = async () => {
+    const loadProductDetail = async () => {
       try {
         setLoading(true);
-        const res = await fetch(`/api/tenant/${company}/products`);
+        const res = await fetch(`/api/tenant/${company}/products/${variantId}/detail`);
         if (res.ok) {
           const data = await res.json();
+          if (data.success && data.product && Array.isArray(data.variants)) {
+            const targetVariant =
+              data.variants.find((v: any) => v.variantId === variantId) ||
+              data.variants[0];
+
+            if (targetVariant) {
+              setProduct({
+                variantId: targetVariant.variantId,
+                productCode: data.product.productCode,
+                name: data.product.name,
+                description: data.product.description,
+                category: data.product.category,
+                material: data.product.material,
+                weight: data.product.weight,
+                length: data.product.length,
+                width: data.product.width,
+                height: data.product.height,
+                specifications: data.product.specifications || [],
+                effectivePrice: targetVariant.effectivePrice,
+                compareAtPrice: targetVariant.compareAtPrice,
+                inStock: targetVariant.inStock,
+                availableQty: targetVariant.availableQty,
+                lowStockThreshold: targetVariant.lowStockThreshold,
+                images: targetVariant.images,
+                variants: data.variants,
+              });
+
+              if (data.footerSettings) {
+                setFooterSettings(data.footerSettings);
+              }
+              return;
+            }
+          }
+        }
+
+        // Fallback fetch if detailed route fails
+        const fallbackRes = await fetch(`/api/tenant/${company}/products`);
+        if (fallbackRes.ok) {
+          const data = await fallbackRes.json();
           if (data.success && Array.isArray(data.products)) {
             const found = data.products.find((p: any) => Number(p.id) === variantId);
             if (found) {
               setProduct({
                 variantId: Number(found.id),
                 name: found.products.name,
-                images: found.product_images || ["https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&auto=format&fit=crop&q=80"],
+                images: found.product_images || ["https://placehold.co/600x400?text=No+Image"],
                 effectivePrice: Number(found.product_pricing.price || 0),
-                inStock: true,
-                sortOrder: 1,
-                description: "Premium crafted merchandise designed for ultimate comfort and durability.",
-                options: [
-                  { name: "Size", values: ["Standard"] },
-                ],
+                inStock: Number(found.available_qty || 0) > 0,
+                availableQty: Number(found.available_qty || 0),
+                lowStockThreshold: 5,
+                description: "Premium merchandise crafted for style and elegance.",
+                category: "Apparel",
               });
             }
           }
@@ -68,7 +108,7 @@ export default function ProductDetailPage() {
       }
     };
 
-    loadProduct();
+    loadProductDetail();
   }, [company, variantId]);
 
   const convertedCartItems: CartItemType[] = cartItems.map((ci: CartItem) => ({
@@ -83,13 +123,19 @@ export default function ProductDetailPage() {
   const handleAddToCart = (
     itemProduct: StorefrontProduct,
     selectedOptions: Record<string, string>,
-    quantity: number
+    quantity: number,
+    resolvedVariantId?: number
   ) => {
+    const finalVariantId = resolvedVariantId || itemProduct.variantId;
+    
+    // Find active variant details if resolvedVariantId differs
+    const activeVar = itemProduct.variants?.find((v) => v.variantId === finalVariantId);
+
     addItemToCart({
-      id: String(itemProduct.variantId),
+      id: String(finalVariantId),
       name: itemProduct.name,
-      price: itemProduct.effectivePrice,
-      image: itemProduct.images[0],
+      price: activeVar ? activeVar.effectivePrice : itemProduct.effectivePrice,
+      image: activeVar?.images?.[0] || itemProduct.images[0],
       quantity: quantity || 1,
     });
     setIsCartOpen(true);
@@ -109,7 +155,7 @@ export default function ProductDetailPage() {
         <p className="text-lg font-semibold">Product not found</p>
         <button
           onClick={() => router.push(`/${company}/store/products`)}
-          className="mt-4 rounded-xl bg-blue-600 px-4 py-2 text-sm text-white"
+          className="mt-4 rounded-xl bg-black px-4 py-2 text-sm text-white"
         >
           Back to Catalog
         </button>
@@ -127,7 +173,7 @@ export default function ProductDetailPage() {
         onOpenAuth={() => setIsAuthOpen(true)}
       />
 
-      <main className="py-8">
+      <main>
         <ProductDetail
           theme={theme}
           product={product}
@@ -137,7 +183,7 @@ export default function ProductDetailPage() {
         />
       </main>
 
-      <StorefrontFooter theme={theme} settings={mockFooterSettings} />
+      <StorefrontFooter theme={theme} settings={footerSettings} />
 
       <CartDrawer
         theme={theme}

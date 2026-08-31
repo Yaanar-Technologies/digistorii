@@ -2,6 +2,7 @@
 
 import React from "react";
 import { StorefrontTheme, CartItemType } from "./types";
+import { formatPrice } from "@/lib/currency";
 
 export interface CartDrawerProps {
   theme: StorefrontTheme;
@@ -61,11 +62,11 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
             </button>
           </div>
 
-          {/* Free Shipping Progress Bar */}
+            {/* Free Shipping Progress Bar */}
           <div className="bg-gray-50 px-6 py-3 border-b border-gray-100">
             <div className="text-xs font-medium text-gray-600 mb-1.5 flex justify-between">
               {remainingForFreeShipping > 0 ? (
-                <span>Add <strong>${remainingForFreeShipping.toFixed(2)}</strong> more for FREE Shipping!</span>
+                <span>Add <strong>{formatPrice(remainingForFreeShipping)}</strong> more for FREE Shipping!</span>
               ) : (
                 <span className="text-emerald-600 font-semibold">🎉 You unlocked FREE Shipping!</span>
               )}
@@ -147,7 +148,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                       </div>
 
                       <span className="text-sm font-bold text-gray-900">
-                        ${(item.price * item.quantity).toFixed(2)}
+                        {formatPrice(item.price * item.quantity)}
                       </span>
                     </div>
                   </div>
@@ -162,7 +163,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               <div className="space-y-1.5 text-sm">
                 <div className="flex justify-between text-gray-600">
                   <span>Subtotal</span>
-                  <span className="font-semibold text-gray-900">${subtotal.toFixed(2)}</span>
+                  <span className="font-semibold text-gray-900">{formatPrice(subtotal)}</span>
                 </div>
                 <div className="flex justify-between text-gray-600">
                   <span>Shipping</span>
@@ -170,7 +171,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 </div>
                 <div className="flex justify-between text-base font-bold text-gray-900 pt-2 border-t border-gray-200">
                   <span>Total Amount</span>
-                  <span>${subtotal.toFixed(2)}</span>
+                  <span>{formatPrice(subtotal)}</span>
                 </div>
               </div>
 

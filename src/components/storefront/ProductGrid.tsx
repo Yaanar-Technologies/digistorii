@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo } from "react";
 import { StorefrontTheme, StorefrontProduct } from "./types";
+import { formatPrice } from "@/lib/currency";
 
 export interface ProductGridProps {
   theme: StorefrontTheme;
@@ -62,7 +63,7 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
       .sort((a, b) => {
         if (sortBy === "price-asc") return a.effectivePrice - b.effectivePrice;
         if (sortBy === "price-desc") return b.effectivePrice - a.effectivePrice;
-        return a.sortOrder - b.sortOrder;
+        return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
       });
   }, [products, selectedCategory, searchQuery, maxPriceFilter, inStockOnlyFilter, sortBy]);
 
@@ -258,11 +259,11 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
                         {/* Price Display */}
                         <div className="mt-2 flex items-baseline gap-2">
                           <span className="text-lg font-bold text-gray-900">
-                            ${product.effectivePrice.toFixed(2)}
+                            {formatPrice(product.effectivePrice)}
                           </span>
                           {product.compareAtPrice && product.compareAtPrice > product.effectivePrice && (
                             <span className="text-xs text-gray-400 line-through">
-                              ${product.compareAtPrice.toFixed(2)}
+                              {formatPrice(product.compareAtPrice)}
                             </span>
                           )}
                         </div>

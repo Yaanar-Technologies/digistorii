@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { StorefrontTheme, CartItemType } from "./types";
+import { formatPrice } from "@/lib/currency";
 
 export interface CheckoutShellProps {
   theme: StorefrontTheme;
@@ -346,7 +347,7 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
                         <div className="font-medium text-gray-900">{item.productName}</div>
                         <div className="text-xs text-gray-500">Qty: {item.quantity}</div>
                       </div>
-                      <div className="font-bold text-gray-900">${(item.price * item.quantity).toFixed(2)}</div>
+                      <div className="font-bold text-gray-900">{formatPrice(item.price * item.quantity)}</div>
                     </div>
                   ))}
                 </div>
@@ -366,7 +367,7 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
                     className="rounded-xl px-8 py-3 text-base font-bold text-white shadow-lg transition-transform hover:scale-105 disabled:opacity-50"
                     style={{ backgroundColor: theme.primaryColor }}
                   >
-                    {isLoading ? "Processing Order..." : `Place Order ($${grandTotal.toFixed(2)})`}
+                    {isLoading ? "Processing Order..." : `Place Order (${formatPrice(grandTotal)})`}
                   </button>
                 </div>
               </div>
@@ -382,15 +383,15 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
             <div className="space-y-2 text-sm">
               <div className="flex justify-between text-gray-600">
                 <span>Subtotal ({items.reduce((sum, i) => sum + i.quantity, 0)} items)</span>
-                <span>${subtotal.toFixed(2)}</span>
+                <span>{formatPrice(subtotal)}</span>
               </div>
               <div className="flex justify-between text-gray-600">
                 <span>Estimated Shipping</span>
-                <span>{shippingFee === 0 ? "FREE" : `$${shippingFee.toFixed(2)}`}</span>
+                <span>{shippingFee === 0 ? "FREE" : formatPrice(shippingFee)}</span>
               </div>
               <div className="flex justify-between text-base font-bold text-gray-900 pt-3 border-t border-gray-100">
                 <span>Total</span>
-                <span>${grandTotal.toFixed(2)}</span>
+                <span>{formatPrice(grandTotal)}</span>
               </div>
             </div>
           </div>

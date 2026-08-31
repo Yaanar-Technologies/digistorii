@@ -2,6 +2,7 @@
 
 import React from "react";
 import { StorefrontTheme, WishlistItemType } from "./types";
+import { formatPrice } from "@/lib/currency";
 
 export interface WishlistComponentProps {
   theme: StorefrontTheme;
@@ -90,7 +91,7 @@ export const WishlistComponent: React.FC<WishlistComponentProps> = ({
                     {item.productName}
                   </h3>
                   <div className="mt-1 text-base font-bold text-gray-900">
-                    ${item.price.toFixed(2)}
+                    {formatPrice(item.price)}
                   </div>
 
                   <div className="mt-4 pt-2">

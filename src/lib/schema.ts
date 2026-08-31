@@ -350,12 +350,15 @@ CREATE TABLE IF NOT EXISTS "${schema}".products (
   length NUMERIC(10,2),
   width NUMERIC(10,2),
   height NUMERIC(10,2),
+  specifications JSONB DEFAULT '[]'::jsonb,
   type VARCHAR(20) NOT NULL DEFAULT 'finished_good' CHECK (type IN ('finished_good', 'raw_material', 'other')),
   source VARCHAR(20) NOT NULL DEFAULT 'own' CHECK (source IN ('own', 'vendor')),
   status SMALLINT NOT NULL DEFAULT 1 CHECK (status IN (1, 2)), -- 1=active, 2=inactive
   created_at TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE "${schema}".products ADD COLUMN IF NOT EXISTS specifications JSONB DEFAULT '[]'::jsonb;
 `);
 
   await client.query(`
