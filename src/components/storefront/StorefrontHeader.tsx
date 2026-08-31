@@ -180,7 +180,7 @@ export const StorefrontHeader: React.FC<StorefrontHeaderProps> = ({
             {navCategories.map((cat) => (
               <button
                 key={cat.id}
-                onClick={() => onSelectCategory && onSelectCategory(cat.slug)}
+                onClick={() => onSelectCategory && onSelectCategory(cat.name)}
                 className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
               >
                 {cat.name}
@@ -218,7 +218,7 @@ export const StorefrontHeader: React.FC<StorefrontHeaderProps> = ({
               <button
                 key={cat.id}
                 onClick={() => {
-                  onSelectCategory?.(cat.slug);
+                  onSelectCategory?.(cat.name);
                   setMobileMenuOpen(false);
                 }}
                 className="block w-full text-left rounded-md px-3 py-2 text-base font-medium text-gray-600 hover:bg-gray-50"

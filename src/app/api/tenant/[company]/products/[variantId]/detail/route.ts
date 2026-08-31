@@ -1,3 +1,4 @@
+// src/app/api/tenant/[company]/products/[variantId]/detail/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 
@@ -56,9 +57,16 @@ export async function GET(
 
     // 3. Fetch Product record
     const productRes = await client.query(
-      `SELECT id, product_code, name, description, category, material, weight, length, width, height, specifications
-       FROM "${schema}".products
-       WHERE id = $1 LIMIT 1`,
+      `SELECT 
+         p.id, p.product_code, p.name, p.description, 
+         p.weight, p.length, p.width, p.height, p.specifications,
+         pcat.path_string AS category_path,
+         pcat.category_name AS category_name,
+         mat.material_name AS material_name
+       FROM "${schema}".products p
+       LEFT JOIN "${schema}".product_categories pcat ON pcat.id = NULLIF(p.category, '')::integer
+       LEFT JOIN "${schema}".product_materials mat ON mat.id = NULLIF(p.material, '')::integer
+       WHERE p.id = $1 LIMIT 1`,
       [productId]
     );
 
@@ -176,8 +184,8 @@ export async function GET(
         productCode: productRecord.product_code,
         name: productRecord.name,
         description: productRecord.description || "",
-        category: productRecord.category || "Apparel",
-        material: productRecord.material || null,
+        category: productRecord.category_path || productRecord.category_name || "Apparel",
+        material: productRecord.material_name || null,
         weight: productRecord.weight ? Number(productRecord.weight) : null,
         length: productRecord.length ? Number(productRecord.length) : null,
         width: productRecord.width ? Number(productRecord.width) : null,

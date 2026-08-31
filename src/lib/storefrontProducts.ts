@@ -76,7 +76,8 @@ export async function getStorefrontData(companySlug: string) {
         pv.id AS variant_id,
         p.name AS product_name,
         p.description AS product_description,
-        p.category AS category_name,
+        pcat.path_string AS category_path,
+        pcat.category_name AS category_name,
         sp.sort_order,
         COALESCE(
           (
@@ -120,6 +121,7 @@ export async function getStorefrontData(companySlug: string) {
       FROM "${schema}".product_variants pv
       INNER JOIN "${schema}".products p ON p.id = pv.product_id
       INNER JOIN "${schema}".storefront_products sp ON sp.variant_id = pv.id
+      LEFT JOIN "${schema}".product_categories pcat ON pcat.id = NULLIF(p.category, '')::integer
       WHERE pv.status = 'active' AND sp.is_live = TRUE
       ORDER BY sp.sort_order ASC, p.name ASC
     `;
@@ -137,7 +139,7 @@ export async function getStorefrontData(companySlug: string) {
       compareAtPrice: row.compare_at_price ? Number(row.compare_at_price) : undefined,
       inStock: Number(row.available_qty || 0) > 0,
       sortOrder: Number(row.sort_order || 0),
-      category: row.category_name || "General",
+      category: row.category_path || row.category_name || "General",
       description: row.product_description || "",
     }));
 

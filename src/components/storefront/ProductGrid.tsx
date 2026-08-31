@@ -12,6 +12,8 @@ export interface ProductGridProps {
   onAddToCart?: (product: StorefrontProduct) => void;
   onToggleWishlist?: (product: StorefrontProduct) => void;
   wishlistIds?: number[];
+  selectedCategory?: string;
+  onSelectCategory?: (category: string) => void;
 }
 
 export const ProductGrid: React.FC<ProductGridProps> = ({
@@ -22,8 +24,13 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
   onAddToCart,
   onToggleWishlist,
   wishlistIds = [],
+  selectedCategory: propSelectedCategory,
+  onSelectCategory: propOnSelectCategory,
 }) => {
-  const [selectedCategory, setSelectedCategory] = useState<string>("all");
+  const [localSelectedCategory, setLocalSelectedCategory] = useState<string>("all");
+
+  const selectedCategory = propSelectedCategory !== undefined ? propSelectedCategory : localSelectedCategory;
+  const setSelectedCategory = propOnSelectCategory !== undefined ? propOnSelectCategory : setLocalSelectedCategory;
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [maxPriceFilter, setMaxPriceFilter] = useState<number | undefined>(undefined);
   const [inStockOnlyFilter, setInStockOnlyFilter] = useState<boolean>(false);
@@ -40,8 +47,14 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
     return products
       .filter((product) => {
         // Category filter
-        if (selectedCategory !== "all" && product.category?.toLowerCase() !== selectedCategory.toLowerCase()) {
-          return false;
+        if (selectedCategory !== "all") {
+          const prodCat = (product.category || "").toLowerCase();
+          const selCat = selectedCategory.toLowerCase();
+          const match = prodCat === selCat || 
+                        prodCat.split(">").map(s => s.trim()).includes(selCat);
+          if (!match) {
+            return false;
+          }
         }
         // Search query
         if (searchQuery.trim() !== "") {

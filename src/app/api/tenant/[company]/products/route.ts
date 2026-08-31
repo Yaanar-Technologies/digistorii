@@ -1,3 +1,4 @@
+// src/app/api/tenant/[company]/products/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 
@@ -38,37 +39,42 @@ export async function GET(
     // 2. Fetch the storefront products that are live (is_live = true)
     // Map variant_id (as ID), products.name, final_selling_price, and images
     const query = `
-      SELECT
-        pv.id AS variant_id,
-        p.name AS product_name,
-        COALESCE(
-          (SELECT image_url FROM "${schema}".product_images WHERE product_id = p.id ORDER BY is_primary DESC, id ASC LIMIT 1),
-          ''
-        ) AS image_url,
-        COALESCE(
-          (
-            SELECT epo.ecom_price 
-            FROM "${schema}".ecom_price_overrides epo 
-            WHERE epo.variant_id = pv.id AND epo.is_active = TRUE 
-            LIMIT 1
-          ),
-          (
-            SELECT final_selling_price 
-            FROM "${schema}".product_pricing 
-            WHERE variant_id = pv.id AND is_active = TRUE 
-            LIMIT 1
-          ),
-          0.00
-        ) AS final_selling_price,
-        COALESCE(
-          (SELECT available_qty FROM "${schema}".ecom_available_stock WHERE variant_id = pv.id LIMIT 1),
-          0
-        ) AS available_qty
-      FROM "${schema}".product_variants pv
-      INNER JOIN "${schema}".products p ON p.id = pv.product_id
-      INNER JOIN "${schema}".storefront_products sp ON sp.variant_id = pv.id
-      WHERE pv.status = 'active' AND sp.is_live = TRUE
-      ORDER BY p.name ASC
+      SELECT * FROM (
+        SELECT DISTINCT ON (p.id)
+          pv.id AS variant_id,
+          p.name AS product_name,
+          pcat.path_string AS category_path,
+          pcat.category_name AS category_name,
+          COALESCE(
+            (SELECT image_url FROM "${schema}".product_images WHERE product_id = p.id ORDER BY is_primary DESC, id ASC LIMIT 1),
+            ''
+          ) AS image_url,
+          COALESCE(
+            (
+              SELECT epo.ecom_price 
+              FROM "${schema}".ecom_price_overrides epo 
+              WHERE epo.variant_id = pv.id AND epo.is_active = TRUE 
+              LIMIT 1
+            ),
+            (
+              SELECT final_selling_price 
+              FROM "${schema}".product_pricing 
+              WHERE variant_id = pv.id AND is_active = TRUE 
+              LIMIT 1
+            ),
+            0.00
+          ) AS final_selling_price,
+          COALESCE(
+            (SELECT available_qty FROM "${schema}".ecom_available_stock WHERE variant_id = pv.id LIMIT 1),
+            0
+          ) AS available_qty
+        FROM "${schema}".products p
+        INNER JOIN "${schema}".product_variants pv ON pv.product_id = p.id AND pv.status = 'active'
+        INNER JOIN "${schema}".storefront_products sp ON sp.variant_id = pv.id AND sp.is_live = TRUE
+        LEFT JOIN "${schema}".product_categories pcat ON pcat.id = NULLIF(p.category, '')::integer
+        ORDER BY p.id, pv.id ASC
+      ) sub
+      ORDER BY sub.product_name ASC
     `;
 
     const result = await client.query(query);
@@ -77,6 +83,7 @@ export async function GET(
       id: String(row.variant_id),
       products: {
         name: row.product_name,
+        category: row.category_path || row.category_name || null,
       },
       product_pricing: {
         price: Number(row.final_selling_price || 0),

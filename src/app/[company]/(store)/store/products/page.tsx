@@ -27,10 +27,7 @@ export default function StoreProductsPage() {
   const [footerSettings] = useState<FooterSettings>(mockFooterSettings);
   const [categories, setCategories] = useState<CategoryType[]>([]);
   const [products, setProducts] = useState<StorefrontProduct[]>([]);
-  
-  const [isCartOpen, setIsCartOpen] = useState(false);
-  const [isAuthOpen, setIsAuthOpen] = useState(false);
-  const [wishlistIds, setWishlistIds] = useState<number[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string>("all");
 
   const cartItems = useCartStore((state) => state.items);
   const addItemToCart = useCartStore((state) => state.addItem);
@@ -49,6 +46,7 @@ export default function StoreProductsPage() {
             const mappedProducts: StorefrontProduct[] = data.products.map((p: any) => ({
               variantId: Number(p.id),
               name: p.products.name,
+              category: p.products.category || "General",
               images: p.product_images || ["https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&auto=format&fit=crop&q=80"],
               effectivePrice: Number(p.product_pricing.price || 0),
               inStock: Number(p.available_qty ?? 0) > 0,
@@ -93,6 +91,10 @@ export default function StoreProductsPage() {
     setIsCartOpen(true);
   };
 
+  const [isCartOpen, setIsCartOpen] = useState(false);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [wishlistIds, setWishlistIds] = useState<number[]>([]);
+
   return (
     <div className="min-h-screen bg-white" style={{ fontFamily: theme.fontFamily }}>
       <StorefrontHeader
@@ -103,6 +105,7 @@ export default function StoreProductsPage() {
         onOpenCart={() => setIsCartOpen(true)}
         onOpenWishlist={() => router.push(`/${company}/store/wishlist`)}
         onOpenAuth={() => setIsAuthOpen(true)}
+        onSelectCategory={setSelectedCategory}
       />
 
       <main className="py-6">
@@ -110,6 +113,8 @@ export default function StoreProductsPage() {
           theme={theme}
           products={products}
           categories={categories.map((c) => c.name)}
+          selectedCategory={selectedCategory}
+          onSelectCategory={setSelectedCategory}
           onProductClick={(p) => router.push(`/${company}/store/products/${p.variantId}`)}
           onAddToCart={handleAddToCart}
           onToggleWishlist={(p) =>

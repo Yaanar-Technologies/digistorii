@@ -124,45 +124,7 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
     setAccordionOpen((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
-  const [hoveredSpecIdx, setHoveredSpecIdx] = useState<number | null>(null);
 
-  const getIcon = (key: string) => {
-    switch (key) {
-      case "material":
-        return (
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-          </svg>
-        );
-      case "fitting":
-        return (
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 4L4 6v5a2 2 0 002 2h2v7h8v-7h2a2 2 0 002-2V6l-5-2-3 2-3-2z" />
-          </svg>
-        );
-      case "gender":
-        return (
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5c1.38 0 2.5 1.12 2.5 2.5s-1.12 2.5-2.5 2.5-2.5-1.12-2.5-2.5 1.12-2.5 2.5-2.5zM6 19c0-3.3 2.7-6 6-6s6 2.7 6 6" />
-          </svg>
-        );
-      case "weight":
-        return (
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3 6l3 1M21 6l-3 1M6 7l6 10M18 7l-6 10M12 17v4M8 21h8" />
-          </svg>
-        );
-      case "length":
-      case "height":
-      case "width":
-      default:
-        return (
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 10v4M11 10v2M15 10v4M19 10v2" />
-          </svg>
-        );
-    }
-  };
 
   const specsList: { key: string; label: string; value: string }[] = [];
 
@@ -285,8 +247,8 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                       type="button"
                       onClick={() => setSelectedImage(img)}
                       className={`relative h-24 w-20 flex-shrink-0 overflow-hidden rounded-md border-2 transition-all ${isSelected
-                          ? "border-black ring-1 ring-black"
-                          : "border-gray-200 hover:border-gray-400 opacity-80 hover:opacity-100"
+                        ? "border-black ring-1 ring-black"
+                        : "border-gray-200 hover:border-gray-400 opacity-80 hover:opacity-100"
                         }`}
                     >
                       <img src={img} alt={`Thumbnail ${idx + 1}`} className="h-full w-full object-cover" />
@@ -368,7 +330,7 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
             </div>
 
             {/* Dynamic Variant Selectors (Color / Size) */}
-            {distinctColors.length > 1 && (
+            {distinctColors.length > 1 ? (
               <div className="space-y-2">
                 <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider">
                   Color: <span className="text-gray-900 font-normal">{selectedColor}</span>
@@ -382,8 +344,8 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                         type="button"
                         onClick={() => setSelectedColor(color)}
                         className={`px-3 py-1.5 text-xs font-medium rounded border transition-all ${isSelected
-                            ? "border-black bg-black text-white"
-                            : "border-gray-300 bg-white text-gray-700 hover:border-gray-400"
+                          ? "border-black bg-black text-white"
+                          : "border-gray-300 bg-white text-gray-700 hover:border-gray-400"
                           }`}
                       >
                         {color}
@@ -392,9 +354,17 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                   })}
                 </div>
               </div>
+            ) : (
+              distinctColors.length === 1 && (
+                <div className="space-y-1">
+                  <span className="block text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                    Color: <span className="text-gray-950 font-medium normal-case ml-1">{distinctColors[0]}</span>
+                  </span>
+                </div>
+              )
             )}
 
-            {distinctSizes.length > 1 && (
+            {distinctSizes.length > 1 ? (
               <div className="space-y-2">
                 <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider">
                   Size: <span className="text-gray-900 font-normal">{selectedSize}</span>
@@ -408,8 +378,8 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                         type="button"
                         onClick={() => setSelectedSize(size)}
                         className={`px-3 py-1.5 text-xs font-medium rounded border transition-all ${isSelected
-                            ? "border-black bg-black text-white"
-                            : "border-gray-300 bg-white text-gray-700 hover:border-gray-400"
+                          ? "border-black bg-black text-white"
+                          : "border-gray-300 bg-white text-gray-700 hover:border-gray-400"
                           }`}
                       >
                         {size}
@@ -418,6 +388,14 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                   })}
                 </div>
               </div>
+            ) : (
+              distinctSizes.length === 1 && (
+                <div className="space-y-1">
+                  <span className="block text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                    Size: <span className="text-gray-950 font-medium normal-case ml-1">{distinctSizes[0]}</span>
+                  </span>
+                </div>
+              )
             )}
 
             {/* Quantity Selector */}
@@ -468,8 +446,8 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                   )
                 }
                 className={`w-full py-3.5 px-6 font-semibold uppercase tracking-wider text-sm transition-all shadow-sm ${isInStock
-                    ? "bg-black text-white hover:bg-gray-800 active:scale-[0.99]"
-                    : "bg-gray-200 text-gray-500 cursor-not-allowed"
+                  ? "bg-black text-white hover:bg-gray-800 active:scale-[0.99]"
+                  : "bg-gray-200 text-gray-500 cursor-not-allowed"
                   }`}
               >
                 {isInStock ? "ADD TO CART" : "OUT OF STOCK"}
@@ -490,30 +468,21 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
 
                 {accordionOpen.details && (
                   specsList.length > 0 ? (
-                    <div className="mt-3 grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))" }}>
-                      {specsList.map((spec, idx) => (
-                        <div
-                          key={idx}
-                          className="p-3 rounded-lg border border-gray-100 flex flex-col items-start gap-1 transition-all"
-                          style={{
-                            borderLeft: `3px solid ${theme.secondaryColor || "#000000"}`,
-                            backgroundColor: hoveredSpecIdx === idx ? `${theme.primaryColor || "#000000"}0d` : "#ffffff",
-                            cursor: "default",
-                          }}
-                          onMouseEnter={() => setHoveredSpecIdx(idx)}
-                          onMouseLeave={() => setHoveredSpecIdx(null)}
-                        >
-                          <div style={{ color: theme.secondaryColor || "#000000" }}>
-                            {getIcon(spec.key)}
-                          </div>
-                          <span className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold block mt-1">
-                            {spec.label}
-                          </span>
-                          <span className="text-xs font-bold text-gray-900 block mt-0.5">
-                            {spec.value}
-                          </span>
-                        </div>
-                      ))}
+                    <div className="mt-3 border border-gray-200 rounded-md overflow-hidden bg-white">
+                      <table className="min-w-full divide-y divide-gray-100 text-xs">
+                        <tbody className="divide-y divide-gray-100">
+                          {specsList.map((spec, idx) => (
+                            <tr key={idx} className="hover:bg-gray-50/50">
+                              <td className="px-4 py-2 font-medium text-gray-500 w-1/3 bg-gray-50/40 border-r border-gray-100">
+                                {spec.label}
+                              </td>
+                              <td className="px-4 py-2 text-gray-900 font-semibold">
+                                {spec.value}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   ) : (
                     <p className="mt-3 text-xs text-gray-500 italic">No specifications available for this product.</p>
@@ -535,7 +504,7 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                 {accordionOpen.description && (
                   <div className="mt-3 space-y-2 text-xs text-gray-600 leading-relaxed">
                     <p>{product.description || "High-quality saree crafted with traditional motifs and fine materials."}</p>
-                    <p className="italic text-gray-400">Note: Slight colour variation of product images due to digital photography or settings on your device</p>
+                    {/* <p className="italic text-gray-400">Note: Slight colour variation of product images due to digital photography or settings on your device</p> */}
                   </div>
                 )}
               </div>
@@ -574,9 +543,9 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                 )}
               </div>         </div>
 
-            </div>
-
           </div>
+
+        </div>
 
       </div>
     </div>
