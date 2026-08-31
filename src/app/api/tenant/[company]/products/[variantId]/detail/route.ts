@@ -83,6 +83,7 @@ export async function GET(
         pv.sku,
         pv.size,
         pv.gender,
+        pf.fitting_name AS fitting,
         pv.low_stock_threshold,
         pv.barcode,
         pv.status,
@@ -120,11 +121,12 @@ export async function GET(
         ) AS available_qty
       FROM "${schema}".product_variants pv
       LEFT JOIN "${schema}".product_colors pc ON pc.id = pv.color_id
+      LEFT JOIN "${schema}".product_fittings pf ON pf.id = pv.fitting_id
       WHERE pv.product_id = $1 AND pv.status = 'active'
       ORDER BY pv.id ASC
     `;
 
-    const variantsRes = await client.query(variantsQuery);
+    const variantsRes = await client.query(variantsQuery, [productId]);
 
     const siblingVariants = variantsRes.rows.map((row) => {
       // Find variant-specific images, or fallback to all images
@@ -140,6 +142,7 @@ export async function GET(
         color: row.color || null,
         size: row.size || null,
         gender: row.gender || null,
+        fitting: row.fitting || null,
         effectivePrice: Number(row.effective_price || 0),
         compareAtPrice: row.compare_at_price ? Number(row.compare_at_price) : undefined,
         availableQty: Number(row.available_qty || 0),
@@ -151,7 +154,7 @@ export async function GET(
 
     // 6. Fetch Footer Settings / Delivery info from ecom_settings
     const settingsRes = await client.query(
-      `SELECT terms_and_conditions, return_refund_policy, support_email, support_phone
+      `SELECT terms_and_conditions, return_refund_policy, delivery_note, support_email, support_phone
        FROM "${schema}".ecom_settings
        WHERE company_id = $1
        LIMIT 1`,
@@ -161,6 +164,7 @@ export async function GET(
     const footerSettings = {
       termsAndConditions: settingsRes.rows[0]?.terms_and_conditions || "Standard delivery: 5 to 7 business days from date of order.",
       returnRefundPolicy: settingsRes.rows[0]?.return_refund_policy || "Products with stitching require an additional 4 to 5 business days.",
+      deliveryNote: settingsRes.rows[0]?.delivery_note || "Standard delivery takes 5-7 business days.",
       supportEmail: settingsRes.rows[0]?.support_email || "support@merchant.com",
       supportPhone: settingsRes.rows[0]?.support_phone || "+91 98765 43210",
     };

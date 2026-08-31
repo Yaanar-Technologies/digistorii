@@ -1,12 +1,13 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { StorefrontTheme, StorefrontProduct, SiblingVariant } from "./types";
+import { StorefrontTheme, StorefrontProduct, SiblingVariant, FooterSettings } from "./types";
 import { formatPrice } from "@/lib/currency";
 
 export interface ProductDetailProps {
   theme: StorefrontTheme;
   product: StorefrontProduct;
+  footerSettings?: FooterSettings;
   onAddToCart?: (
     product: StorefrontProduct,
     selectedOptions: Record<string, string>,
@@ -20,13 +21,14 @@ export interface ProductDetailProps {
 export const ProductDetail: React.FC<ProductDetailProps> = ({
   theme,
   product,
+  footerSettings,
   onAddToCart,
   onToggleWishlist,
   isWishlisted = false,
 }) => {
   // Sibling variants logic
   const siblings = product.variants && product.variants.length > 0 ? product.variants : [];
-  
+
   // Track active variant
   const [activeVariant, setActiveVariant] = useState<SiblingVariant | null>(() => {
     if (siblings.length > 0) {
@@ -61,11 +63,11 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
         const sizeMatch = !distinctSizes.length || v.size === selectedSize;
         return colorMatch && sizeMatch;
       });
-      
+
       if (!matched) {
         matched = siblings.find((v) => v.color === selectedColor) || siblings[0];
       }
-      
+
       if (matched) {
         setActiveVariant(matched);
       }
@@ -76,8 +78,8 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
   const images = activeVariant?.images && activeVariant.images.length > 0
     ? activeVariant.images
     : product.images.length > 0
-    ? product.images
-    : ["https://placehold.co/600x600?text=No+Image+Available"];
+      ? product.images
+      : ["https://placehold.co/600x600?text=No+Image+Available"];
 
   const currentPrice = activeVariant ? activeVariant.effectivePrice : product.effectivePrice;
   const compareAtPrice = activeVariant ? activeVariant.compareAtPrice : product.compareAtPrice;
@@ -122,30 +124,114 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
     setAccordionOpen((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
-  // Build specifications list for Product Details grid
-  const rawSpecs = product.specifications && product.specifications.length > 0
-    ? product.specifications
-    : [];
+  const [hoveredSpecIdx, setHoveredSpecIdx] = useState<number | null>(null);
 
-  const defaultSpecs = [
-    { label: "Color", value: activeVariant?.color || product.material || "Pink / Gold" },
-    { label: "Base Code", value: activeVariant?.sku || product.productCode || "VNA092" },
-    { label: "Body Design", value: "Butta" },
-    { label: "Washcare", value: "Dry Wash" },
-    { label: "Fabric", value: product.material || "Banana Pith" },
-    { label: "Zari", value: "Jute Zari" },
-    { label: "Border Style", value: "Self" },
-    { label: "Blouse Style", value: "Matching" },
-    { label: "Weight", value: product.weight ? `${product.weight} kg` : "0.6000" },
-  ];
+  const getIcon = (key: string) => {
+    switch (key) {
+      case "material":
+        return (
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+        );
+      case "fitting":
+        return (
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 4L4 6v5a2 2 0 002 2h2v7h8v-7h2a2 2 0 002-2V6l-5-2-3 2-3-2z" />
+          </svg>
+        );
+      case "gender":
+        return (
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5c1.38 0 2.5 1.12 2.5 2.5s-1.12 2.5-2.5 2.5-2.5-1.12-2.5-2.5 1.12-2.5 2.5-2.5zM6 19c0-3.3 2.7-6 6-6s6 2.7 6 6" />
+          </svg>
+        );
+      case "weight":
+        return (
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 6l3 1M21 6l-3 1M6 7l6 10M18 7l-6 10M12 17v4M8 21h8" />
+          </svg>
+        );
+      case "length":
+      case "height":
+      case "width":
+      default:
+        return (
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 10v4M11 10v2M15 10v4M19 10v2" />
+          </svg>
+        );
+    }
+  };
 
-  const specGrid = rawSpecs.length > 0 ? rawSpecs : defaultSpecs;
+  const specsList: { key: string; label: string; value: string }[] = [];
+
+  if (product.material && String(product.material).trim()) {
+    specsList.push({
+      key: "material",
+      label: "Material",
+      value: String(product.material).trim(),
+    });
+  }
+
+  const activeFitting = activeVariant?.fitting || (product as any).fitting;
+  if (activeFitting && String(activeFitting).trim()) {
+    specsList.push({
+      key: "fitting",
+      label: "Fitting",
+      value: String(activeFitting).trim(),
+    });
+  }
+
+  const activeGender = activeVariant?.gender || (product as any).gender;
+  if (activeGender && String(activeGender).trim()) {
+    specsList.push({
+      key: "gender",
+      label: "Gender",
+      value: String(activeGender).trim(),
+    });
+  }
+
+  if (product.length && Number(product.length) > 0) {
+    specsList.push({
+      key: "length",
+      label: "Length",
+      value: `${product.length} cm`,
+    });
+  }
+
+  if (product.weight && Number(product.weight) > 0) {
+    specsList.push({
+      key: "weight",
+      label: "Weight",
+      value: `${product.weight} kg`,
+    });
+  }
+
+  if (product.height && Number(product.height) > 0) {
+    specsList.push({
+      key: "height",
+      label: "Height",
+      value: `${product.height} cm`,
+    });
+  }
+
+  if (product.width && Number(product.width) > 0) {
+    specsList.push({
+      key: "width",
+      label: "Width",
+      value: `${product.width} cm`,
+    });
+  }
+
+  const returnRefundPolicy = footerSettings?.returnRefundPolicy || product.footerSettings?.returnRefundPolicy || "";
+  const deliveryNote = footerSettings?.deliveryNote || product.footerSettings?.deliveryNote || "";
 
   return (
     <div className="py-6 bg-[#FAFAF8] min-h-screen text-gray-900" style={{ fontFamily: theme.fontFamily }}>
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 gap-10 lg:grid-cols-12 lg:gap-12">
-          
+
           {/* Left Column: Image Gallery (Span 7) */}
           <div className="lg:col-span-7 space-y-4">
             <div className="aspect-[4/3] sm:aspect-[1/1] w-full overflow-hidden rounded-md bg-gray-100 relative group border border-gray-200 shadow-sm">
@@ -198,11 +284,10 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                       key={idx}
                       type="button"
                       onClick={() => setSelectedImage(img)}
-                      className={`relative h-24 w-20 flex-shrink-0 overflow-hidden rounded-md border-2 transition-all ${
-                        isSelected
+                      className={`relative h-24 w-20 flex-shrink-0 overflow-hidden rounded-md border-2 transition-all ${isSelected
                           ? "border-black ring-1 ring-black"
                           : "border-gray-200 hover:border-gray-400 opacity-80 hover:opacity-100"
-                      }`}
+                        }`}
                     >
                       <img src={img} alt={`Thumbnail ${idx + 1}`} className="h-full w-full object-cover" />
                     </button>
@@ -214,7 +299,7 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
 
           {/* Right Column: Product Details & Controls (Span 5) */}
           <div className="lg:col-span-5 flex flex-col space-y-5">
-            
+
             {/* Title & Wishlist Header */}
             <div className="space-y-1">
               <div className="flex items-start justify-between gap-4">
@@ -296,11 +381,10 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                         key={color}
                         type="button"
                         onClick={() => setSelectedColor(color)}
-                        className={`px-3 py-1.5 text-xs font-medium rounded border transition-all ${
-                          isSelected
+                        className={`px-3 py-1.5 text-xs font-medium rounded border transition-all ${isSelected
                             ? "border-black bg-black text-white"
                             : "border-gray-300 bg-white text-gray-700 hover:border-gray-400"
-                        }`}
+                          }`}
                       >
                         {color}
                       </button>
@@ -323,11 +407,10 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                         key={size}
                         type="button"
                         onClick={() => setSelectedSize(size)}
-                        className={`px-3 py-1.5 text-xs font-medium rounded border transition-all ${
-                          isSelected
+                        className={`px-3 py-1.5 text-xs font-medium rounded border transition-all ${isSelected
                             ? "border-black bg-black text-white"
                             : "border-gray-300 bg-white text-gray-700 hover:border-gray-400"
-                        }`}
+                          }`}
                       >
                         {size}
                       </button>
@@ -384,19 +467,16 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                     activeVariant?.variantId || product.variantId
                   )
                 }
-                className={`w-full py-3.5 px-6 font-semibold uppercase tracking-wider text-sm transition-all shadow-sm ${
-                  isInStock
+                className={`w-full py-3.5 px-6 font-semibold uppercase tracking-wider text-sm transition-all shadow-sm ${isInStock
                     ? "bg-black text-white hover:bg-gray-800 active:scale-[0.99]"
                     : "bg-gray-200 text-gray-500 cursor-not-allowed"
-                }`}
+                  }`}
               >
                 {isInStock ? "ADD TO CART" : "OUT OF STOCK"}
               </button>
             </div>
 
-            {/* Accordion Sections */}
             <div className="border-t border-gray-200 pt-3 space-y-3">
-              
               {/* Accordion 1: Product Details */}
               <div className="border-b border-gray-200 pb-3">
                 <button
@@ -409,14 +489,35 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                 </button>
 
                 {accordionOpen.details && (
-                  <div className="mt-3 grid grid-cols-3 gap-y-4 gap-x-2 text-xs">
-                    {specGrid.map((spec, idx) => (
-                      <div key={idx} className="space-y-0.5">
-                        <span className="font-semibold text-gray-800 block">{spec.label}</span>
-                        <span className="text-gray-600 block truncate">{spec.value || "-"}</span>
-                      </div>
-                    ))}
-                  </div>
+                  specsList.length > 0 ? (
+                    <div className="mt-3 grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))" }}>
+                      {specsList.map((spec, idx) => (
+                        <div
+                          key={idx}
+                          className="p-3 rounded-lg border border-gray-100 flex flex-col items-start gap-1 transition-all"
+                          style={{
+                            borderLeft: `3px solid ${theme.secondaryColor || "#000000"}`,
+                            backgroundColor: hoveredSpecIdx === idx ? `${theme.primaryColor || "#000000"}0d` : "#ffffff",
+                            cursor: "default",
+                          }}
+                          onMouseEnter={() => setHoveredSpecIdx(idx)}
+                          onMouseLeave={() => setHoveredSpecIdx(null)}
+                        >
+                          <div style={{ color: theme.secondaryColor || "#000000" }}>
+                            {getIcon(spec.key)}
+                          </div>
+                          <span className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold block mt-1">
+                            {spec.label}
+                          </span>
+                          <span className="text-xs font-bold text-gray-900 block mt-0.5">
+                            {spec.value}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-xs text-gray-500 italic">No specifications available for this product.</p>
+                  )
                 )}
               </div>
 
@@ -439,43 +540,44 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                 )}
               </div>
 
-              {/* Accordion 3: Delivery */}
+              {/* Accordion 3: Returns & Delivery */}
               <div className="border-b border-gray-200 pb-3">
                 <button
                   type="button"
                   onClick={() => toggleAccordion("delivery")}
                   className="w-full flex items-center justify-between py-1 text-left text-sm font-semibold text-gray-800 hover:text-gray-900"
                 >
-                  <span>Delivery</span>
+                  <span>Returns & Delivery</span>
                   <span className="text-gray-500 text-base">{accordionOpen.delivery ? "▲" : "▼"}</span>
                 </button>
 
                 {accordionOpen.delivery && (
-                  <div className="mt-3 space-y-3 text-xs text-gray-600 leading-relaxed">
-                    <div>
-                      <span className="font-bold text-gray-800 uppercase block">DELIVERY DETAILS:</span>
-                      <span className="font-semibold text-gray-700 block mt-1">Order Processing Timespan:</span>
-                      <p>All orders will be processed within 48 hours of the order date.</p>
-                    </div>
+                  <div className="mt-3 space-y-3.5 text-xs text-gray-600 leading-relaxed">
+                    {(deliveryNote || footerSettings?.deliveryNote || product.footerSettings?.deliveryNote) && (
+                      <div>
+                        <span className="font-bold text-gray-800 uppercase block tracking-wider">Delivery Information:</span>
+                        <p className="mt-1 text-gray-600 whitespace-pre-line">
+                          {deliveryNote || footerSettings?.deliveryNote || product.footerSettings?.deliveryNote || "Standard delivery: 5 to 7 business days from date of order."}
+                        </p>
+                      </div>
+                    )}
 
-                    <div>
-                      <span className="font-semibold text-gray-700 block">Domestic Order Delivery Timespan:</span>
-                      <ul className="list-disc pl-4 space-y-1 mt-1">
-                        <li>The expected delivery time for domestic shipments is 5 to 7 business days from the date of order.</li>
-                        <li>Please note that the standard domestic delivery timeframe does not apply to tailored orders.</li>
-                        <li>Products with stitching require an additional 4 to 5 business days for delivery.</li>
-                        <li>Products with embroidery work require an additional 7 to 10 business days for delivery.</li>
-                      </ul>
-                    </div>
+                    {(returnRefundPolicy || footerSettings?.returnRefundPolicy || product.footerSettings?.returnRefundPolicy) && (
+                      <div className="pt-2 border-t border-gray-100">
+                        <span className="font-bold text-gray-800 uppercase block tracking-wider mt-1">Returns & Refund Policy:</span>
+                        <p className="mt-1 text-gray-600 whitespace-pre-line">
+                          {returnRefundPolicy || footerSettings?.returnRefundPolicy || product.footerSettings?.returnRefundPolicy || "Standard return/refund policy applies."}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
-              </div>
+              </div>         </div>
 
             </div>
 
           </div>
 
-        </div>
       </div>
     </div>
   );

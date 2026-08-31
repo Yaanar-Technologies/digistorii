@@ -52,7 +52,7 @@ Not when ecommerce_access is false as the only tables that have to be created ar
 >   serviceable_pincodes TEXT[],
 >   terms_and_conditions TEXT,
 >   return_refund_policy TEXT,
->   privacy_policy TEXT,
+>   delivery_note TEXT,
 >   support_email VARCHAR(150),
 >   support_phone VARCHAR(20),
 >   use_custom_pricing BOOLEAN NOT NULL DEFAULT FALSE,

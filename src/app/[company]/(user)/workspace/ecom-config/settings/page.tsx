@@ -35,7 +35,7 @@ export default function StoreSettingsPage() {
   const [pincodesInput, setPincodesInput] = useState("");
   const [termsAndConditions, setTermsAndConditions] = useState("");
   const [returnRefundPolicy, setReturnRefundPolicy] = useState("");
-  const [privacyPolicy, setPrivacyPolicy] = useState("");
+  const [deliveryNote, setDeliveryNote] = useState("");
   const [supportEmail, setSupportEmail] = useState("");
   const [supportPhone, setSupportPhone] = useState("");
   const [useCustomPricing, setUseCustomPricing] = useState(false);
@@ -63,7 +63,7 @@ export default function StoreSettingsPage() {
             setPincodesInput(s.serviceable_pincodes ? s.serviceable_pincodes.join(", ") : "");
             setTermsAndConditions(s.terms_and_conditions || "");
             setReturnRefundPolicy(s.return_refund_policy || "");
-            setPrivacyPolicy(s.privacy_policy || "");
+            setDeliveryNote(s.delivery_note || "");
             setSupportEmail(s.support_email || "");
             setSupportPhone(s.support_phone || "");
             setUseCustomPricing(s.use_custom_pricing === true);
@@ -145,7 +145,7 @@ export default function StoreSettingsPage() {
           serviceable_pincodes: pincodes,
           terms_and_conditions: termsAndConditions,
           return_refund_policy: returnRefundPolicy,
-          privacy_policy: privacyPolicy,
+          delivery_note: deliveryNote,
           support_email: supportEmail,
           support_phone: supportPhone,
           use_custom_pricing: useCustomPricing,
@@ -438,12 +438,12 @@ export default function StoreSettingsPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-gray-700">Privacy Policy</label>
+            <label className="block text-sm font-semibold text-gray-700">Delivery Instructions</label>
             <textarea
               rows={4}
-              value={privacyPolicy}
-              onChange={e => setPrivacyPolicy(e.target.value)}
-              placeholder="Provide privacy policy details"
+              value={deliveryNote}
+              onChange={e => setDeliveryNote(e.target.value)}
+              placeholder="Provide Delivery Instructions"
               className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none"
             />
           </div>

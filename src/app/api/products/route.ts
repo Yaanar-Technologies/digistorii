@@ -433,6 +433,12 @@ export async function POST(req: NextRequest) {
     const normalizeImageInput = (value: string) => {
       let path = String(value || "").trim();
       if (!path) return { filePath: "", imageUrl: "" };
+
+      // Already an absolute URL (Vercel Blob, or any external URL) — use as-is
+      if (/^https?:\/\//i.test(path)) {
+        return { filePath: path, imageUrl: path };
+      }
+
       const uploadsIndex = path.toLowerCase().indexOf("/uploads/");
       if (uploadsIndex !== -1) {
         path = path.slice(uploadsIndex + "/uploads/".length);

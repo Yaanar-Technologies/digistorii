@@ -26,6 +26,7 @@ export type SiblingVariant = {
   color?: string | null;
   size?: string | null;
   gender?: string | null;
+  fitting?: string | null;
   effectivePrice: number;
   compareAtPrice?: number;
   availableQty: number;
@@ -61,6 +62,7 @@ export type StorefrontProduct = {
 export type FooterSettings = {
   termsAndConditions?: string;
   returnRefundPolicy?: string;
+  deliveryNote?: string;
   supportEmail?: string;
   supportPhone?: string;
 };

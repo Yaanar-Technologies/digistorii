@@ -68,8 +68,9 @@ export default function ProductDetailPage() {
                 inStock: targetVariant.inStock,
                 availableQty: targetVariant.availableQty,
                 lowStockThreshold: targetVariant.lowStockThreshold,
-                images: targetVariant.images,
                 variants: data.variants,
+                images: targetVariant.images,
+                footerSettings: data.footerSettings,
               });
 
               if (data.footerSettings) {
@@ -177,6 +178,7 @@ export default function ProductDetailPage() {
         <ProductDetail
           theme={theme}
           product={product}
+          footerSettings={footerSettings}
           onAddToCart={handleAddToCart}
           onToggleWishlist={() => setIsWishlisted(!isWishlisted)}
           isWishlisted={isWishlisted}

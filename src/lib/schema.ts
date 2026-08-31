@@ -1240,7 +1240,7 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
   /* =========================================================
      INVENTORY ALERTS & NOTIFICATIONS
      ========================================================= */
-  
+
   await client.query(`
     ALTER TABLE "${schema}".business_settings
       ADD COLUMN IF NOT EXISTS default_low_stock_threshold INT NOT NULL DEFAULT 5,
@@ -1322,7 +1322,7 @@ export async function createEcomSchema(
       serviceable_pincodes TEXT[],
       terms_and_conditions TEXT,
       return_refund_policy TEXT,
-      privacy_policy TEXT,
+      delivery_note TEXT,
       support_email VARCHAR(150),
       support_phone VARCHAR(20),
       use_custom_pricing BOOLEAN NOT NULL DEFAULT FALSE,
