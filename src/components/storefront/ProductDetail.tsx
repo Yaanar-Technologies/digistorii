@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { StorefrontTheme, StorefrontProduct, SiblingVariant, FooterSettings } from "./types";
 import { formatPrice } from "@/lib/currency";
 
@@ -82,6 +82,8 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
     : product.images.length > 0
       ? product.images
       : ["https://placehold.co/600x600?text=No+Image+Available"];
+
+  const uniqueImages = useMemo(() => Array.from(new Set(images)), [images]);
 
   const currentPrice = activeVariant ? activeVariant.effectivePrice : product.effectivePrice;
   const compareAtPrice = activeVariant ? activeVariant.compareAtPrice : product.compareAtPrice;
@@ -650,7 +652,7 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
           {/* Top Bar: Image Counter & Close Button */}
           <div className="w-full flex items-center justify-between z-50 text-white">
             <div className="text-xs sm:text-sm font-medium tracking-wide bg-white/10 px-3 py-1.5 rounded-full backdrop-blur-sm border border-white/10">
-              Image {images.indexOf(selectedImage) + 1} of {images.length}
+              Image {uniqueImages.indexOf(selectedImage) + 1} of {uniqueImages.length}
             </div>
 
             {/* Close Button */}
@@ -673,16 +675,17 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
             onClick={(e) => e.stopPropagation()}
           >
             {/* Left Vertical Thumbnail Strip (Desktop) */}
-            {images.length > 1 && (
+            {uniqueImages.length > 1 && (
               <div className="hidden md:flex flex-col gap-3 max-h-[75vh] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-white/20 flex-shrink-0 z-20">
-                {images.map((img, idx) => {
+                {uniqueImages.map((img: string, idx: number) => {
                   const isSelected = selectedImage === img;
                   return (
                     <button
                       key={idx}
                       type="button"
                       onClick={() => setSelectedImage(img)}
-                      className={`relative h-20 w-16 flex-shrink-0 overflow-hidden rounded-md border-2 transition-all cursor-pointer ${
+                      style={{ width: "64px", height: "80px", minWidth: "64px", minHeight: "80px" }}
+                      className={`relative flex-none flex-shrink-0 overflow-hidden rounded-md border-2 transition-all cursor-pointer ${
                         isSelected
                           ? "border-white ring-2 ring-white/50 opacity-100 scale-105"
                           : "border-white/20 hover:border-white/60 opacity-60 hover:opacity-90"
@@ -703,7 +706,7 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
               onMouseMove={handleMouseMoveZoom}
             >
               {/* Prev Navigation Arrow */}
-              {images.length > 1 && (
+              {uniqueImages.length > 1 && (
                 <button
                   type="button"
                   onClick={handlePrevImage}
@@ -730,7 +733,7 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
               </div>
 
               {/* Next Navigation Arrow */}
-              {images.length > 1 && (
+              {uniqueImages.length > 1 && (
                 <button
                   type="button"
                   onClick={handleNextImage}
@@ -746,19 +749,20 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
           </div>
 
           {/* Bottom Horizontal Thumbnails (Mobile) */}
-          {images.length > 1 && (
+          {uniqueImages.length > 1 && (
             <div
               className="md:hidden flex gap-2 overflow-x-auto max-w-full pb-1 scrollbar-none z-20"
               onClick={(e) => e.stopPropagation()}
             >
-              {images.map((img, idx) => {
+              {uniqueImages.map((img: string, idx: number) => {
                 const isSelected = selectedImage === img;
                 return (
                   <button
                     key={idx}
                     type="button"
                     onClick={() => setSelectedImage(img)}
-                    className={`relative h-14 w-12 flex-shrink-0 overflow-hidden rounded border-2 transition-all ${
+                    style={{ width: "48px", height: "56px", minWidth: "48px", minHeight: "56px" }}
+                    className={`relative flex-none flex-shrink-0 overflow-hidden rounded border-2 transition-all cursor-pointer ${
                       isSelected ? "border-white ring-1 ring-white opacity-100" : "border-white/20 opacity-60"
                     }`}
                   >

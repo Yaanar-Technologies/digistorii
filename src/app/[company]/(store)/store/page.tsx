@@ -152,6 +152,7 @@ export default function StoreHomePage() {
       {/* 4. Product Catalog Grid */}
       <ProductGrid
         theme={theme}
+        company={company}
         products={products}
         categories={categories.map((c) => c.name)}
         onProductClick={(p) => router.push(`/${company}/store/products/${p.variantId}`)}

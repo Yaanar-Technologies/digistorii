@@ -7,6 +7,7 @@ import { QuickViewModal } from "./QuickViewModal";
 
 export interface ProductGridProps {
   theme: StorefrontTheme;
+  company?: string;
   products: StorefrontProduct[];
   categories?: string[];
   onProductClick?: (product: StorefrontProduct) => void;
@@ -130,6 +131,7 @@ ProductCard.displayName = "ProductCard";
 
 export const ProductGrid: React.FC<ProductGridProps> = ({
   theme,
+  company,
   products,
   categories = [],
   onProductClick,
@@ -346,6 +348,7 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
       {/* Quick View Modal instance (Reused single instance outside card loop) */}
       <QuickViewModal
         theme={theme}
+        company={company}
         product={quickViewProduct}
         onClose={() => setQuickViewProduct(null)}
         onAddToCart={(targetProduct, qty) => {

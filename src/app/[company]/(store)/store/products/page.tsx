@@ -130,6 +130,7 @@ export default function StoreProductsPage() {
       <main className="py-6">
         <ProductGrid
           theme={theme}
+          company={company}
           products={products}
           categories={categories.map((c) => c.name)}
           selectedCategory={selectedCategory}
