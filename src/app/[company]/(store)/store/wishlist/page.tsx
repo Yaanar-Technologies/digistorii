@@ -11,46 +11,58 @@ import {
   useStorefrontTheme,
 } from "@/components/storefront";
 import { useCartStore } from "@/store/cartStore";
+import { useWishlistStore } from "@/store/wishlistStore";
+import { useStorefrontSync } from "@/hooks/useStorefrontSync";
 
 export default function WishlistPage() {
   const params = useParams();
   const router = useRouter();
   const company = (params.company as string) || "";
 
+  // Dynamic storefront sync & live wishlist refetching
+  useStorefrontSync(company);
+
   const theme = useStorefrontTheme();
   const [footerSettings] = useState(mockFooterSettings);
-  const [items, setItems] = useState<WishlistItemType[]>([
-    {
-      variantId: 101,
-      productName: "Classic Organic Cotton T-Shirt",
-      image: "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=600&auto=format&fit=crop&q=80",
-      price: 29.99,
-      inStock: true,
-    },
-    {
-      variantId: 102,
-      productName: "Minimalist Leather Watch",
-      image: "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&auto=format&fit=crop&q=80",
-      price: 129.0,
-      inStock: true,
-    },
-  ]);
 
+  const wishlistItems = useWishlistStore((state) => state.items);
+  const removeFromWishlist = useWishlistStore((state) => state.removeItem);
   const addItemToCart = useCartStore((state) => state.addItem);
 
-  const handleAddToCart = (item: WishlistItemType) => {
+  const handleMoveToCart = (item: WishlistItemType) => {
     addItemToCart({
       id: String(item.variantId),
       name: item.productName,
       price: item.price,
       image: item.image || "",
       quantity: 1,
+      compareAtPrice: item.compareAtPrice,
+      inStock: item.inStock,
     });
-    router.push(`/${company}/store/cart`);
+
+    removeFromWishlist(item.variantId);
+
+    if (company) {
+      fetch(`/api/tenant/${company}/wishlist?variantId=${item.variantId}`, {
+        method: "DELETE",
+      }).catch(() => {});
+
+      fetch(`/api/tenant/${company}/cart`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: item.variantId, quantity: 1 }),
+      }).catch(() => {});
+    }
   };
 
   const handleRemoveItem = (variantId: number) => {
-    setItems((prev) => prev.filter((i) => i.variantId !== variantId));
+    removeFromWishlist(variantId);
+
+    if (company) {
+      fetch(`/api/tenant/${company}/wishlist?variantId=${variantId}`, {
+        method: "DELETE",
+      }).catch(() => {});
+    }
   };
 
   return (
@@ -58,7 +70,7 @@ export default function WishlistPage() {
       <div>
         <StorefrontHeader
           theme={theme}
-          wishlistCount={items.length}
+          wishlistCount={wishlistItems.length}
           onOpenCart={() => router.push(`/${company}/store/cart`)}
           onOpenWishlist={() => {}}
         />
@@ -66,9 +78,11 @@ export default function WishlistPage() {
         <main className="py-6">
           <WishlistComponent
             theme={theme}
-            items={items}
-            onAddToCart={handleAddToCart}
+            items={wishlistItems}
+            onMoveToCart={handleMoveToCart}
+            onAddToCart={handleMoveToCart}
             onRemoveItem={handleRemoveItem}
+            onContinueShopping={() => router.push(`/${company}/store/products`)}
           />
         </main>
       </div>

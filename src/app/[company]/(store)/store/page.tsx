@@ -18,11 +18,14 @@ import {
   useStorefrontTheme,
 } from "@/components/storefront";
 import { useCartStore, type CartItem } from "@/store/cartStore";
+import { useStorefrontSync } from "@/hooks/useStorefrontSync";
 
 export default function StoreHomePage() {
   const params = useParams();
   const router = useRouter();
   const company = (params.company as string) || "";
+
+  useStorefrontSync(company);
 
   const theme = useStorefrontTheme();
   const [footerSettings] = useState<FooterSettings>(mockFooterSettings);

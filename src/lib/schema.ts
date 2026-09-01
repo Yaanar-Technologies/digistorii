@@ -1455,6 +1455,29 @@ export async function createEcomSchema(
       created_at TIMESTAMP DEFAULT NOW()
     );
   `);
+
+  // 11. Create cart_items and wishlist_items tables for storefront customers
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "${schema}".cart_items (
+      id BIGSERIAL PRIMARY KEY,
+      customer_id INT NOT NULL REFERENCES "${schema}".customers(id) ON DELETE CASCADE,
+      variant_id BIGINT NOT NULL REFERENCES "${schema}".product_variants(id) ON DELETE CASCADE,
+      quantity INT NOT NULL DEFAULT 1 CHECK (quantity > 0),
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW(),
+      CONSTRAINT unique_customer_cart_variant UNIQUE (customer_id, variant_id)
+    );
+  `);
+
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "${schema}".wishlist_items (
+      id BIGSERIAL PRIMARY KEY,
+      customer_id INT NOT NULL REFERENCES "${schema}".customers(id) ON DELETE CASCADE,
+      variant_id BIGINT NOT NULL REFERENCES "${schema}".product_variants(id) ON DELETE CASCADE,
+      added_at TIMESTAMP DEFAULT NOW(),
+      CONSTRAINT unique_customer_wishlist_variant UNIQUE (customer_id, variant_id)
+    );
+  `);
 }
 
 

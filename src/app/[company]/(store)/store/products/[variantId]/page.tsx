@@ -16,12 +16,15 @@ import {
   useStorefrontTheme,
 } from "@/components/storefront";
 import { useCartStore, type CartItem } from "@/store/cartStore";
+import { useStorefrontSync } from "@/hooks/useStorefrontSync";
 
 export default function ProductDetailPage() {
   const params = useParams();
   const router = useRouter();
   const company = (params.company as string) || "";
   const variantId = Number(params.variantId || 0);
+
+  useStorefrontSync(company);
 
   const theme = useStorefrontTheme();
   const [loading, setLoading] = useState(true);

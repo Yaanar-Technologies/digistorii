@@ -2,6 +2,8 @@
 
 import React, { useState } from "react";
 import { StorefrontTheme, CategoryType } from "./types";
+import { useCartStore } from "@/store/cartStore";
+import { useWishlistStore } from "@/store/wishlistStore";
 
 export interface StorefrontHeaderProps {
   theme: StorefrontTheme;
@@ -18,14 +20,20 @@ export interface StorefrontHeaderProps {
 export const StorefrontHeader: React.FC<StorefrontHeaderProps> = ({
   theme,
   categories = [],
-  cartCount = 0,
-  wishlistCount = 0,
+  cartCount: propCartCount,
+  wishlistCount: propWishlistCount,
   onOpenCart,
   onOpenWishlist,
   onOpenAuth,
   onSelectCategory,
   onSearch,
 }) => {
+  const storeCartCount = useCartStore((state) => state.items.reduce((sum, item) => sum + item.quantity, 0));
+  const storeWishlistCount = useWishlistStore((state) => state.items.length);
+
+  const cartCount = propCartCount !== undefined ? propCartCount : storeCartCount;
+  const wishlistCount = propWishlistCount !== undefined ? propWishlistCount : storeWishlistCount;
+
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 

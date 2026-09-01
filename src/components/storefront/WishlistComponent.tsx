@@ -1,3 +1,4 @@
+//src/components/storefront/WishlistComponent.tsx
 "use client";
 
 import React from "react";
@@ -99,11 +100,10 @@ export const WishlistComponent: React.FC<WishlistComponentProps> = ({
                       type="button"
                       disabled={!item.inStock}
                       onClick={() => (onMoveToCart || onAddToCart)?.(item)}
-                      className={`w-full rounded-xl py-2 px-3 text-xs font-semibold transition-all ${
-                        item.inStock
+                      className={`w-full rounded-xl py-2 px-3 text-xs font-semibold transition-all ${item.inStock
                           ? "text-white hover:opacity-90"
                           : "bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200"
-                      }`}
+                        }`}
                       style={item.inStock ? { backgroundColor: theme.primaryColor } : undefined}
                     >
                       {item.inStock ? "Move to Cart" : "Out of Stock"}

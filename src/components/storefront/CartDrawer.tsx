@@ -1,3 +1,4 @@
+//src/components/storefront/CartDrawer.tsx
 "use client";
 
 import React from "react";
@@ -43,7 +44,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
       <div className="fixed inset-y-0 right-0 flex max-w-full pl-10">
         <div className="w-screen max-w-md bg-white shadow-2xl flex flex-col">
-          
+
           {/* Header */}
           <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
             <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
@@ -62,7 +63,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
             </button>
           </div>
 
-            {/* Free Shipping Progress Bar */}
+          {/* Free Shipping Progress Bar */}
           <div className="bg-gray-50 px-6 py-3 border-b border-gray-100">
             <div className="text-xs font-medium text-gray-600 mb-1.5 flex justify-between">
               {remainingForFreeShipping > 0 ? (

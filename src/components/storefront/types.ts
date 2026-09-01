@@ -103,5 +103,7 @@ export type WishlistItemType = {
   productName: string;
   image?: string;
   price: number;
+  compareAtPrice?: number;
+  category?: string;
   inStock: boolean;
 };

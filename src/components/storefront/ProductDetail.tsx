@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { StorefrontTheme, StorefrontProduct, SiblingVariant, FooterSettings } from "./types";
 import { formatPrice } from "@/lib/currency";
+import { useWishlistStore } from "@/store/wishlistStore";
 
 export interface ProductDetailProps {
   theme: StorefrontTheme;
@@ -25,7 +26,7 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
   footerSettings,
   onAddToCart,
   onToggleWishlist,
-  isWishlisted = false,
+  isWishlisted: propIsWishlisted,
   onSelectCategory,
 }) => {
   // Sibling variants logic
@@ -93,6 +94,23 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
 
   const [selectedImage, setSelectedImage] = useState<string>(images[0] || "");
   const [quantity, setQuantity] = useState<number>(1);
+
+  const currentVariantId = activeVariant?.variantId || product.variantId;
+  const toggleWishlistStoreItem = useWishlistStore((state) => state.toggleItem);
+  const isInWishlistStore = useWishlistStore((state) => state.isInWishlist);
+  const isWishlisted = propIsWishlisted !== undefined ? propIsWishlisted : isInWishlistStore(currentVariantId);
+
+  const handleToggleWishlist = () => {
+    toggleWishlistStoreItem({
+      variantId: currentVariantId,
+      productName: product.name,
+      image: selectedImage || product.images[0],
+      price: currentPrice,
+      compareAtPrice: compareAtPrice,
+      inStock: isInStock,
+      category: product.category,
+    });
+  };
 
   // Lightbox & Pan-Zoom state
   const [isLightboxOpen, setIsLightboxOpen] = useState<boolean>(false);
@@ -526,8 +544,8 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
               </div>
             )}
 
-            {/* Add to Cart Button */}
-            <div>
+            {/* Add to Cart & Wishlist Buttons */}
+            <div className="flex items-center gap-3">
               <button
                 type="button"
                 disabled={!isInStock}
@@ -539,12 +557,33 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                     activeVariant?.variantId || product.variantId
                   )
                 }
-                className={`w-full py-3.5 px-6 font-semibold uppercase tracking-wider text-sm transition-all shadow-sm ${isInStock
+                className={`flex-1 py-3.5 px-6 font-semibold uppercase tracking-wider text-sm transition-all shadow-sm rounded-xl ${isInStock
                   ? "bg-black text-white hover:bg-gray-800 active:scale-[0.99]"
                   : "bg-gray-200 text-gray-500 cursor-not-allowed"
                   }`}
               >
                 {isInStock ? "ADD TO CART" : "OUT OF STOCK"}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleToggleWishlist}
+                className={`p-3.5 rounded-xl border transition-all flex items-center justify-center cursor-pointer ${
+                  isWishlisted
+                    ? "bg-red-50 border-red-200 text-red-500 shadow-sm"
+                    : "border-gray-300 bg-white text-gray-600 hover:border-gray-900 hover:text-red-500"
+                }`}
+                title={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
+                aria-label="Wishlist"
+              >
+                <svg
+                  className={`h-5 w-5 ${isWishlisted ? "fill-red-500 text-red-500" : ""}`}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.684a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                </svg>
               </button>
             </div>
 

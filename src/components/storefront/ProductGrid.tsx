@@ -4,6 +4,7 @@ import React, { useState, useMemo } from "react";
 import { StorefrontTheme, StorefrontProduct } from "./types";
 import { formatPrice } from "@/lib/currency";
 import { QuickViewModal } from "./QuickViewModal";
+import { useWishlistStore } from "@/store/wishlistStore";
 
 export interface ProductGridProps {
   theme: StorefrontTheme;
@@ -144,6 +145,38 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
 }) => {
   const [localSelectedCategory, setLocalSelectedCategory] = useState<string>("all");
   const [quickViewProduct, setQuickViewProduct] = useState<StorefrontProduct | null>(null);
+
+  const toggleWishlistStoreItem = useWishlistStore((state) => state.toggleItem);
+  const isInWishlistStore = useWishlistStore((state) => state.isInWishlist);
+
+  const handleToggleWishlist = (product: StorefrontProduct) => {
+    toggleWishlistStoreItem({
+      variantId: product.variantId,
+      productName: product.name,
+      image: product.images[0],
+      price: product.effectivePrice,
+      compareAtPrice: product.compareAtPrice,
+      inStock: product.inStock,
+      category: product.category,
+    });
+
+    onToggleWishlist?.(product);
+
+    if (company) {
+      const isCurrentlyIn = isInWishlistStore(product.variantId);
+      if (!isCurrentlyIn) {
+        fetch(`/api/tenant/${company}/wishlist`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ variantId: product.variantId }),
+        }).catch(() => {});
+      } else {
+        fetch(`/api/tenant/${company}/wishlist?variantId=${product.variantId}`, {
+          method: "DELETE",
+        }).catch(() => {});
+      }
+    }
+  };
 
   const selectedCategory = propSelectedCategory !== undefined ? propSelectedCategory : localSelectedCategory;
   const setSelectedCategory = propOnSelectCategory !== undefined ? propOnSelectCategory : setLocalSelectedCategory;
@@ -333,9 +366,9 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
                     key={product.variantId}
                     product={product}
                     theme={theme}
-                    isWishlisted={wishlistIds.includes(product.variantId)}
+                    isWishlisted={wishlistIds.length > 0 ? wishlistIds.includes(product.variantId) : isInWishlistStore(product.variantId)}
                     onProductClick={onProductClick}
-                    onToggleWishlist={onToggleWishlist}
+                    onToggleWishlist={handleToggleWishlist}
                     onQuickView={setQuickViewProduct}
                   />
                 ))}
