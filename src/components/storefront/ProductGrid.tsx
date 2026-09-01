@@ -14,6 +14,7 @@ export interface ProductGridProps {
   wishlistIds?: number[];
   selectedCategory?: string;
   onSelectCategory?: (category: string) => void;
+  initialSearch?: string;
 }
 
 export const ProductGrid: React.FC<ProductGridProps> = ({
@@ -26,12 +27,18 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
   wishlistIds = [],
   selectedCategory: propSelectedCategory,
   onSelectCategory: propOnSelectCategory,
+  initialSearch = "",
 }) => {
   const [localSelectedCategory, setLocalSelectedCategory] = useState<string>("all");
 
   const selectedCategory = propSelectedCategory !== undefined ? propSelectedCategory : localSelectedCategory;
   const setSelectedCategory = propOnSelectCategory !== undefined ? propOnSelectCategory : setLocalSelectedCategory;
-  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [searchQuery, setSearchQuery] = useState<string>(initialSearch);
+
+  React.useEffect(() => {
+    setSearchQuery(initialSearch || "");
+  }, [initialSearch]);
+
   const [maxPriceFilter, setMaxPriceFilter] = useState<number | undefined>(undefined);
   const [inStockOnlyFilter, setInStockOnlyFilter] = useState<boolean>(false);
   const [sortBy, setSortBy] = useState<"featured" | "price-asc" | "price-desc">("featured");

@@ -35,6 +35,15 @@ export default function StoreProductsPage() {
   const updateItemQty = useCartStore((state) => state.updateQuantity);
 
   useEffect(() => {
+    const categoryParam = searchParams.get("category");
+    if (categoryParam) {
+      setSelectedCategory(categoryParam);
+    } else {
+      setSelectedCategory("all");
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
     if (!company) return;
 
     const loadData = async () => {
@@ -71,6 +80,15 @@ export default function StoreProductsPage() {
     loadData();
   }, [company]);
 
+  const handleSelectCategory = (cat: string) => {
+    setSelectedCategory(cat);
+    if (!cat || cat.toLowerCase() === "all") {
+      router.push(`/${company}/store/products`);
+    } else {
+      router.push(`/${company}/store/products?category=${encodeURIComponent(cat)}`);
+    }
+  };
+
   const convertedCartItems: CartItemType[] = cartItems.map((ci: CartItem) => ({
     variantId: Number(ci.id),
     productName: ci.name,
@@ -105,7 +123,8 @@ export default function StoreProductsPage() {
         onOpenCart={() => setIsCartOpen(true)}
         onOpenWishlist={() => router.push(`/${company}/store/wishlist`)}
         onOpenAuth={() => setIsAuthOpen(true)}
-        onSelectCategory={setSelectedCategory}
+        onSelectCategory={handleSelectCategory}
+        onSearch={(q) => router.push(`/${company}/store/products?search=${encodeURIComponent(q)}`)}
       />
 
       <main className="py-6">
@@ -114,7 +133,8 @@ export default function StoreProductsPage() {
           products={products}
           categories={categories.map((c) => c.name)}
           selectedCategory={selectedCategory}
-          onSelectCategory={setSelectedCategory}
+          onSelectCategory={handleSelectCategory}
+          initialSearch={searchParams.get("search") || ""}
           onProductClick={(p) => router.push(`/${company}/store/products/${p.variantId}`)}
           onAddToCart={handleAddToCart}
           onToggleWishlist={(p) =>

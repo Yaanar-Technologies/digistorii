@@ -10,6 +10,7 @@ import {
   CustomerAuthModal,
   StorefrontProduct,
   CartItemType,
+  CategoryType,
   FooterSettings,
   mockFooterSettings,
   useStorefrontTheme,
@@ -25,6 +26,7 @@ export default function ProductDetailPage() {
   const theme = useStorefrontTheme();
   const [loading, setLoading] = useState(true);
   const [product, setProduct] = useState<StorefrontProduct | null>(null);
+  const [categories, setCategories] = useState<CategoryType[]>([]);
   const [footerSettings, setFooterSettings] = useState<FooterSettings>(mockFooterSettings);
   
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -102,6 +104,14 @@ export default function ProductDetailPage() {
             }
           }
         }
+        // Fetch categories for header navigation
+        const catRes = await fetch(`/api/tenant/${company}/categories`);
+        if (catRes.ok) {
+          const catData = await catRes.json();
+          if (catData.success && Array.isArray(catData.categories)) {
+            setCategories(catData.categories);
+          }
+        }
       } catch (err) {
         console.error("Failed to load product detail:", err);
       } finally {
@@ -168,10 +178,16 @@ export default function ProductDetailPage() {
     <div className="min-h-screen bg-white" style={{ fontFamily: theme.fontFamily }}>
       <StorefrontHeader
         theme={theme}
+        categories={categories}
         cartCount={cartItems.reduce((acc, i) => acc + i.quantity, 0)}
         onOpenCart={() => setIsCartOpen(true)}
         onOpenWishlist={() => router.push(`/${company}/store/wishlist`)}
         onOpenAuth={() => setIsAuthOpen(true)}
+        onSelectCategory={(slug) => {
+          if (slug === "all") router.push(`/${company}/store/products`);
+          else router.push(`/${company}/store/products?category=${encodeURIComponent(slug)}`);
+        }}
+        onSearch={(q) => router.push(`/${company}/store/products?search=${encodeURIComponent(q)}`)}
       />
 
       <main>
@@ -182,6 +198,10 @@ export default function ProductDetailPage() {
           onAddToCart={handleAddToCart}
           onToggleWishlist={() => setIsWishlisted(!isWishlisted)}
           isWishlisted={isWishlisted}
+          onSelectCategory={(cat) => {
+            if (cat === "all") router.push(`/${company}/store/products`);
+            else router.push(`/${company}/store/products?category=${encodeURIComponent(cat)}`);
+          }}
         />
       </main>
 

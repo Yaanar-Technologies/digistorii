@@ -16,6 +16,7 @@ export interface ProductDetailProps {
   ) => void;
   onToggleWishlist?: (product: StorefrontProduct) => void;
   isWishlisted?: boolean;
+  onSelectCategory?: (category: string) => void;
 }
 
 export const ProductDetail: React.FC<ProductDetailProps> = ({
@@ -25,6 +26,7 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
   onAddToCart,
   onToggleWishlist,
   isWishlisted = false,
+  onSelectCategory,
 }) => {
   // Sibling variants logic
   const siblings = product.variants && product.variants.length > 0 ? product.variants : [];
@@ -285,12 +287,33 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
               </div>
 
               {product.category && (
-                <a
-                  href="#"
-                  className="inline-block text-xs font-normal text-gray-500 underline hover:text-gray-800"
-                >
-                  {product.category}
-                </a>
+                <div className="flex items-center flex-wrap gap-1 text-xs font-normal text-gray-500">
+                  {product.category.includes(">") ? (
+                    product.category.split(">").map((seg, idx, arr) => {
+                      const trimmedSeg = seg.trim();
+                      return (
+                        <React.Fragment key={idx}>
+                          <button
+                            type="button"
+                            onClick={() => onSelectCategory?.(trimmedSeg)}
+                            className="underline hover:text-gray-800 transition-colors cursor-pointer text-left"
+                          >
+                            {trimmedSeg}
+                          </button>
+                          {idx < arr.length - 1 && <span className="text-gray-400">&gt;</span>}
+                        </React.Fragment>
+                      );
+                    })
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => onSelectCategory?.(product.category!)}
+                      className="underline hover:text-gray-800 transition-colors cursor-pointer text-left"
+                    >
+                      {product.category}
+                    </button>
+                  )}
+                </div>
               )}
             </div>
 
@@ -318,7 +341,7 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
               </button>
             </div>
 
-            {/* Promotional Badge Banner (Stitching badge from reference) */}
+            {/* Promotional Badge Banner (Stitching badge from reference) 
             <div className="flex items-center gap-3 p-2 border border-emerald-200 bg-emerald-50/50 rounded-md w-fit cursor-pointer hover:bg-emerald-50 transition-colors">
               <div className="h-10 w-10 rounded-full bg-pink-100 flex items-center justify-center text-pink-600 font-bold text-xs flex-shrink-0">
                 🪡
@@ -327,7 +350,7 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                 <span className="font-semibold text-gray-800 block">Click here for STITCHING</span>
                 <span className="text-gray-500 text-[11px]">Custom tailoring available for blouse & saree</span>
               </div>
-            </div>
+            </div>*/}
 
             {/* Dynamic Variant Selectors (Color / Size) */}
             {distinctColors.length > 1 ? (
