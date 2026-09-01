@@ -5,6 +5,28 @@ import { createPortal } from "react-dom";
 import { StorefrontTheme, StorefrontProduct } from "./types";
 import { formatPrice } from "@/lib/currency";
 
+// Reference data from product_colors table
+const PRODUCT_COLORS_MAP: Record<string, string> = {
+  black: "#000000",
+  purple: "#e918ec",
+  red: "#e30d0d",
+  white: "#ffffff",
+  "parrot green": "#1ddd3d",
+  pink: "#eb00b8",
+  cyan: "#14d6f0",
+  maroon: "#990000",
+  "royal blue": "#2e07ed",
+  yellow: "#f6ff75",
+  "deep pink": "#fc226e",
+  violet: "#8405b3",
+};
+
+const getColorHex = (colorName?: string | null): string => {
+  if (!colorName) return "#e5e7eb";
+  const normalized = colorName.trim().toLowerCase();
+  return PRODUCT_COLORS_MAP[normalized] || colorName;
+};
+
 export interface QuickViewModalProps {
   theme: StorefrontTheme;
   company?: string;
@@ -50,7 +72,6 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
     setMounted(true);
   }, []);
 
-  // Fetch product detail on demand whenever product opens
   useEffect(() => {
     if (!product) {
       setLoading(false);
@@ -59,7 +80,7 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
     }
 
     setQuantity(1);
-    setDetailData(null); // Reset detail data immediately on product switch to avoid showing previous product's data
+    setDetailData(null);
 
     if (!company) {
       setLoading(false);
@@ -72,7 +93,7 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
     fetch(`/api/tenant/${company}/products/${product.variantId}/detail`)
       .then((res) => res.json())
       .then((data) => {
-        if (currentReqId !== requestIdRef.current) return; // Ignore stale responses
+        if (currentReqId !== requestIdRef.current) return;
         if (data.success && data.product) {
           const fetchedVariants = Array.isArray(data.variants) ? data.variants : [];
           const targetVar =
@@ -99,7 +120,6 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
       });
   }, [product?.variantId, company]);
 
-  // Derived unique color variants
   const colorVariants = useMemo(() => {
     if (!detailData?.variants) return [];
     const colorMap = new Map<string, number>();
@@ -114,7 +134,6 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
     }));
   }, [detailData]);
 
-  // Derived size variants for the opened product's color
   const sizeVariants = useMemo(() => {
     if (!detailData?.variants || detailData.variants.length === 0) return [];
 
@@ -139,7 +158,6 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
     }));
   }, [detailData, product?.variantId]);
 
-  // Auto-select active size variant when sizeVariants resolve
   useEffect(() => {
     if (!product) return;
     if (sizeVariants.length > 0) {
@@ -151,7 +169,6 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
     }
   }, [sizeVariants, product?.variantId]);
 
-  // Active selected size variant & pricing
   const activeSizeVariant = useMemo(() => {
     if (!sizeVariants || sizeVariants.length === 0) return null;
     return sizeVariants.find((sv) => sv.variantId === selectedSizeVariantId) || sizeVariants[0];
@@ -171,7 +188,6 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
     return ["https://via.placeholder.com/600x600?text=No+Image"];
   }, [detailData, product]);
 
-  // Default scroll to second image when available
   useEffect(() => {
     if (product && images.length > 1 && galleryRef.current) {
       const timer = setTimeout(() => {
@@ -187,7 +203,6 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
     }
   }, [product?.variantId, images.length, loading]);
 
-  // ESC key listener & body scroll lock
   useEffect(() => {
     if (!product) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -232,7 +247,7 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
         onClick={(e) => e.stopPropagation()}
         style={{ fontFamily: theme.fontFamily }}
       >
-        {/* Close Button (X) */}
+        {/* Close Button */}
         <button
           type="button"
           onClick={onClose}
@@ -244,37 +259,42 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
           </svg>
         </button>
 
-        {/* Left Column: Scrollable Image Gallery & Color Swatches */}
-        <div className="w-full md:w-1/2 bg-gray-50 flex flex-col relative border-b md:border-b-0 md:border-r border-gray-100 max-h-[45vh] md:max-h-[80vh] overflow-hidden">
-          
-          {/* Color Swatches Row (if multiple colors exist) */}
+        {/* Left Column: Fixed-size Image Gallery */}
+        <div className="w-full md:w-1/2 bg-gray-50 flex flex-col relative border-b md:border-b-0 md:border-r border-gray-100 h-[380px] md:h-[480px] overflow-hidden">
+
+          {/* Color Swatches Row */}
           {colorVariants.length > 1 && (
             <div className="absolute top-3 left-3 z-20 flex items-center gap-2 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-full shadow-sm border border-gray-200">
               <span className="text-[11px] font-semibold text-gray-600 uppercase tracking-wider">Colors:</span>
-              {colorVariants.map((cv) => (
-                <button
-                  key={cv.variantId}
-                  type="button"
-                  title={cv.color}
-                  onClick={() => onViewDetails?.({ ...product, variantId: cv.variantId })}
-                  className="h-5 w-5 rounded-full border border-gray-300 shadow-sm hover:scale-110 transition-transform overflow-hidden flex items-center justify-center text-[10px] font-bold text-gray-700 bg-gray-100 cursor-pointer"
-                  style={{ backgroundColor: cv.color.toLowerCase() }}
-                >
-                  {cv.color.charAt(0).toUpperCase()}
-                </button>
-              ))}
+              {colorVariants.map((cv) => {
+                const hex = getColorHex(cv.color);
+                const isLight = ["#ffffff", "#f6ff75", "#14d6f0", "#1ddd3d"].includes(hex.toLowerCase());
+                return (
+                  <button
+                    key={cv.variantId}
+                    type="button"
+                    title={cv.color}
+                    onClick={() => onViewDetails?.({ ...product, variantId: cv.variantId })}
+                    className={`h-5 w-5 rounded-full border shadow-sm hover:scale-110 transition-transform overflow-hidden flex items-center justify-center text-[9px] font-bold cursor-pointer ${isLight ? "text-gray-800 border-gray-300" : "text-white border-black/20"
+                      }`}
+                    style={{ backgroundColor: hex }}
+                  >
+                    {cv.color.charAt(0).toUpperCase()}
+                  </button>
+                );
+              })}
             </div>
           )}
 
-          {/* Scrollable Gallery with object-contain to prevent cropping */}
+          {/* Scrollable Gallery container with fixed height items */}
           <div
             ref={galleryRef}
-            className="flex-1 overflow-y-auto scroll-smooth snap-y snap-mandatory p-4 space-y-4 scrollbar-thin scrollbar-thumb-gray-300 bg-gray-100/60"
+            className="w-full h-full overflow-y-auto scroll-smooth snap-y snap-mandatory p-4 space-y-4 scrollbar-thin scrollbar-thumb-gray-300 bg-gray-100/60"
           >
             {images.map((img, idx) => (
               <div
                 key={idx}
-                className="w-full aspect-square bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100 snap-center flex items-center justify-center p-2"
+                className="w-full h-[340px] md:h-[440px] bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100 snap-center flex items-center justify-center p-3"
               >
                 <img
                   src={img}
@@ -287,22 +307,19 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
         </div>
 
         {/* Right Column: Details & Actions */}
-        <div className="w-full md:w-1/2 p-6 flex flex-col justify-between overflow-y-auto max-h-[50vh] md:max-h-[80vh] space-y-5">
-          
+        <div className="w-full md:w-1/2 p-6 flex flex-col justify-between overflow-y-auto h-[380px] md:h-[480px] space-y-5">
+
           <div className="space-y-4">
-            {/* Category tag if available */}
             {product.category && (
               <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">
                 {product.category}
               </span>
             )}
 
-            {/* Product Title */}
             <h2 className="text-xl font-bold tracking-tight text-gray-900 leading-snug">
               {product.name}
             </h2>
 
-            {/* Price Row */}
             <div className="flex items-baseline gap-3">
               <span className="text-2xl font-bold text-gray-900">
                 {formatPrice(currentPrice)}
@@ -314,7 +331,6 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
               )}
             </div>
 
-            {/* Description (Skeleton or Real Truncated Text) */}
             {loading ? (
               <div className="animate-pulse space-y-2 py-1">
                 <div className="h-3.5 bg-gray-200 rounded w-full"></div>
@@ -335,7 +351,6 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
               </p>
             ) : null}
 
-            {/* Size Selector Section */}
             {loading ? (
               <div className="pt-2 border-t border-gray-100 space-y-2">
                 <div className="h-3 bg-gray-200 rounded w-24 animate-pulse"></div>
@@ -358,7 +373,6 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
                   )}
                 </div>
 
-                {/* Size Pills */}
                 <div className="flex flex-wrap gap-2.5">
                   {sizeVariants.map((sv) => {
                     const isSelected = selectedSizeVariantId === sv.variantId;
@@ -370,13 +384,12 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
                         type="button"
                         disabled={!inStock}
                         onClick={() => setSelectedSizeVariantId(sv.variantId)}
-                        className={`h-9 min-w-[2.75rem] px-3.5 rounded-full border text-xs sm:text-sm font-medium flex items-center justify-center transition-all cursor-pointer ${
-                          isSelected
+                        className={`h-9 min-w-[2.75rem] px-3.5 rounded-full border text-xs sm:text-sm font-medium flex items-center justify-center transition-all cursor-pointer ${isSelected
                             ? "border-gray-900 bg-gray-900 text-white shadow-sm ring-1 ring-gray-900"
                             : inStock
-                            ? "border-gray-300 bg-white text-gray-800 hover:border-gray-900"
-                            : "border-gray-200 bg-gray-50 text-gray-300 line-through cursor-not-allowed opacity-50"
-                        }`}
+                              ? "border-gray-300 bg-white text-gray-800 hover:border-gray-900"
+                              : "border-gray-200 bg-gray-50 text-gray-300 line-through cursor-not-allowed opacity-50"
+                          }`}
                       >
                         {sv.size}
                       </button>
@@ -386,7 +399,6 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
               </div>
             ) : null}
 
-            {/* Quantity Stepper */}
             <div className="pt-2 space-y-1.5">
               <span className="block text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 Quantity
@@ -416,17 +428,15 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
 
           </div>
 
-          {/* Bottom Action Area: Add to Cart Button & View Details link */}
           <div className="pt-4 border-t border-gray-100 space-y-3">
             <button
               type="button"
               disabled={!currentInStock}
               onClick={handleAddToCartClick}
-              className={`w-full py-3.5 px-6 rounded-xl font-bold uppercase tracking-wider text-sm transition-all shadow-md active:scale-[0.99] ${
-                currentInStock
+              className={`w-full py-3.5 px-6 rounded-xl font-bold uppercase tracking-wider text-sm transition-all shadow-md active:scale-[0.99] ${currentInStock
                   ? "text-white hover:opacity-90 cursor-pointer"
                   : "bg-gray-200 text-gray-400 cursor-not-allowed shadow-none border border-gray-200"
-              }`}
+                }`}
               style={currentInStock ? { backgroundColor: theme.primaryColor } : undefined}
             >
               {currentInStock ? "Add to Cart" : "Out of Stock"}
