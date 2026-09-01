@@ -5,26 +5,18 @@ import { createPortal } from "react-dom";
 import { StorefrontTheme, StorefrontProduct } from "./types";
 import { formatPrice } from "@/lib/currency";
 
-// Reference data from product_colors table
-const PRODUCT_COLORS_MAP: Record<string, string> = {
-  black: "#000000",
-  purple: "#e918ec",
-  red: "#e30d0d",
-  white: "#ffffff",
-  "parrot green": "#1ddd3d",
-  pink: "#eb00b8",
-  cyan: "#14d6f0",
-  maroon: "#990000",
-  "royal blue": "#2e07ed",
-  yellow: "#f6ff75",
-  "deep pink": "#fc226e",
-  violet: "#8405b3",
-};
-
-const getColorHex = (colorName?: string | null): string => {
-  if (!colorName) return "#e5e7eb";
-  const normalized = colorName.trim().toLowerCase();
-  return PRODUCT_COLORS_MAP[normalized] || colorName;
+// Format hex code returned from database product_colors table
+const formatColorHex = (hex?: string | null, fallbackColorName?: string): string => {
+  if (hex && hex.trim() !== "") {
+    const h = hex.trim();
+    if (h.startsWith("#") || h.startsWith("rgb") || h.startsWith("hsl")) return h;
+    if (/^[0-9A-Fa-f]{3,8}$/.test(h)) return `#${h}`;
+    return h;
+  }
+  if (fallbackColorName && fallbackColorName.trim() !== "") {
+    return fallbackColorName.trim().toLowerCase();
+  }
+  return "#e5e7eb";
 };
 
 export interface QuickViewModalProps {
@@ -53,6 +45,7 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
       variantId: number;
       sku?: string;
       color?: string | null;
+      colorHex?: string | null;
       size?: string | null;
       effectivePrice: number;
       compareAtPrice?: number;
@@ -122,15 +115,16 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
 
   const colorVariants = useMemo(() => {
     if (!detailData?.variants) return [];
-    const colorMap = new Map<string, number>();
+    const colorMap = new Map<string, { variantId: number; colorHex?: string | null }>();
     detailData.variants.forEach((v) => {
       if (v.color && String(v.color).trim() !== "" && !colorMap.has(v.color)) {
-        colorMap.set(v.color, v.variantId);
+        colorMap.set(v.color, { variantId: v.variantId, colorHex: v.colorHex });
       }
     });
-    return Array.from(colorMap.entries()).map(([color, variantId]) => ({
-      variantId,
+    return Array.from(colorMap.entries()).map(([color, item]) => ({
+      variantId: item.variantId,
       color,
+      colorHex: item.colorHex || undefined,
     }));
   }, [detailData]);
 
@@ -267,16 +261,24 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
             <div className="absolute top-3 left-3 z-20 flex items-center gap-2 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-full shadow-sm border border-gray-200">
               <span className="text-[11px] font-semibold text-gray-600 uppercase tracking-wider">Colors:</span>
               {colorVariants.map((cv) => {
-                const hex = getColorHex(cv.color);
-                const isLight = ["#ffffff", "#f6ff75", "#14d6f0", "#1ddd3d"].includes(hex.toLowerCase());
+                const hex = formatColorHex(cv.colorHex, cv.color);
+                const hexLower = hex.toLowerCase();
+                const isLight =
+                  hexLower === "#ffffff" ||
+                  hexLower === "white" ||
+                  hexLower === "#f6ff75" ||
+                  hexLower === "yellow" ||
+                  hexLower === "#1ddd3d" ||
+                  hexLower === "#14d6f0";
                 return (
                   <button
                     key={cv.variantId}
                     type="button"
                     title={cv.color}
                     onClick={() => onViewDetails?.({ ...product, variantId: cv.variantId })}
-                    className={`h-5 w-5 rounded-full border shadow-sm hover:scale-110 transition-transform overflow-hidden flex items-center justify-center text-[9px] font-bold cursor-pointer ${isLight ? "text-gray-800 border-gray-300" : "text-white border-black/20"
-                      }`}
+                    className={`h-5 w-5 rounded-full border shadow-sm hover:scale-110 transition-transform overflow-hidden flex items-center justify-center text-[9px] font-bold cursor-pointer ${
+                      isLight ? "text-gray-800 border-gray-300" : "text-white border-black/20"
+                    }`}
                     style={{ backgroundColor: hex }}
                   >
                     {cv.color.charAt(0).toUpperCase()}

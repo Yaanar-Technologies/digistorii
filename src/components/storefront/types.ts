@@ -24,6 +24,7 @@ export type SiblingVariant = {
   variantId: number;
   sku: string;
   color?: string | null;
+  colorHex?: string | null;
   size?: string | null;
   gender?: string | null;
   fitting?: string | null;
@@ -57,7 +58,7 @@ export type StorefrontProduct = {
   options?: { name: string; values: string[] }[];
   variants?: SiblingVariant[];
   footerSettings?: FooterSettings;
-  colorVariants?: { variantId: number; color: string; swatchImage?: string }[];
+  colorVariants?: { variantId: number; color: string; colorHex?: string; swatchImage?: string }[];
   sizeVariants?: {
     variantId: number;
     size: string;

@@ -96,6 +96,7 @@ export async function GET(
         pv.barcode,
         pv.status,
         pc.color_name AS color,
+        pc.hex_code AS color_hex,
         COALESCE(
           (
             SELECT epo.ecom_price 
@@ -148,6 +149,7 @@ export async function GET(
         variantId: Number(row.variant_id),
         sku: row.sku,
         color: row.color || null,
+        colorHex: row.color_hex || null,
         size: row.size || null,
         gender: row.gender || null,
         fitting: row.fitting || null,
