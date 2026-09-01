@@ -4,6 +4,7 @@ export * from "./StorefrontHeader";
 export * from "./StorefrontHero";
 export * from "./CategoryGrid";
 export * from "./ProductGrid";
+export * from "./QuickViewModal";
 export * from "./ProductDetail";
 export * from "./CartDrawer";
 export * from "./CheckoutShell";

@@ -92,15 +92,20 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
   const [selectedImage, setSelectedImage] = useState<string>(images[0] || "");
   const [quantity, setQuantity] = useState<number>(1);
 
-  // Accordion state
+  // Lightbox & Pan-Zoom state
+  const [isLightboxOpen, setIsLightboxOpen] = useState<boolean>(false);
+  const [zoomPosition, setZoomPosition] = useState<{ x: number; y: number }>({ x: 50, y: 50 });
+  const [isHoveringZoom, setIsHoveringZoom] = useState<boolean>(false);
+
+  // Accordion state (only details open by default)
   const [accordionOpen, setAccordionOpen] = useState<{
     details: boolean;
     description: boolean;
     delivery: boolean;
   }>({
     details: true,
-    description: true,
-    delivery: true,
+    description: false,
+    delivery: false,
   });
 
   useEffect(() => {
@@ -108,6 +113,18 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
       setSelectedImage(images[0]);
     }
   }, [images, selectedImage]);
+
+  // Body scroll lock when Lightbox modal is open
+  useEffect(() => {
+    if (isLightboxOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isLightboxOpen]);
 
   // Next / Prev main image controls
   const handlePrevImage = () => {
@@ -120,6 +137,33 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
     const currentIndex = images.indexOf(selectedImage);
     const nextIndex = (currentIndex + 1) % images.length;
     setSelectedImage(images[nextIndex]);
+  };
+
+  // Keyboard controls for Lightbox (Escape, ArrowLeft, ArrowRight)
+  useEffect(() => {
+    if (!isLightboxOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsLightboxOpen(false);
+      } else if (e.key === "ArrowLeft") {
+        handlePrevImage();
+      } else if (e.key === "ArrowRight") {
+        handleNextImage();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isLightboxOpen, selectedImage, images]);
+
+  // Calculate cursor-follow relative coordinates for GPU transform-origin
+  const handleMouseMoveZoom = (e: React.MouseEvent<HTMLDivElement>) => {
+    const { left, top, width, height } = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - left) / width) * 100;
+    const y = ((e.clientY - top) / height) * 100;
+    setZoomPosition({
+      x: Math.max(0, Math.min(100, x)),
+      y: Math.max(0, Math.min(100, y)),
+    });
   };
 
   const toggleAccordion = (section: "details" | "description" | "delivery") => {
@@ -198,7 +242,10 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
 
           {/* Left Column: Image Gallery (Span 7) */}
           <div className="lg:col-span-7 space-y-4">
-            <div className="aspect-[4/3] sm:aspect-[1/1] w-full overflow-hidden rounded-md bg-gray-100 relative group border border-gray-200 shadow-sm">
+            <div 
+              onClick={() => setIsLightboxOpen(true)}
+              className="aspect-[4/3] sm:aspect-[1/1] w-full overflow-hidden rounded-md bg-gray-100 relative group border border-gray-200 shadow-sm cursor-zoom-in"
+            >
               <img
                 src={selectedImage}
                 alt={product.name}
@@ -210,8 +257,11 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                 <>
                   <button
                     type="button"
-                    onClick={handlePrevImage}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-white/80 hover:bg-white text-gray-800 flex items-center justify-center shadow-md transition-transform hover:scale-105"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handlePrevImage();
+                    }}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-white/80 hover:bg-white text-gray-800 flex items-center justify-center shadow-md transition-transform hover:scale-105 z-10"
                     aria-label="Previous image"
                   >
                     <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -220,8 +270,11 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={handleNextImage}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-white/80 hover:bg-white text-gray-800 flex items-center justify-center shadow-md transition-transform hover:scale-105"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleNextImage();
+                    }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-white/80 hover:bg-white text-gray-800 flex items-center justify-center shadow-md transition-transform hover:scale-105 z-10"
                     aria-label="Next image"
                   >
                     <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -231,8 +284,24 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                 </>
               )}
 
+              {/* Zoom Trigger Button Badge */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsLightboxOpen(true);
+                }}
+                className="absolute bottom-3 right-3 rounded-lg bg-black/60 hover:bg-black/80 text-white px-2.5 py-1.5 backdrop-blur-sm transition-colors flex items-center gap-1.5 text-xs font-medium shadow-sm z-10"
+                aria-label="Zoom image"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m3-3H7" />
+                </svg>
+                <span>Zoom</span>
+              </button>
+
               {!isInStock && (
-                <span className="absolute top-4 left-4 rounded-full bg-red-600 px-3 py-1 text-xs font-bold text-white shadow-md">
+                <span className="absolute top-4 left-4 rounded-full bg-red-600 px-3 py-1 text-xs font-bold text-white shadow-md z-10">
                   Out of Stock
                 </span>
               )}
@@ -539,7 +608,7 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                   onClick={() => toggleAccordion("delivery")}
                   className="w-full flex items-center justify-between py-1 text-left text-sm font-semibold text-gray-800 hover:text-gray-900"
                 >
-                  <span>Returns & Delivery</span>
+                  <span>Delivery & Returns</span>
                   <span className="text-gray-500 text-base">{accordionOpen.delivery ? "▲" : "▼"}</span>
                 </button>
 
@@ -571,6 +640,136 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
         </div>
 
       </div>
+
+      {/* High-Performance Fullscreen Lightbox & Pan-Zoom Modal */}
+      {isLightboxOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-between select-none p-4 md:p-6 transition-opacity animate-fadeIn"
+          onClick={() => setIsLightboxOpen(false)}
+        >
+          {/* Top Bar: Image Counter & Close Button */}
+          <div className="w-full flex items-center justify-between z-50 text-white">
+            <div className="text-xs sm:text-sm font-medium tracking-wide bg-white/10 px-3 py-1.5 rounded-full backdrop-blur-sm border border-white/10">
+              Image {images.indexOf(selectedImage) + 1} of {images.length}
+            </div>
+
+            {/* Close Button */}
+            <button
+              type="button"
+              onClick={() => setIsLightboxOpen(false)}
+              className="p-2.5 rounded-full bg-white/10 text-white hover:bg-white/20 transition-all shadow-lg hover:scale-105 active:scale-95 cursor-pointer"
+              aria-label="Close modal"
+              title="Close (Esc)"
+            >
+              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Modal Main Content Workspace */}
+          <div
+            className="w-full flex-1 flex flex-col md:flex-row items-center justify-center gap-4 my-2 overflow-hidden relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Left Vertical Thumbnail Strip (Desktop) */}
+            {images.length > 1 && (
+              <div className="hidden md:flex flex-col gap-3 max-h-[75vh] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-white/20 flex-shrink-0 z-20">
+                {images.map((img, idx) => {
+                  const isSelected = selectedImage === img;
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setSelectedImage(img)}
+                      className={`relative h-20 w-16 flex-shrink-0 overflow-hidden rounded-md border-2 transition-all cursor-pointer ${
+                        isSelected
+                          ? "border-white ring-2 ring-white/50 opacity-100 scale-105"
+                          : "border-white/20 hover:border-white/60 opacity-60 hover:opacity-90"
+                      }`}
+                    >
+                      <img src={img} alt={`Thumbnail ${idx + 1}`} className="h-full w-full object-cover" />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Center Canvas with GPU-Accelerated Cursor Follow Pan-Zoom */}
+            <div
+              className="relative flex-1 h-full max-h-[80vh] w-full flex items-center justify-center overflow-hidden cursor-crosshair group rounded-lg"
+              onMouseEnter={() => setIsHoveringZoom(true)}
+              onMouseLeave={() => setIsHoveringZoom(false)}
+              onMouseMove={handleMouseMoveZoom}
+            >
+              {/* Prev Navigation Arrow */}
+              {images.length > 1 && (
+                <button
+                  type="button"
+                  onClick={handlePrevImage}
+                  className="absolute left-2 md:left-4 top-1/2 -translate-y-1/2 z-30 h-12 w-12 rounded-full bg-black/60 border border-white/20 hover:bg-black/90 text-white flex items-center justify-center shadow-2xl transition-all hover:scale-110 active:scale-95 cursor-pointer"
+                  aria-label="Previous image"
+                >
+                  <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+              )}
+
+              {/* Main Image View */}
+              <div className="h-full w-full flex items-center justify-center overflow-hidden">
+                <img
+                  src={selectedImage}
+                  alt={product.name}
+                  className="max-h-full max-w-full object-contain transition-transform duration-150 ease-out select-none pointer-events-auto rounded"
+                  style={{
+                    transformOrigin: `${zoomPosition.x}% ${zoomPosition.y}%`,
+                    transform: isHoveringZoom ? "scale(2.2)" : "scale(1)",
+                  }}
+                />
+              </div>
+
+              {/* Next Navigation Arrow */}
+              {images.length > 1 && (
+                <button
+                  type="button"
+                  onClick={handleNextImage}
+                  className="absolute right-2 md:right-4 top-1/2 -translate-y-1/2 z-30 h-12 w-12 rounded-full bg-black/60 border border-white/20 hover:bg-black/90 text-white flex items-center justify-center shadow-2xl transition-all hover:scale-110 active:scale-95 cursor-pointer"
+                  aria-label="Next image"
+                >
+                  <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Bottom Horizontal Thumbnails (Mobile) */}
+          {images.length > 1 && (
+            <div
+              className="md:hidden flex gap-2 overflow-x-auto max-w-full pb-1 scrollbar-none z-20"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {images.map((img, idx) => {
+                const isSelected = selectedImage === img;
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setSelectedImage(img)}
+                    className={`relative h-14 w-12 flex-shrink-0 overflow-hidden rounded border-2 transition-all ${
+                      isSelected ? "border-white ring-1 ring-white opacity-100" : "border-white/20 opacity-60"
+                    }`}
+                  >
+                    <img src={img} alt={`Thumbnail ${idx + 1}`} className="h-full w-full object-cover" />
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

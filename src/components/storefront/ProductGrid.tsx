@@ -3,19 +3,130 @@
 import React, { useState, useMemo } from "react";
 import { StorefrontTheme, StorefrontProduct } from "./types";
 import { formatPrice } from "@/lib/currency";
+import { QuickViewModal } from "./QuickViewModal";
 
 export interface ProductGridProps {
   theme: StorefrontTheme;
   products: StorefrontProduct[];
   categories?: string[];
   onProductClick?: (product: StorefrontProduct) => void;
-  onAddToCart?: (product: StorefrontProduct) => void;
+  onAddToCart?: (product: StorefrontProduct, quantity?: number) => void;
   onToggleWishlist?: (product: StorefrontProduct) => void;
   wishlistIds?: number[];
   selectedCategory?: string;
   onSelectCategory?: (category: string) => void;
   initialSearch?: string;
 }
+
+interface ProductCardProps {
+  product: StorefrontProduct;
+  theme: StorefrontTheme;
+  isWishlisted: boolean;
+  onProductClick?: (product: StorefrontProduct) => void;
+  onToggleWishlist?: (product: StorefrontProduct) => void;
+  onQuickView: (product: StorefrontProduct) => void;
+}
+
+const ProductCard: React.FC<ProductCardProps> = React.memo(({
+  product,
+  theme,
+  isWishlisted,
+  onProductClick,
+  onToggleWishlist,
+  onQuickView,
+}) => {
+  return (
+    <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-all hover:shadow-md">
+      {/* Product Image & Badges */}
+      <div className="relative aspect-square w-full overflow-hidden bg-gray-50">
+        <img
+          src={product.images[0] || "https://via.placeholder.com/400"}
+          alt={product.name}
+          onClick={() => onProductClick?.(product)}
+          className="h-full w-full object-cover object-center cursor-pointer transition-transform duration-300 group-hover:scale-105"
+        />
+
+        {/* Stock / Sale Badges */}
+        {!product.inStock ? (
+          <span className="absolute top-3 left-3 rounded-full bg-red-600/90 px-2.5 py-1 text-xs font-bold text-white shadow-sm z-10">
+            Out of Stock
+          </span>
+        ) : product.compareAtPrice && product.compareAtPrice > product.effectivePrice ? (
+          <span
+            className="absolute top-3 left-3 rounded-full px-2.5 py-1 text-xs font-bold text-white shadow-sm z-10"
+            style={{ backgroundColor: theme.primaryColor }}
+          >
+            Sale
+          </span>
+        ) : null}
+
+        {/* Quick View Eye + Wishlist Heart Overlay Buttons */}
+        <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10">
+          {/* Quick View Eye Button (Hover-only on desktop, always visible on mobile/touch) */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onQuickView(product);
+            }}
+            className="rounded-full bg-white/80 p-2 text-gray-700 backdrop-blur-sm transition-all hover:bg-white hover:text-black shadow-sm opacity-100 md:opacity-0 md:group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+            aria-label="Quick View"
+            title="Quick View"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+            </svg>
+          </button>
+
+          {/* Wishlist Button (Always visible on all devices) */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleWishlist?.(product);
+            }}
+            className="rounded-full bg-white/80 p-2 text-gray-600 backdrop-blur-sm transition-colors hover:bg-white hover:text-red-500 shadow-sm"
+            aria-label="Wishlist"
+          >
+            <svg
+              className={`h-4 w-4 ${isWishlisted ? "fill-red-500 text-red-500" : ""}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.684a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Product Content Details */}
+      <div className="flex flex-1 flex-col p-4">
+        <h3
+          onClick={() => onProductClick?.(product)}
+          className="text-base font-semibold text-gray-900 cursor-pointer hover:underline line-clamp-1"
+        >
+          {product.name}
+        </h3>
+
+        {/* Price Display */}
+        <div className="mt-2 flex items-baseline gap-2">
+          <span className="text-lg font-bold text-gray-900">
+            {formatPrice(product.effectivePrice)}
+          </span>
+          {product.compareAtPrice && product.compareAtPrice > product.effectivePrice && (
+            <span className="text-xs text-gray-400 line-through">
+              {formatPrice(product.compareAtPrice)}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+ProductCard.displayName = "ProductCard";
 
 export const ProductGrid: React.FC<ProductGridProps> = ({
   theme,
@@ -30,6 +141,7 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
   initialSearch = "",
 }) => {
   const [localSelectedCategory, setLocalSelectedCategory] = useState<string>("all");
+  const [quickViewProduct, setQuickViewProduct] = useState<StorefrontProduct | null>(null);
 
   const selectedCategory = propSelectedCategory !== undefined ? propSelectedCategory : localSelectedCategory;
   const setSelectedCategory = propOnSelectCategory !== undefined ? propOnSelectCategory : setLocalSelectedCategory;
@@ -57,8 +169,8 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
         if (selectedCategory !== "all") {
           const prodCat = (product.category || "").toLowerCase();
           const selCat = selectedCategory.toLowerCase();
-          const match = prodCat === selCat || 
-                        prodCat.split(">").map(s => s.trim()).includes(selCat);
+          const match = prodCat === selCat ||
+            prodCat.split(">").map((s) => s.trim()).includes(selCat);
           if (!match) {
             return false;
           }
@@ -90,7 +202,7 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
   return (
     <section className="py-10 bg-white" style={{ fontFamily: theme.fontFamily }}>
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        
+
         {/* Header Title & Top Controls */}
         <div className="flex flex-col gap-4 border-b border-gray-100 pb-6 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -214,105 +326,37 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {filteredProducts.map((product) => {
-                  const isWishlisted = wishlistIds.includes(product.variantId);
-                  return (
-                    <div
-                      key={product.variantId}
-                      className="group relative flex flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-all hover:shadow-md"
-                    >
-                      {/* Product Image & Badges */}
-                      <div className="relative aspect-square w-full overflow-hidden bg-gray-50">
-                        <img
-                          src={product.images[0] || "https://via.placeholder.com/400"}
-                          alt={product.name}
-                          onClick={() => onProductClick?.(product)}
-                          className="h-full w-full object-cover object-center cursor-pointer transition-transform duration-300 group-hover:scale-105"
-                        />
-
-                        {/* Explicit Stock Badge Rule */}
-                        {!product.inStock ? (
-                          <span className="absolute top-3 left-3 rounded-full bg-red-600/90 px-2.5 py-1 text-xs font-bold text-white shadow-sm">
-                            Out of Stock
-                          </span>
-                        ) : product.compareAtPrice && product.compareAtPrice > product.effectivePrice ? (
-                          <span
-                            className="absolute top-3 left-3 rounded-full px-2.5 py-1 text-xs font-bold text-white shadow-sm"
-                            style={{ backgroundColor: theme.primaryColor }}
-                          >
-                            Sale
-                          </span>
-                        ) : null}
-
-                        {/* Wishlist Button */}
-                        <button
-                          type="button"
-                          onClick={() => onToggleWishlist?.(product)}
-                          className="absolute top-3 right-3 rounded-full bg-white/80 p-2 text-gray-600 backdrop-blur-sm transition-colors hover:bg-white hover:text-red-500 shadow-sm"
-                          aria-label="Wishlist"
-                        >
-                          <svg
-                            className={`h-4 w-4 ${isWishlisted ? "fill-red-500 text-red-500" : ""}`}
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                          >
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.684a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-                          </svg>
-                        </button>
-                      </div>
-
-                      {/* Product Content Details */}
-                      <div className="flex flex-1 flex-col p-4">
-                        {product.category && (
-                          <span className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">
-                            {product.category}
-                          </span>
-                        )}
-                        <h3
-                          onClick={() => onProductClick?.(product)}
-                          className="text-base font-semibold text-gray-900 cursor-pointer hover:underline line-clamp-1"
-                        >
-                          {product.name}
-                        </h3>
-
-                        {/* Price Display */}
-                        <div className="mt-2 flex items-baseline gap-2">
-                          <span className="text-lg font-bold text-gray-900">
-                            {formatPrice(product.effectivePrice)}
-                          </span>
-                          {product.compareAtPrice && product.compareAtPrice > product.effectivePrice && (
-                            <span className="text-xs text-gray-400 line-through">
-                              {formatPrice(product.compareAtPrice)}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Add to Cart Button */}
-                        <div className="mt-4 pt-2">
-                          <button
-                            type="button"
-                            disabled={!product.inStock}
-                            onClick={() => onAddToCart?.(product)}
-                            className={`w-full rounded-xl py-2.5 px-4 text-sm font-semibold transition-all ${
-                              product.inStock
-                                ? "text-white shadow-sm hover:opacity-90 active:scale-98"
-                                : "bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200"
-                            }`}
-                            style={product.inStock ? { backgroundColor: theme.primaryColor } : undefined}
-                          >
-                            {product.inStock ? "Add to Cart" : "Out of Stock"}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+                {filteredProducts.map((product) => (
+                  <ProductCard
+                    key={product.variantId}
+                    product={product}
+                    theme={theme}
+                    isWishlisted={wishlistIds.includes(product.variantId)}
+                    onProductClick={onProductClick}
+                    onToggleWishlist={onToggleWishlist}
+                    onQuickView={setQuickViewProduct}
+                  />
+                ))}
               </div>
             )}
           </div>
         </div>
       </div>
+
+      {/* Quick View Modal instance (Reused single instance outside card loop) */}
+      <QuickViewModal
+        theme={theme}
+        product={quickViewProduct}
+        onClose={() => setQuickViewProduct(null)}
+        onAddToCart={(targetProduct, qty) => {
+          onAddToCart?.(targetProduct, qty);
+          setQuickViewProduct(null);
+        }}
+        onViewDetails={(targetProduct) => {
+          setQuickViewProduct(null);
+          onProductClick?.(targetProduct);
+        }}
+      />
     </section>
   );
 };

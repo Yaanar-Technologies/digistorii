@@ -98,13 +98,13 @@ export default function StoreProductsPage() {
     inStock: true,
   }));
 
-  const handleAddToCart = (product: StorefrontProduct) => {
+  const handleAddToCart = (product: StorefrontProduct, quantity: number = 1) => {
     addItemToCart({
       id: String(product.variantId),
       name: product.name,
       price: product.effectivePrice,
       image: product.images[0],
-      quantity: 1,
+      quantity: quantity || 1,
     });
     setIsCartOpen(true);
   };

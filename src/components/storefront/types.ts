@@ -57,6 +57,15 @@ export type StorefrontProduct = {
   options?: { name: string; values: string[] }[];
   variants?: SiblingVariant[];
   footerSettings?: FooterSettings;
+  colorVariants?: { variantId: number; color: string; swatchImage?: string }[];
+  sizeVariants?: {
+    variantId: number;
+    size: string;
+    effectivePrice: number;
+    compareAtPrice?: number;
+    availableQty: number;
+    inStock: boolean;
+  }[];
 };
 
 export type FooterSettings = {
