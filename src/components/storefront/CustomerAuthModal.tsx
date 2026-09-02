@@ -50,6 +50,17 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
 
   if (!isOpen) return null;
 
+  const getActiveCompany = () => {
+    if (company && company.trim()) return company.trim();
+    if (typeof window !== "undefined") {
+      const parts = window.location.pathname.split("/").filter(Boolean);
+      if (parts.length > 0 && parts[0] !== "store" && parts[0] !== "checkout" && parts[0] !== "api") {
+        return parts[0];
+      }
+    }
+    return "";
+  };
+
   const validatePhone = (ph: string) => {
     const clean = ph.replace(/\s+|-|\+/g, "");
     const ten = clean.length === 12 && clean.startsWith("91") ? clean.slice(2) : clean;
@@ -81,7 +92,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          company: company || "",
+          company: getActiveCompany(),
           identifier: identifier.trim(),
           password,
         }),
@@ -135,7 +146,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          company: company || "",
+          company: getActiveCompany(),
           cust_name: name.trim(),
           phone: phone.trim(),
           email: email.trim().toLowerCase(),
@@ -176,7 +187,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          company: company || "",
+          company: getActiveCompany(),
           identifier: identifier.trim(),
         }),
       });
@@ -212,7 +223,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          company: company || "",
+          company: getActiveCompany(),
           identifier: identifier.trim(),
           otp: code,
         }),

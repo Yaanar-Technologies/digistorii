@@ -4,18 +4,16 @@ import {
   ensureCustomerSchema,
   hashPassword,
   normalizeIndianPhone,
+  resolveCompanySlug,
   validateEmail,
   validateIndianPhone,
 } from "@/lib/customerAuth";
 
-export async function POST(req: NextRequest,
-  { params }: { params: Promise<{ company: string }> }
-) {
+export async function POST(req: NextRequest) {
   const client = await pool.connect();
   try {
     const body = await req.json();
-    const { company } = await params;
-    const companySlug = (company || "").trim().toLowerCase();
+    const companySlug = await resolveCompanySlug(req, body);
     const custName = String(body?.cust_name || body?.name || "").trim();
     const rawPhone = String(body?.phone || "").trim();
     const rawEmail = String(body?.email || "").trim().toLowerCase();

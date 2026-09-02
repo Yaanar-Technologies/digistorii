@@ -3,6 +3,7 @@ import { pool } from "@/lib/db";
 import {
   ensureCustomerSchema,
   normalizeIndianPhone,
+  resolveCompanySlug,
   validateIndianPhone,
   validateIndianPincode,
 } from "@/lib/customerAuth";
@@ -21,9 +22,9 @@ function getSessionCustomer(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   const session = getSessionCustomer(req);
-  const searchCompany = req.nextUrl.searchParams.get("company") || session?.company;
+  const companySlug = await resolveCompanySlug(req);
 
-  if (!session && !searchCompany) {
+  if (!session && !companySlug) {
     return NextResponse.json({ success: false, message: "Unauthorized customer session" }, { status: 401 });
   }
 
@@ -32,12 +33,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ success: false, message: "Unauthorized customer session" }, { status: 401 });
   }
 
-  const companySlug = (session?.company || searchCompany || "").trim().toLowerCase();
   const client = await pool.connect();
   try {
     const companyRes = await client.query(
       `SELECT id, schema_name FROM public.companies WHERE LOWER(subdomain_url) = $1 LIMIT 1`,
-      [companySlug]
+      [companySlug || session?.company]
     );
 
     if (!companyRes.rowCount) {
@@ -67,13 +67,10 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest,
-  { params }: { params: Promise<{ company: string }> }
-) {
+export async function POST(req: NextRequest) {
   const session = getSessionCustomer(req);
   const body = await req.json().catch(() => ({}));
-  const { company } = await params;
-  const companySlug = (company || "").trim().toLowerCase();
+  const companySlug = await resolveCompanySlug(req, body);
 
   const client = await pool.connect();
   try {

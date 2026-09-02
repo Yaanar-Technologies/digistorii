@@ -3,18 +3,16 @@ import { pool } from "@/lib/db";
 import {
   ensureCustomerSchema,
   normalizeIndianPhone,
+  resolveCompanySlug,
   verifyPassword,
 } from "@/lib/customerAuth";
 
 export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ company: string }> }
-) {
+  req: NextRequest) {
   const client = await pool.connect();
   try {
     const body = await req.json();
-    const { company } = await params;
-    const companySlug = (company || "").trim().toLowerCase();
+    const companySlug = await resolveCompanySlug(req, body);
     const identifier = String(body?.identifier || body?.email || body?.phone || "").trim();
     const password = String(body?.password || "").trim();
 

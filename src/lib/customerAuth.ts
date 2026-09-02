@@ -1,5 +1,6 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { PoolClient } from "pg";
+import { pool } from "@/lib/db";
 
 /**
  * Validates Indian 10-digit mobile number format (starts with 6-9)
@@ -135,4 +136,53 @@ export async function ensureCustomerSchema(client: PoolClient, schema: string): 
       END IF;
     END $$;
   `);
+}
+
+/**
+ * Resolves merchant company slug safely from body, query params, headers, referer path, or single company fallback.
+ */
+export async function resolveCompanySlug(req: any, body?: any): Promise<string> {
+  if (body?.company && typeof body.company === "string" && body.company.trim()) {
+    return body.company.trim().toLowerCase();
+  }
+
+  try {
+    const searchParams = req.nextUrl?.searchParams;
+    const paramCompany = searchParams?.get("company");
+    if (paramCompany && paramCompany.trim()) {
+      return paramCompany.trim().toLowerCase();
+    }
+  } catch (e) {}
+
+  try {
+    const headers = req.headers;
+    const headerCompany =
+      headers?.get?.("x-company-slug") ||
+      headers?.get?.("x-company") ||
+      headers?.get?.("x-tenant-id");
+    if (headerCompany && headerCompany.trim()) {
+      return headerCompany.trim().toLowerCase();
+    }
+
+    const referer = headers?.get?.("referer");
+    if (referer) {
+      const url = new URL(referer);
+      const parts = url.pathname.split("/").filter(Boolean);
+      if (parts.length > 0) {
+        const first = parts[0].toLowerCase();
+        if (first !== "api" && first !== "store" && first !== "admin" && first !== "checkout") {
+          return first;
+        }
+      }
+    }
+  } catch (e) {}
+
+  try {
+    const res = await pool.query(`SELECT subdomain_url FROM public.companies LIMIT 2`);
+    if (res.rowCount === 1) {
+      return (res.rows[0].subdomain_url || "").toLowerCase();
+    }
+  } catch (e) {}
+
+  return "";
 }

@@ -1,7 +1,7 @@
 import { createHash, randomInt } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
-import { ensureCustomerSchema, normalizeIndianPhone } from "@/lib/customerAuth";
+import { ensureCustomerSchema, normalizeIndianPhone, resolveCompanySlug } from "@/lib/customerAuth";
 
 function hashOtp(otp: string) {
   return createHash("sha256").update(otp).digest("hex");
@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
   const client = await pool.connect();
   try {
     const body = await req.json();
-    const companySlug = (body?.company || "").trim().toLowerCase();
+    const companySlug = await resolveCompanySlug(req, body);
     const identifier = String(body?.identifier || "").trim();
 
     if (!companySlug || !identifier) {
