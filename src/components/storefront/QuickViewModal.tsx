@@ -145,8 +145,11 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
     return filtered.map((v) => ({
       variantId: v.variantId,
       size: v.size!,
+      originalPrice: (v as any).originalPrice || v.compareAtPrice,
       effectivePrice: v.effectivePrice,
       compareAtPrice: v.compareAtPrice,
+      isOnSale: (v as any).isOnSale ?? (v.compareAtPrice ? v.compareAtPrice > v.effectivePrice : false),
+      discountBadgeText: (v as any).discountBadgeText,
       availableQty: v.availableQty,
       inStock: v.inStock,
     }));
@@ -169,7 +172,16 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
   }, [sizeVariants, selectedSizeVariantId]);
 
   const currentPrice = activeSizeVariant ? activeSizeVariant.effectivePrice : product?.effectivePrice ?? 0;
-  const currentCompareAtPrice = activeSizeVariant ? activeSizeVariant.compareAtPrice : product?.compareAtPrice;
+  const currentOriginalPrice = activeSizeVariant
+    ? (activeSizeVariant.originalPrice || activeSizeVariant.compareAtPrice)
+    : (product?.originalPrice || product?.compareAtPrice);
+  const currentIsOnSale = activeSizeVariant
+    ? (activeSizeVariant.isOnSale ?? (currentOriginalPrice ? currentOriginalPrice > currentPrice : false))
+    : (product?.isOnSale ?? (currentOriginalPrice ? currentOriginalPrice > currentPrice : false));
+  const currentBadgeText = activeSizeVariant
+    ? (activeSizeVariant.discountBadgeText || product?.discountBadgeText)
+    : product?.discountBadgeText;
+
   const currentInStock = activeSizeVariant ? activeSizeVariant.inStock : product?.inStock ?? false;
 
   const images = useMemo(() => {
@@ -225,7 +237,7 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
       ...product,
       variantId: activeSizeVariant ? activeSizeVariant.variantId : product.variantId,
       effectivePrice: currentPrice,
-      compareAtPrice: currentCompareAtPrice,
+      compareAtPrice: currentOriginalPrice,
       inStock: currentInStock,
     };
     onAddToCart?.(targetProduct, quantity);
@@ -322,13 +334,18 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
               {product.name}
             </h2>
 
-            <div className="flex items-baseline gap-3">
+            <div className="flex items-baseline gap-3 flex-wrap">
               <span className="text-2xl font-bold text-gray-900">
                 {formatPrice(currentPrice)}
               </span>
-              {currentCompareAtPrice && currentCompareAtPrice > currentPrice && (
+              {currentIsOnSale && currentOriginalPrice && currentOriginalPrice > currentPrice && (
                 <span className="text-base text-gray-400 line-through">
-                  {formatPrice(currentCompareAtPrice)}
+                  {formatPrice(currentOriginalPrice)}
+                </span>
+              )}
+              {currentIsOnSale && (
+                <span className="inline-flex items-center rounded-md bg-red-50 px-2 py-0.5 text-xs font-bold text-red-700 ring-1 ring-inset ring-red-600/20">
+                  {currentBadgeText || "SALE"}
                 </span>
               )}
             </div>

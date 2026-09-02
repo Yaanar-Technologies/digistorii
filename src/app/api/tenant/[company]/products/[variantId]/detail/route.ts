@@ -1,6 +1,7 @@
 // src/app/api/tenant/[company]/products/[variantId]/detail/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
+import { calculateEcomPricing } from "@/lib/ecomDiscount";
 
 export async function GET(
   req: NextRequest,
@@ -39,6 +40,21 @@ export async function GET(
 
     // Ensure specifications column exists on products if table was pre-existing
     await client.query(`ALTER TABLE "${schema}".products ADD COLUMN IF NOT EXISTS specifications JSONB DEFAULT '[]'::jsonb`);
+
+    // Ensure discounts table has channel column if missing
+    await client.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = '${schema}' AND table_name = 'discounts') THEN
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_schema = '${schema}' AND table_name = 'discounts' AND column_name = 'channel'
+          ) THEN
+            ALTER TABLE "${schema}".discounts ADD COLUMN channel VARCHAR(10) NOT NULL DEFAULT 'both';
+          END IF;
+        END IF;
+      END $$;
+    `);
 
     // 2. Find target variant to get product_id
     const targetVariantRes = await client.query(
@@ -83,7 +99,7 @@ export async function GET(
 
     const allImages = imagesRes.rows.map((r) => r.image_url);
 
-    // 5. Fetch Sibling Variants
+    // 5. Fetch Sibling Variants with Active Discounts
     const variantsQuery = `
       SELECT
         pv.id AS variant_id,
@@ -111,13 +127,19 @@ export async function GET(
             LIMIT 1
           ),
           0.00
-        ) AS effective_price,
+        ) AS final_selling_price,
         (
           SELECT pp.unit_price 
           FROM "${schema}".product_pricing pp 
           WHERE pp.variant_id = pv.id AND pp.is_active = TRUE 
           LIMIT 1
-        ) AS compare_at_price,
+        ) AS unit_price,
+        (
+          SELECT pp.tax_percent 
+          FROM "${schema}".product_pricing pp 
+          WHERE pp.variant_id = pv.id AND pp.is_active = TRUE 
+          LIMIT 1
+        ) AS tax_percent,
         COALESCE(
           (
             SELECT eas.available_qty 
@@ -127,10 +149,29 @@ export async function GET(
           ),
           pv.qty,
           0
-        ) AS available_qty
+        ) AS available_qty,
+        act_disc.discount_name,
+        act_disc.discount_type,
+        act_disc.discount_value
       FROM "${schema}".product_variants pv
       LEFT JOIN "${schema}".product_colors pc ON pc.id = pv.color_id
       LEFT JOIN "${schema}".product_fittings pf ON pf.id = pv.fitting_id
+      LEFT JOIN LATERAL (
+        SELECT
+          d.name AS discount_name,
+          d.discount_type,
+          d.value AS discount_value
+        FROM "${schema}".discount_variants dv
+        INNER JOIN "${schema}".discounts d ON d.id = dv.discount_id
+        WHERE dv.variant_id = pv.id
+          AND d.is_active = TRUE
+          AND COALESCE(d.channel, 'both') IN ('ecom', 'both')
+          AND (d.starts_at IS NULL OR d.starts_at <= NOW())
+          AND (d.ends_at IS NULL OR d.ends_at >= NOW())
+          AND d.coupon_code IS NULL
+        ORDER BY d.priority ASC, d.value DESC, d.created_at DESC
+        LIMIT 1
+      ) act_disc ON true
       WHERE pv.product_id = $1 AND pv.status = 'active'
       ORDER BY pv.id ASC
     `;
@@ -145,6 +186,21 @@ export async function GET(
 
       const images = variantImages.length > 0 ? variantImages : allImages;
 
+      const discountObj = row.discount_type && Number(row.discount_value) > 0
+        ? {
+            name: row.discount_name,
+            discount_type: row.discount_type,
+            value: Number(row.discount_value),
+          }
+        : null;
+
+      const pricing = calculateEcomPricing(
+        Number(row.final_selling_price || 0),
+        row.unit_price != null ? Number(row.unit_price) : null,
+        row.tax_percent != null ? Number(row.tax_percent) : null,
+        discountObj
+      );
+
       return {
         variantId: Number(row.variant_id),
         sku: row.sku,
@@ -153,8 +209,14 @@ export async function GET(
         size: row.size || null,
         gender: row.gender || null,
         fitting: row.fitting || null,
-        effectivePrice: Number(row.effective_price || 0),
-        compareAtPrice: row.compare_at_price ? Number(row.compare_at_price) : undefined,
+        originalPrice: pricing.originalPrice,
+        effectivePrice: pricing.effectivePrice,
+        compareAtPrice: pricing.isOnSale ? pricing.originalPrice : undefined,
+        isOnSale: pricing.isOnSale,
+        discountValue: pricing.discountValue,
+        discountType: pricing.discountType || null,
+        discountBadgeText: pricing.discountBadgeText || null,
+        savingsAmount: pricing.savingsAmount,
         availableQty: Number(row.available_qty || 0),
         lowStockThreshold: Number(row.low_stock_threshold || 5),
         inStock: Number(row.available_qty || 0) > 0,

@@ -53,12 +53,12 @@ const ProductCard: React.FC<ProductCardProps> = React.memo(({
           <span className="absolute top-3 left-3 rounded-full bg-red-600/90 px-2.5 py-1 text-xs font-bold text-white shadow-sm z-10">
             Out of Stock
           </span>
-        ) : product.compareAtPrice && product.compareAtPrice > product.effectivePrice ? (
+        ) : (product.isOnSale || (product.compareAtPrice && product.compareAtPrice > product.effectivePrice)) ? (
           <span
             className="absolute top-3 left-3 rounded-full px-2.5 py-1 text-xs font-bold text-white shadow-sm z-10"
-            style={{ backgroundColor: theme.primaryColor }}
+            style={{ backgroundColor: theme.primaryColor || "#ef4444" }}
           >
-            Sale
+            {product.discountBadgeText || "Sale"}
           </span>
         ) : null}
 
@@ -117,9 +117,9 @@ const ProductCard: React.FC<ProductCardProps> = React.memo(({
           <span className="text-lg font-bold text-gray-900">
             {formatPrice(product.effectivePrice)}
           </span>
-          {product.compareAtPrice && product.compareAtPrice > product.effectivePrice && (
+          {(product.isOnSale || (product.compareAtPrice && product.compareAtPrice > product.effectivePrice)) && (
             <span className="text-xs text-gray-400 line-through">
-              {formatPrice(product.compareAtPrice)}
+              {formatPrice(product.originalPrice || product.compareAtPrice || 0)}
             </span>
           )}
         </div>

@@ -28,8 +28,14 @@ export type SiblingVariant = {
   size?: string | null;
   gender?: string | null;
   fitting?: string | null;
+  originalPrice?: number;
   effectivePrice: number;
   compareAtPrice?: number;
+  isOnSale?: boolean;
+  discountValue?: number;
+  discountType?: "percentage" | "fixed";
+  discountBadgeText?: string;
+  savingsAmount?: number;
   availableQty: number;
   lowStockThreshold: number;
   inStock: boolean;
@@ -41,8 +47,14 @@ export type StorefrontProduct = {
   productCode?: string;
   name: string;
   images: string[];
-  effectivePrice: number;     // ecom_price_overrides.ecom_price if active, else product_pricing.final_selling_price
+  originalPrice?: number;
+  effectivePrice: number;     // ecom_price_overrides.ecom_price if active, else product_pricing.final_selling_price or discounted price
   compareAtPrice?: number;
+  isOnSale?: boolean;
+  discountValue?: number;
+  discountType?: "percentage" | "fixed";
+  discountBadgeText?: string;
+  savingsAmount?: number;
   inStock: boolean;           // from ecom_available_stock.available_qty > 0
   availableQty?: number;
   lowStockThreshold?: number;
@@ -62,8 +74,12 @@ export type StorefrontProduct = {
   sizeVariants?: {
     variantId: number;
     size: string;
+    originalPrice?: number;
     effectivePrice: number;
     compareAtPrice?: number;
+    isOnSale?: boolean;
+    discountBadgeText?: string;
+    savingsAmount?: number;
     availableQty: number;
     inStock: boolean;
   }[];

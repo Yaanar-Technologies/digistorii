@@ -87,7 +87,19 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
   const uniqueImages = useMemo(() => Array.from(new Set(images)), [images]);
 
   const currentPrice = activeVariant ? activeVariant.effectivePrice : product.effectivePrice;
-  const compareAtPrice = activeVariant ? activeVariant.compareAtPrice : product.compareAtPrice;
+  const originalPrice = activeVariant
+    ? (activeVariant.originalPrice || activeVariant.compareAtPrice)
+    : (product.originalPrice || product.compareAtPrice);
+  const isOnSale = activeVariant
+    ? (activeVariant.isOnSale ?? (originalPrice ? originalPrice > currentPrice : false))
+    : (product.isOnSale ?? (originalPrice ? originalPrice > currentPrice : false));
+  const discountBadgeText = activeVariant
+    ? (activeVariant.discountBadgeText || product.discountBadgeText)
+    : product.discountBadgeText;
+  const savingsAmount = activeVariant
+    ? (activeVariant.savingsAmount || (originalPrice ? originalPrice - currentPrice : 0))
+    : (product.savingsAmount || (originalPrice ? originalPrice - currentPrice : 0));
+
   const currentAvailableQty = activeVariant ? activeVariant.availableQty : (product.availableQty ?? (product.inStock ? 10 : 0));
   const currentLowStockThreshold = activeVariant ? activeVariant.lowStockThreshold : (product.lowStockThreshold ?? 5);
   const isInStock = activeVariant ? activeVariant.inStock : product.inStock;
@@ -106,7 +118,7 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
       productName: product.name,
       image: selectedImage || product.images[0],
       price: currentPrice,
-      compareAtPrice: compareAtPrice,
+      compareAtPrice: originalPrice,
       inStock: isInStock,
       category: product.category,
     });
@@ -407,27 +419,40 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
             </div>
 
             {/* Price & Share */}
-            <div className="flex items-center justify-between border-b border-gray-200 pb-3">
-              <div className="flex items-baseline gap-3">
-                <span className="text-2xl sm:text-3xl font-semibold text-gray-900">
-                  {formatPrice(currentPrice)}
-                </span>
-                {compareAtPrice && compareAtPrice > currentPrice && (
-                  <span className="text-base text-gray-400 line-through">
-                    {formatPrice(compareAtPrice)}
+            <div className="flex flex-col border-b border-gray-200 pb-3 space-y-1">
+              <div className="flex items-center justify-between">
+                <div className="flex items-baseline gap-3 flex-wrap">
+                  <span className="text-2xl sm:text-3xl font-semibold text-gray-900">
+                    {formatPrice(currentPrice)}
                   </span>
-                )}
+                  {isOnSale && originalPrice && originalPrice > currentPrice && (
+                    <span className="text-base text-gray-400 line-through">
+                      {formatPrice(originalPrice)}
+                    </span>
+                  )}
+                  {isOnSale && (
+                    <span className="inline-flex items-center rounded-md bg-red-50 px-2.5 py-0.5 text-xs font-bold text-red-700 ring-1 ring-inset ring-red-600/20">
+                      {discountBadgeText || "SALE"}
+                    </span>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  className="p-1.5 text-gray-500 hover:text-gray-900 transition-colors"
+                  title="Share product"
+                >
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 100-5.367 3 3 0 000 5.367zm0 8.974a3 3 0 100-5.366 3 3 0 000 5.366z" />
+                  </svg>
+                </button>
               </div>
 
-              <button
-                type="button"
-                className="p-1.5 text-gray-500 hover:text-gray-900 transition-colors"
-                title="Share product"
-              >
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 100-5.367 3 3 0 000 5.367zm0 8.974a3 3 0 100-5.366 3 3 0 000 5.366z" />
-                </svg>
-              </button>
+              {isOnSale && savingsAmount > 0 && (
+                <div className="text-xs font-semibold text-emerald-700 flex items-center gap-1">
+                  <span>You save: {formatPrice(savingsAmount)}</span>
+                </div>
+              )}
             </div>
 
             {/* Promotional Badge Banner (Stitching badge from reference) 

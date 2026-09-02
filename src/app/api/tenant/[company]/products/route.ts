@@ -1,6 +1,7 @@
 // src/app/api/tenant/[company]/products/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
+import { calculateEcomPricing } from "@/lib/ecomDiscount";
 
 export async function GET(
   req: NextRequest,
@@ -22,7 +23,7 @@ export async function GET(
     const tenantRes = await client.query(
       `SELECT c.id, c.schema_name
        FROM public.companies c
-       WHERE c.subdomain_url = $1
+       WHERE LOWER(c.subdomain_url) = $1
        LIMIT 1`,
       [companySlug]
     );
@@ -34,10 +35,24 @@ export async function GET(
       );
     }
 
-    const { schema_name: schema, id: companyId } = tenantRes.rows[0];
+    const { schema_name: schema } = tenantRes.rows[0];
+
+    // Ensure discounts table has channel column if missing
+    await client.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = '${schema}' AND table_name = 'discounts') THEN
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_schema = '${schema}' AND table_name = 'discounts' AND column_name = 'channel'
+          ) THEN
+            ALTER TABLE "${schema}".discounts ADD COLUMN channel VARCHAR(10) NOT NULL DEFAULT 'both';
+          END IF;
+        END IF;
+      END $$;
+    `);
 
     // 2. Fetch the storefront products that are live (is_live = true)
-    // Map variant_id (as ID), products.name, final_selling_price, and images
     const query = `
       SELECT * FROM (
         SELECT DISTINCT ON (p.id)
@@ -64,14 +79,45 @@ export async function GET(
             ),
             0.00
           ) AS final_selling_price,
+          (
+            SELECT unit_price 
+            FROM "${schema}".product_pricing 
+            WHERE variant_id = pv.id AND is_active = TRUE 
+            LIMIT 1
+          ) AS unit_price,
+          (
+            SELECT tax_percent 
+            FROM "${schema}".product_pricing 
+            WHERE variant_id = pv.id AND is_active = TRUE 
+            LIMIT 1
+          ) AS tax_percent,
           COALESCE(
             (SELECT available_qty FROM "${schema}".ecom_available_stock WHERE variant_id = pv.id LIMIT 1),
             0
-          ) AS available_qty
+          ) AS available_qty,
+          act_disc.discount_name,
+          act_disc.discount_type,
+          act_disc.discount_value
         FROM "${schema}".products p
         INNER JOIN "${schema}".product_variants pv ON pv.product_id = p.id AND pv.status = 'active'
         INNER JOIN "${schema}".storefront_products sp ON sp.variant_id = pv.id AND sp.is_live = TRUE
         LEFT JOIN "${schema}".product_categories pcat ON pcat.id = NULLIF(p.category, '')::integer
+        LEFT JOIN LATERAL (
+          SELECT
+            d.name AS discount_name,
+            d.discount_type,
+            d.value AS discount_value
+          FROM "${schema}".discount_variants dv
+          INNER JOIN "${schema}".discounts d ON d.id = dv.discount_id
+          WHERE dv.variant_id = pv.id
+            AND d.is_active = TRUE
+            AND COALESCE(d.channel, 'both') IN ('ecom', 'both')
+            AND (d.starts_at IS NULL OR d.starts_at <= NOW())
+            AND (d.ends_at IS NULL OR d.ends_at >= NOW())
+            AND d.coupon_code IS NULL
+          ORDER BY d.priority ASC, d.value DESC, d.created_at DESC
+          LIMIT 1
+        ) act_disc ON true
         ORDER BY p.id, pv.id ASC
       ) sub
       ORDER BY sub.product_name ASC
@@ -79,18 +125,43 @@ export async function GET(
 
     const result = await client.query(query);
 
-    const products = result.rows.map((row) => ({
-      id: String(row.variant_id),
-      products: {
-        name: row.product_name,
-        category: row.category_path || row.category_name || null,
-      },
-      product_pricing: {
-        price: Number(row.final_selling_price || 0),
-      },
-      product_images: row.image_url ? [row.image_url] : ["https://placehold.co/600x400?text=Image+Not+Available"],
-      available_qty: Number(row.available_qty || 0),
-    }));
+    const products = result.rows.map((row) => {
+      const discountObj = row.discount_type && Number(row.discount_value) > 0
+        ? {
+            name: row.discount_name,
+            discount_type: row.discount_type,
+            value: Number(row.discount_value),
+          }
+        : null;
+
+      const pricing = calculateEcomPricing(
+        Number(row.final_selling_price || 0),
+        row.unit_price != null ? Number(row.unit_price) : null,
+        row.tax_percent != null ? Number(row.tax_percent) : null,
+        discountObj
+      );
+
+      return {
+        id: String(row.variant_id),
+        products: {
+          name: row.product_name,
+          category: row.category_path || row.category_name || null,
+        },
+        product_pricing: {
+          price: pricing.effectivePrice,
+        },
+        product_images: row.image_url ? [row.image_url] : ["https://placehold.co/600x400?text=Image+Not+Available"],
+        available_qty: Number(row.available_qty || 0),
+        // Additional discount fields
+        original_price: pricing.originalPrice,
+        effective_price: pricing.effectivePrice,
+        is_on_sale: pricing.isOnSale,
+        discount_value: pricing.discountValue,
+        discount_type: pricing.discountType || null,
+        discount_badge_text: pricing.discountBadgeText || null,
+        savings_amount: pricing.savingsAmount,
+      };
+    });
 
     return NextResponse.json({
       success: true,
@@ -106,3 +177,4 @@ export async function GET(
     client.release();
   }
 }
+
