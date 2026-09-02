@@ -1,59 +1,50 @@
-Implement customer authentication, profile management, and account separation between POS and E-Commerce channels using the existing customer tables without disrupting POS quick-billing.
+Refactor the customer authentication flow and storefront header to establish a clean, production-grade session lifecycle. Fix the modal UX so it behaves as a unified login/register experience, and update the header to display real authenticated customer state instead of a static "Sign In" button.
 
-CONTEXT & CURRENT CONSTRAINTS:
-- POS billing typically collects only `cust_name` / `phone` and must NOT be blocked by mandatory e-commerce fields (email, address, password).
-- E-Commerce requires authenticated users, Indian phone/email verification, and delivery address capture with mandatory 6-digit Indian PIN code.
-- Current constraints to fix in `${schema}.customers`:
-  * `CONSTRAINT unique_cust_email UNIQUE(email)` will crash if multiple walk-in POS customers have `NULL` or empty emails.
-  * We need a secure credential mechanism (password hash or OTP session) for e-commerce sign-in without breaking POS's direct-insert ability.
+CURRENT DEFECTS TO ELIMINATE:
+1. Modal Tab Confusion: The modal currently presents "Sign In", "Register", and "OTP Code" as separate disconnected top tabs. Instead, users should have two core journeys: "Sign In" and "Create Account".
+2. Missing Auth State in Header: The `StorefrontHeader` always renders a static "Sign In" button even after `onSuccessAuth` fires or an active session exists.
+3. No Session Persistence: No centralized state (context or Zustand store) keeps track of the authenticated customer, preventing the UI from showing their name, an account menu, or a logout action.
 
 WORKFLOW TO IMPLEMENT:
 
-1. Schema Migration:
-   - Alter `${schema}.customers`:
-     * Add `channel` VARCHAR(20) NOT NULL DEFAULT 'pos' (allowed values: 'pos', 'ecom', 'both').
-     * Add `password_hash` VARCHAR(255) NULL (only populated when an e-commerce customer registers or sets a password).
-     * Add `is_verified` BOOLEAN NOT NULL DEFAULT FALSE.
-     * Drop the strict `unique_cust_email` constraint if it forbids multiple NULLs; replace with a partial unique index:
-       `CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_unique_email ON "${schema}".customers (email) WHERE email IS NOT NULL AND email <> '';`
-     * Add a partial unique index on phone:
-       `CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_unique_phone ON "${schema}".customers (phone) WHERE phone IS NOT NULL AND phone <> '';`
-   - Alter `${schema}.customer_addresses`:
-     * Add `recipient_name` VARCHAR(100), `recipient_phone` VARCHAR(20).
-     * Add constraint enforcing 6-digit numeric PIN codes (India standard):
-       `CONSTRAINT chk_india_pincode CHECK (pincode ~ '^[1-9][0-9]{5}$');`
-     * Set default `country` to 'India'.
+1. Unified Customer Auth Store (`store/customerAuthStore.ts`):
+   - Create a lightweight client store (using Zustand or React Context) holding:
+     * `customer`: `{ id: number, name: string, email: string, phone: string } | null`
+     * `isAuthenticated`: boolean
+     * `setCustomer(customerData)` / `clearCustomer()` (logout)
+   - Hydrate on initial mount by calling a lightweight session verification endpoint (e.g. `GET /api/ecom/auth/me`) that inspects the current session cookie/token.
 
-2. Account Reconciliation Logic (POS vs E-Com):
-   - When an e-commerce user signs up or checks in using phone/email:
-     * Check if a customer record already exists matching that `phone` or `email`.
-     * If an existing record was created via POS (`channel = 'pos'`):
-       - Do NOT create a duplicate record.
-       - Upgrade customer: set `channel = 'both'`, update `password_hash` (or verify via OTP), and update `cust_name` / `email`.
-     * If no existing record:
-       - Insert new row with `channel = 'ecom'`, generate sequential `cust_code` (e.g. `ECO-XXXXX`).
+2. Modal Architecture Refactor (`CustomerAuthModal.tsx`):
+   - Eliminate the 3-tab layout at the top. The modal should only toggle between two primary views:
+     * Mode: 'signin'
+     * Mode: 'register'
+   - In 'Sign In' View:
+     * Provide sub-methods toggled within the card: "Password" or "One-Time Password (OTP)" (e.g., small link/switch: "Sign in with OTP instead" / "Sign in with Password").
+     * At the bottom of the sign-in form, add a prominent action footer:
+       "Don't have an account? Create an account" -> switches state to 'register'.
+   - In 'Create Account' View:
+     * Display standard registration fields: Full Name, Indian Phone Number (10 digits), Email, Password.
+     * At the bottom of the registration form, add:
+       "Already have an account? Sign in" -> switches state to 'signin'.
+   - OTP Verification Flow:
+     * Treat OTP verification as a secondary step attached to the flow rather than a separate top tab. Keep track of previous step so the user can easily click "Back" or "Edit phone/email".
+   - On Successful Login/Registration:
+     * Update `customerAuthStore` with the returned customer payload.
+     * Trigger `onSuccessAuth` and close the modal.
 
-3. E-Commerce Authentication Endpoints:
-   - POST `/api/ecom/auth/register`:
-     * Validates: `cust_name`, Indian phone (10 digits `^[6-9]\d{9}$`), valid `email`, and `password`.
-     * Reconciles or creates customer row using the logic in Step 2.
-     * Returns JWT or session cookie containing `{ customer_id, channel, email, phone }`.
-   - POST `/api/ecom/auth/login`:
-     * Validates credentials against `password_hash` for that email/phone.
-     * Ensures customer has access (`channel IN ('ecom', 'both')`).
-     * Issues authenticated session cookie/token.
-   - POST `/api/ecom/auth/logout`: Clears session token.
+3. Storefront Header Dynamic State (`StorefrontHeader.tsx`):
+   - Subscribe to the authenticated customer state from `customerAuthStore`.
+   - Update the desktop and mobile auth buttons:
+     * If unauthenticated (`!isAuthenticated`):
+       - Display the existing "Sign In" button triggering `onOpenAuth`.
+     * If authenticated (`isAuthenticated`):
+       - Replace "Sign In" with an Account Dropdown / Avatar containing:
+         - Display label: First Name or "Hi, {cust_name}" with a user icon.
+         - Dropdown options: "My Orders", "Saved Addresses", and "Logout".
+       - The "Logout" button must call `POST /api/ecom/auth/logout`, clear `customerAuthStore`, and reset header UI back to "Sign In".
 
-4. Address Book Endpoints (E-Commerce Storefront):
-   - GET `/api/ecom/customer/addresses`:
-     * Returns all saved addresses for the authenticated `customer_id`.
-   - POST `/api/ecom/customer/addresses`:
-     * Validates: `recipient_name`, `recipient_phone`, `address_line1`, `city`, `state`, and 6-digit `pincode` (India only).
-     * If `is_default = true`, atomically set existing addresses for this `customer_id` to `is_default = false`.
-     * Inserts new row into `${schema}.customer_addresses`.
-
-VERIFICATION TESTS:
-- Verify a walk-in POS customer can still be inserted with only `phone` and `cust_name` (no email or password), defaulting to `channel = 'pos'`.
-- Verify multiple POS customers with NULL email do not trigger unique constraint errors.
-- Verify that when an existing POS customer registers online using the same phone number, the record is upgraded to `channel = 'both'` rather than creating a duplicate customer ID.
-- Verify attempting to save an address with an invalid PIN code (e.g. '012345', 'ABCDE', or 5 digits) fails validation.
+VERIFICATION & ACCEPTANCE CRITERIA:
+- Opening the modal defaults to "Sign In" with an intuitive link to "Create an account" instead of confusing tab headers.
+- Registering a new account or signing in via password/OTP successfully closes the modal and immediately changes the header button from "Sign In" to the user's name.
+- Refreshing the storefront keeps the user logged in via the session check.
+- Clicking "Logout" cleanly drops session state and restores the "Sign In" trigger across both desktop and mobile headers.
