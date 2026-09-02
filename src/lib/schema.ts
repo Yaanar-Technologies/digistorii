@@ -59,29 +59,71 @@ export async function createCompanySchema(
         cust_code VARCHAR(20) UNIQUE,
         cust_name VARCHAR(50) NOT NULL,
         name VARCHAR(50),
-        email VARCHAR(50),
+        email VARCHAR(150),
         phone VARCHAR(20),
+        channel VARCHAR(20) NOT NULL DEFAULT 'pos' CHECK (channel IN ('pos', 'ecom', 'both')),
+        password_hash VARCHAR(255) NULL,
+        is_verified BOOLEAN NOT NULL DEFAULT FALSE,
         created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT now(),
-        CONSTRAINT unique_cust_email UNIQUE(email)
+        updated_at TIMESTAMP DEFAULT now()
       );
+    `);
+
+  await client.query(`
+      ALTER TABLE "${schema}".customers
+        ADD COLUMN IF NOT EXISTS channel VARCHAR(20) NOT NULL DEFAULT 'pos',
+        ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255) NULL,
+        ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT FALSE;
+
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.table_constraints
+          WHERE table_schema = '${schema}' AND table_name = 'customers' AND constraint_name = 'unique_cust_email'
+        ) THEN
+          ALTER TABLE "${schema}".customers DROP CONSTRAINT unique_cust_email;
+        END IF;
+      END $$;
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_unique_email
+      ON "${schema}".customers (email) WHERE email IS NOT NULL AND email <> '';
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_unique_phone
+      ON "${schema}".customers (phone) WHERE phone IS NOT NULL AND phone <> '';
     `);
 
   await client.query(`
       CREATE TABLE IF NOT EXISTS "${schema}".customer_addresses (
         id SERIAL PRIMARY KEY,
         customer_id INTEGER NOT NULL REFERENCES "${schema}".customers(id) ON DELETE CASCADE,
-        address_line1 VARCHAR(100),
-        address_line2 VARCHAR(100),
-        address_line3 VARCHAR(100),
+        recipient_name VARCHAR(100),
+        recipient_phone VARCHAR(20),
+        address_line1 VARCHAR(200),
+        address_line2 VARCHAR(200),
+        address_line3 VARCHAR(200),
         city VARCHAR(100),
         state VARCHAR(100),
         pincode VARCHAR(20),
-        country VARCHAR(100),
+        country VARCHAR(100) DEFAULT 'India',
         is_default BOOLEAN NOT NULL DEFAULT FALSE,
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()
       );
+
+      ALTER TABLE "${schema}".customer_addresses
+        ADD COLUMN IF NOT EXISTS recipient_name VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS recipient_phone VARCHAR(20);
+
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.table_constraints
+          WHERE table_schema = '${schema}' AND table_name = 'customer_addresses' AND constraint_name = 'chk_india_pincode'
+        ) THEN
+          ALTER TABLE "${schema}".customer_addresses
+            ADD CONSTRAINT chk_india_pincode CHECK (pincode IS NULL OR pincode ~ '^[1-9][0-9]{5}$');
+        END IF;
+      END $$;
 
       CREATE UNIQUE INDEX IF NOT EXISTS customer_addresses_customer_default_idx
       ON "${schema}".customer_addresses (customer_id)

@@ -12,6 +12,7 @@ import {
   useStorefrontTheme,
 } from "@/components/storefront";
 import { useCartStore, type CartItem } from "@/store/cartStore";
+import { formatPrice } from "@/lib/currency";
 
 export default function CheckoutPage() {
   const params = useParams();
@@ -58,13 +59,14 @@ export default function CheckoutPage() {
     inStock: true,
   }));
 
-  const handlePlaceOrder = async (orderData: { address: any; paymentMethod: string }) => {
+  const handlePlaceOrder = async (orderData: { shippingAddress?: any; address?: any; paymentMethod: string }) => {
     setIsPlacingOrder(true);
     try {
+      const address = orderData.shippingAddress || orderData.address || {};
       let razorpayPaymentId = null;
 
       // Handle Razorpay Test Mode checkout
-      if (orderData.paymentMethod === "RAZORPAY") {
+      if (orderData.paymentMethod === "RAZORPAY" || orderData.paymentMethod === "card") {
         const totalAmt = cartItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
         const orderRes = await fetch("/api/storefront/checkout/create-razorpay-order", {
           method: "POST",
@@ -85,7 +87,17 @@ export default function CheckoutPage() {
         body: JSON.stringify({
           company,
           customerId: customer?.id || 0,
-          address: orderData.address,
+          address: {
+            fullName: address.fullName || address.recipient_name || "",
+            phone: address.phone || address.recipient_phone || "",
+            email: address.email || "",
+            line1: address.addressLine || address.address_line1 || "",
+            line2: address.addressLine2 || address.address_line2 || "",
+            city: address.city || "",
+            state: address.state || "",
+            pincode: address.postalCode || address.pincode || "",
+            country: address.country || "India",
+          },
           paymentMethod: orderData.paymentMethod,
           razorpayPaymentId,
           items: convertedCartItems,
@@ -136,11 +148,11 @@ export default function CheckoutPage() {
                 <span className="font-bold text-gray-900">{orderConfirmedData.orderNo}</span>.
               </p>
               <div className="text-lg font-bold text-gray-900 pt-2">
-                Total Paid: ${orderConfirmedData.totalAmount.toFixed(2)}
+                Total Paid: {formatPrice(orderConfirmedData.totalAmount)}
               </div>
               <button
                 onClick={() => router.push(`/${company}/store`)}
-                className="mt-6 w-full rounded-xl bg-blue-600 py-3 text-sm font-semibold text-white shadow hover:bg-blue-700"
+                className="mt-6 w-full rounded-xl bg-blue-600 py-3 text-sm font-semibold text-white shadow hover:bg-blue-700 cursor-pointer"
               >
                 Back to Storefront
               </button>
@@ -148,6 +160,7 @@ export default function CheckoutPage() {
           ) : (
             <CheckoutShell
               theme={theme}
+              company={company}
               items={convertedCartItems}
               onPlaceOrder={handlePlaceOrder}
               savedAddresses={customer?.addresses}
@@ -161,10 +174,12 @@ export default function CheckoutPage() {
 
       <CustomerAuthModal
         theme={theme}
+        company={company}
         isOpen={isAuthOpen}
         onClose={() => setIsAuthOpen(false)}
-        onSuccessAuth={(ident) => {
-          setCustomer({ id: 1, name: ident });
+        onSuccessAuth={(ident, custData) => {
+          if (custData) setCustomer(custData);
+          else setCustomer({ id: 1, name: ident });
           setIsAuthOpen(false);
         }}
       />
