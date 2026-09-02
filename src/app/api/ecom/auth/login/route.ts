@@ -6,11 +6,15 @@ import {
   verifyPassword,
 } from "@/lib/customerAuth";
 
-export async function POST(req: NextRequest) {
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ company: string }> }
+) {
   const client = await pool.connect();
   try {
     const body = await req.json();
-    const companySlug = (body?.company || "").trim().toLowerCase();
+    const { company } = await params;
+    const companySlug = (company || "").trim().toLowerCase();
     const identifier = String(body?.identifier || body?.email || body?.phone || "").trim();
     const password = String(body?.password || "").trim();
 

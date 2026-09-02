@@ -67,10 +67,13 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: NextRequest,
+  { params }: { params: Promise<{ company: string }> }
+) {
   const session = getSessionCustomer(req);
   const body = await req.json().catch(() => ({}));
-  const companySlug = (body?.company || session?.company || "").trim().toLowerCase();
+  const { company } = await params;
+  const companySlug = (company || "").trim().toLowerCase();
 
   const client = await pool.connect();
   try {

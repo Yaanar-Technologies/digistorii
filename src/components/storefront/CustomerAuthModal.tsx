@@ -271,10 +271,10 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
             {mode === "login"
               ? "Customer Sign In"
               : mode === "register"
-              ? "Create Account"
-              : mode === "otp_send"
-              ? "Sign In via One-Time Code"
-              : "Enter Verification Code"}
+                ? "Create Account"
+                : mode === "otp_send"
+                  ? "Sign In via One-Time Code"
+                  : "Enter Verification Code"}
           </h2>
           <p className="text-xs text-gray-500">
             {mode === "otp_verify"
@@ -289,27 +289,24 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
             <button
               type="button"
               onClick={() => setMode("login")}
-              className={`flex-1 pb-2.5 text-center border-b-2 transition-colors cursor-pointer ${
-                mode === "login" ? "border-black text-black" : "border-transparent text-gray-400 hover:text-gray-600"
-              }`}
+              className={`flex-1 pb-2.5 text-center border-b-2 transition-colors cursor-pointer ${mode === "login" ? "border-black text-black" : "border-transparent text-gray-400 hover:text-gray-600"
+                }`}
             >
               Sign In
             </button>
             <button
               type="button"
               onClick={() => setMode("register")}
-              className={`flex-1 pb-2.5 text-center border-b-2 transition-colors cursor-pointer ${
-                mode === "register" ? "border-black text-black" : "border-transparent text-gray-400 hover:text-gray-600"
-              }`}
+              className={`flex-1 pb-2.5 text-center border-b-2 transition-colors cursor-pointer ${mode === "register" ? "border-black text-black" : "border-transparent text-gray-400 hover:text-gray-600"
+                }`}
             >
               Register
             </button>
             <button
               type="button"
               onClick={() => setMode("otp_send")}
-              className={`flex-1 pb-2.5 text-center border-b-2 transition-colors cursor-pointer ${
-                mode === "otp_send" ? "border-black text-black" : "border-transparent text-gray-400 hover:text-gray-600"
-              }`}
+              className={`flex-1 pb-2.5 text-center border-b-2 transition-colors cursor-pointer ${mode === "otp_send" ? "border-black text-black" : "border-transparent text-gray-400 hover:text-gray-600"
+                }`}
             >
               OTP Code
             </button>
@@ -378,7 +375,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Rahul Sharma"
+                placeholder="Ravi Sharma"
                 className="w-full rounded-xl border border-gray-200 px-3.5 py-2 text-sm focus:outline-none focus:ring-2"
                 style={{ "--tw-ring-color": theme.primaryColor } as React.CSSProperties}
               />
@@ -404,7 +401,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="rahul@example.com"
+                placeholder="ravi@example.com"
                 className="w-full rounded-xl border border-gray-200 px-3.5 py-2 text-sm focus:outline-none focus:ring-2"
                 style={{ "--tw-ring-color": theme.primaryColor } as React.CSSProperties}
               />

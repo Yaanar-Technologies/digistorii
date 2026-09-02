@@ -8,11 +8,14 @@ import {
   validateIndianPhone,
 } from "@/lib/customerAuth";
 
-export async function POST(req: NextRequest) {
+export async function POST(req: NextRequest,
+  { params }: { params: Promise<{ company: string }> }
+) {
   const client = await pool.connect();
   try {
     const body = await req.json();
-    const companySlug = (body?.company || "").trim().toLowerCase();
+    const { company } = await params;
+    const companySlug = (company || "").trim().toLowerCase();
     const custName = String(body?.cust_name || body?.name || "").trim();
     const rawPhone = String(body?.phone || "").trim();
     const rawEmail = String(body?.email || "").trim().toLowerCase();

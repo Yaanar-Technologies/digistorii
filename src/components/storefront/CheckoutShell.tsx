@@ -212,7 +212,7 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
   return (
     <div className="py-10 bg-gray-50/50 min-h-screen" style={{ fontFamily: theme.fontFamily }}>
       <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
-        
+
         {/* Header Navigation & Step Indicator */}
         <div className="mb-8 text-center">
           <h1 className="text-2xl font-bold text-gray-900 sm:text-3xl">Checkout</h1>
@@ -222,9 +222,8 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
           <div className="mt-6 flex items-center justify-center gap-2 sm:gap-4 max-w-xl mx-auto">
             <div className="flex items-center gap-2">
               <span
-                className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${
-                  currentStep >= 1 ? "text-white" : "bg-gray-200 text-gray-600"
-                }`}
+                className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${currentStep >= 1 ? "text-white" : "bg-gray-200 text-gray-600"
+                  }`}
                 style={currentStep >= 1 ? { backgroundColor: theme.primaryColor } : undefined}
               >
                 1
@@ -237,9 +236,8 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
 
             <div className="flex items-center gap-2">
               <span
-                className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${
-                  currentStep >= 2 ? "text-white" : "bg-gray-200 text-gray-600"
-                }`}
+                className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${currentStep >= 2 ? "text-white" : "bg-gray-200 text-gray-600"
+                  }`}
                 style={currentStep >= 2 ? { backgroundColor: theme.primaryColor } : undefined}
               >
                 2
@@ -252,9 +250,8 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
 
             <div className="flex items-center gap-2">
               <span
-                className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${
-                  currentStep >= 3 ? "text-white" : "bg-gray-200 text-gray-600"
-                }`}
+                className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${currentStep >= 3 ? "text-white" : "bg-gray-200 text-gray-600"
+                  }`}
                 style={currentStep >= 3 ? { backgroundColor: theme.primaryColor } : undefined}
               >
                 3
@@ -267,10 +264,10 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
         </div>
 
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-          
+
           {/* Main Scaffolding Step View */}
           <div className="lg:col-span-2 bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm">
-            
+
             {/* Step 1: Shipping Address */}
             {currentStep === 1 && (
               <form onSubmit={handleNextStep} className="space-y-5">
@@ -297,11 +294,10 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
                           <div
                             key={addr.id}
                             onClick={() => handleSelectAddress(addr)}
-                            className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
-                              isSelected
+                            className={`p-3.5 rounded-xl border cursor-pointer transition-all ${isSelected
                                 ? "border-black bg-gray-50 ring-1 ring-black shadow-xs"
                                 : "border-gray-200 hover:border-gray-300"
-                            }`}
+                              }`}
                           >
                             <div className="flex items-center justify-between text-xs font-bold text-gray-900">
                               <span>{addr.recipient_name || addr.fullName || "Recipient"}</span>
@@ -319,9 +315,8 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
                       <button
                         type="button"
                         onClick={handleSelectNewAddress}
-                        className={`p-3 rounded-xl border border-dashed text-xs font-semibold transition-colors text-center cursor-pointer ${
-                          selectedAddressId === "new" ? "border-black text-black bg-gray-50" : "border-gray-300 text-gray-600 hover:border-black"
-                        }`}
+                        className={`p-3 rounded-xl border border-dashed text-xs font-semibold transition-colors text-center cursor-pointer ${selectedAddressId === "new" ? "border-black text-black bg-gray-50" : "border-gray-300 text-gray-600 hover:border-black"
+                          }`}
                       >
                         + Add a New Address
                       </button>
@@ -337,7 +332,7 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
                       required
                       value={shippingAddress.fullName}
                       onChange={(e) => setShippingAddress({ ...shippingAddress, fullName: e.target.value })}
-                      placeholder="Rahul Sharma"
+                      placeholder="Ravi Sharma"
                       className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2"
                       style={{ "--tw-ring-color": theme.primaryColor } as React.CSSProperties}
                     />
@@ -349,7 +344,7 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
                       type="email"
                       value={shippingAddress.email}
                       onChange={(e) => setShippingAddress({ ...shippingAddress, email: e.target.value })}
-                      placeholder="rahul@example.com"
+                      placeholder="ravi@example.com"
                       className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2"
                       style={{ "--tw-ring-color": theme.primaryColor } as React.CSSProperties}
                     />
@@ -478,11 +473,10 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
 
                 <div className="space-y-3">
                   <label
-                    className={`flex items-center justify-between rounded-xl border p-4 cursor-pointer transition-all ${
-                      paymentMethod === "cod"
+                    className={`flex items-center justify-between rounded-xl border p-4 cursor-pointer transition-all ${paymentMethod === "cod"
                         ? "border-blue-600 bg-blue-50/40 ring-1 ring-blue-600"
                         : "border-gray-200 hover:bg-gray-50"
-                    }`}
+                      }`}
                   >
                     <div className="flex items-center gap-3">
                       <input
@@ -499,11 +493,10 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
                   </label>
 
                   <label
-                    className={`flex items-center justify-between rounded-xl border p-4 cursor-pointer transition-all ${
-                      paymentMethod === "card"
+                    className={`flex items-center justify-between rounded-xl border p-4 cursor-pointer transition-all ${paymentMethod === "card"
                         ? "border-blue-600 bg-blue-50/40 ring-1 ring-blue-600"
                         : "border-gray-200 hover:bg-gray-50"
-                    }`}
+                      }`}
                   >
                     <div className="flex items-center gap-3">
                       <input
@@ -520,11 +513,10 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
                   </label>
 
                   <label
-                    className={`flex items-center justify-between rounded-xl border p-4 cursor-pointer transition-all ${
-                      paymentMethod === "upi"
+                    className={`flex items-center justify-between rounded-xl border p-4 cursor-pointer transition-all ${paymentMethod === "upi"
                         ? "border-blue-600 bg-blue-50/40 ring-1 ring-blue-600"
                         : "border-gray-200 hover:bg-gray-50"
-                    }`}
+                      }`}
                   >
                     <div className="flex items-center gap-3">
                       <input
