@@ -54,6 +54,7 @@ async function validateThemeReferences(client: any, schema: string, theme: any) 
   const materialIds = new Set<number>();
   const discountIds = new Set<number>();
   const imageIds = new Set<number>();
+  const variantIds = new Set<number>();
 
   if (Array.isArray(theme.featured_category_ids)) {
     theme.featured_category_ids.forEach((id: any) => {
@@ -139,6 +140,12 @@ async function validateThemeReferences(client: any, schema: string, theme: any) 
           }
         }
       }
+      if (sec.type === "product_carousel" && Array.isArray(sec.productVariantIds)) {
+        sec.productVariantIds.forEach((id: any) => {
+          const n = Number(id);
+          if (!isNaN(n) && n > 0) variantIds.add(n);
+        });
+      }
       if (sec.type === "offers") {
         if (Array.isArray(sec.discountIds)) {
           sec.discountIds.forEach((id: any) => {
@@ -201,6 +208,20 @@ async function validateThemeReferences(client: any, schema: string, theme: any) 
     const missing = ids.filter((id) => !found.has(id));
     if (missing.length > 0) {
       throw new Error(`Referenced material ID(s) [${missing.join(", ")}] do not exist`);
+    }
+  }
+
+  // Validate Variants
+  if (variantIds.size > 0) {
+    const ids = Array.from(variantIds);
+    const res = await client.query(
+      `SELECT id FROM "${schema}".product_variants WHERE id = ANY($1::bigint[])`,
+      [ids]
+    );
+    const found = new Set(res.rows.map((r: any) => Number(r.id)));
+    const missing = ids.filter((id) => !found.has(id));
+    if (missing.length > 0) {
+      throw new Error(`Referenced product variant ID(s) [${missing.join(", ")}] do not exist`);
     }
   }
 

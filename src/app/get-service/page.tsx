@@ -3,6 +3,8 @@ import GetService from "@/components/GetService";
 import { normalizeBillingInterval } from "@/lib/onboarding";
 import type { PlanOption } from "@/components/landing/Pricing";
 
+export const dynamic = "force-dynamic";
+
 type GetServicePageProps = {
   searchParams: Promise<{
     plan_id?: string;

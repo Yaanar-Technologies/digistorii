@@ -38,7 +38,9 @@ export default function StorefrontLayout({
               primaryColor: pub.primary_color || "#2563eb",
               secondaryColor: pub.secondary_color || "#1e40af",
               logoUrl: pub.logo_url || "",
+              logoImageId: pub.logo_image_id,
               bannerImages: pub.hero_banner_url ? [pub.hero_banner_url] : mockTheme.bannerImages,
+              bannerImageId: pub.hero_banner_image_id,
               fontFamily: pub.font_family || "Inter",
               layoutVariant: pub.layout_variant || "standard",
               heroTitle: pub.hero_title || "Welcome to Our Storefront",
@@ -49,6 +51,8 @@ export default function StorefrontLayout({
                 whatsapp: pub.social_whatsapp,
               },
               featuredCategoryIds: pub.featured_category_ids || [],
+              navItems: pub.nav_items || [],
+              homeSections: pub.home_sections || [],
             });
           } else {
             // Graceful fallback to mockTheme if no published theme exists yet

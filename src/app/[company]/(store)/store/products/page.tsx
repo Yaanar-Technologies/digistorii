@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   StorefrontHeader,
@@ -124,6 +124,25 @@ export default function StoreProductsPage() {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [wishlistIds, setWishlistIds] = useState<number[]>([]);
 
+  const filterParam = searchParams.get("filter");
+  const categoryParam = searchParams.get("category");
+  const attributeParam = searchParams.get("attribute");
+
+  const pageTitle = useMemo(() => {
+    if (filterParam === "new_arrivals") return "New Arrivals";
+    if (filterParam === "offers") return "Special Deals & Discounts";
+    if (categoryParam && categoryParam !== "all") return categoryParam;
+    if (attributeParam) return `Shop by ${attributeParam}`;
+    return "All Products";
+  }, [filterParam, categoryParam, attributeParam]);
+
+  const pageSubtitle = useMemo(() => {
+    if (filterParam === "new_arrivals") return "Fresh styles and newest additions just arrived in store";
+    if (filterParam === "offers") return "Live deals and discounts direct from our catalog";
+    if (categoryParam && categoryParam !== "all") return `Curated designs in ${categoryParam}`;
+    return "Explore our complete curated catalog";
+  }, [filterParam, categoryParam]);
+
   return (
     <div className="min-h-screen bg-white" style={{ fontFamily: theme.fontFamily }}>
       <StorefrontHeader
@@ -146,6 +165,8 @@ export default function StoreProductsPage() {
           categories={categories.map((c) => c.name)}
           selectedCategory={selectedCategory}
           onSelectCategory={handleSelectCategory}
+          title={pageTitle}
+          subtitle={pageSubtitle}
           initialSearch={searchParams.get("search") || ""}
           onProductClick={(p) => router.push(`/${company}/store/products/${p.variantId}`)}
           onAddToCart={handleAddToCart}

@@ -104,6 +104,7 @@ export type ProductCarouselSection = {
   order: number;
   category?: string;
   limit?: number;
+  productVariantIds?: number[];
 };
 
 export type OffersSection = {

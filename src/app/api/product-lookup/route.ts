@@ -319,8 +319,7 @@ ORDER BY d.id
         , [company, targetWarehouseId, supplierId]);
       return NextResponse.json({ success: true, data: result.rows });
 
-    } else if (type === "lookup") {
-      console.log("Fetching product lookup data...110");
+    } else if (type === "carousel_lookup") {
       result = await client.query(
         `
         SELECT
@@ -343,7 +342,9 @@ ORDER BY d.id
           u.uom_code,
           u.uom_name,
           p.hsn_code,
-          pv.barcode
+          pv.barcode,
+          new_stock.latest_stock_date AS new_stock_date,
+          pv.created_at AS created_on
         FROM "${schema}".product_variants pv
         INNER JOIN "${schema}".products p
           ON p.id = pv.product_id
@@ -352,7 +353,7 @@ ORDER BY d.id
         LEFT JOIN "${schema}".uom u
           ON u.id::text = p.uom
         LEFT JOIN "${schema}".product_colors pcl
-          on pcl.id::text = pv.color_id::text
+          ON pcl.id::text = pv.color_id::text
         LEFT JOIN LATERAL (
           SELECT COALESCE(SUM(cs.current_stock), 0) AS current_stock
           FROM "${schema}".current_stock cs
@@ -365,6 +366,75 @@ ORDER BY d.id
           ON pp.variant_id = pv.id
           AND pp.tenant_id = $1
           AND pp.is_active = TRUE
+        LEFT JOIN LATERAL (
+          SELECT MAX(sl.created_at) AS latest_stock_date
+          FROM "${schema}".stock_ledger sl
+          WHERE sl.product_id = pv.id
+            AND sl.qty_in > 0
+        ) new_stock ON TRUE
+        WHERE p.status = 1
+          AND pv.status IN ('draft', 'active')
+          ${salesProductFilter}
+          ${warehouseSourceFilter}
+        ORDER BY new_stock.latest_stock_date DESC NULLS LAST, pv.created_at DESC, pv.id DESC
+        `,
+        [company, targetWarehouseId]
+      );
+      return NextResponse.json({ success: true, data: result.rows });
+
+    } else if (type === "lookup") {
+      result = await client.query(
+        `
+        SELECT
+          pv.id::int AS variant_id,
+          pv.id::int AS id,
+          p.id::int AS product_id,
+          p.product_code AS code,
+          p.product_code,
+          pv.sku,
+          pcl.color_name as color,
+          p.name,
+          p.description,
+          COALESCE(pc.path_string, pc.category_name, p.category) AS category_name,
+          COALESCE(pc.path_string, pc.category_name, p.category) AS category,
+          stock.current_stock AS current_stock,
+          COALESCE(pp.final_selling_price, 0) AS selling_price,
+          p.${productTypeColumn} AS type,
+          p.source,
+          p.uom,
+          u.uom_code,
+          u.uom_name,
+          p.hsn_code,
+          pv.barcode,
+          new_stock.latest_stock_date AS new_stock_date,
+          pv.created_at AS created_on
+        FROM "${schema}".product_variants pv
+        INNER JOIN "${schema}".products p
+          ON p.id = pv.product_id
+        LEFT JOIN "${schema}".product_categories pc
+          ON pc.id::text = p.category::text
+        LEFT JOIN "${schema}".uom u
+          ON u.id::text = p.uom
+        LEFT JOIN "${schema}".product_colors pcl
+          ON pcl.id::text = pv.color_id::text
+        LEFT JOIN LATERAL (
+          SELECT COALESCE(SUM(cs.current_stock), 0) AS current_stock
+          FROM "${schema}".current_stock cs
+          WHERE cs.product_id = pv.id
+            AND cs.tenant_id = $1
+            AND ($2::int IS NULL OR cs.warehouse_id = $2::int)
+        ) stock
+          ON TRUE
+        LEFT JOIN "${schema}".product_pricing pp
+          ON pp.variant_id = pv.id
+          AND pp.tenant_id = $1
+          AND pp.is_active = TRUE
+        LEFT JOIN LATERAL (
+          SELECT MAX(sl.created_at) AS latest_stock_date
+          FROM "${schema}".stock_ledger sl
+          WHERE sl.product_id = pv.id
+            AND sl.qty_in > 0
+        ) new_stock ON TRUE
         WHERE p.status = 1
           AND pv.status IN ('draft', 'active')
           ${salesProductFilter}

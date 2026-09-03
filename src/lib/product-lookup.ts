@@ -5,7 +5,9 @@ export const PRODUCT_LOOKUP_COLUMNS = [
   "name",
   "description",
   "category",
-  "current_stock"
+  "current_stock",
+  "new_stock_date",
+  "created_on",
 ] as const;
 
 export const PRODUCT_LOOKUP_COLUMN_LABELS: Record<(typeof PRODUCT_LOOKUP_COLUMNS)[number], string> = {
@@ -15,7 +17,9 @@ export const PRODUCT_LOOKUP_COLUMN_LABELS: Record<(typeof PRODUCT_LOOKUP_COLUMNS
   name: "Name",
   description: "Description",
   category: "Category",
-  current_stock: "On Hand"
+  current_stock: "On Hand",
+  new_stock_date: "New Stock Date",
+  created_on: "Created On",
 };
 
 export type ProductLookupItem = {
@@ -43,4 +47,6 @@ export type ProductLookupItem = {
   lowest_price_overall?: number | null;
   lowest_price_supplier_name?: string | null;
   lowest_price_date?: string | null;
+  new_stock_date?: string | null;
+  created_on?: string | null;
 };

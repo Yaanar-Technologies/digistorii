@@ -35,6 +35,8 @@ type ProductLookupModalProps = {
   barcodeMessage?: string;
   onBarcodeChange?: (value: string) => void;
   onBarcodeSubmit?: (value?: string) => void;
+  title?: string;
+  maxSelection?: number;
 };
 
 export default function ProductLookupModal({
@@ -63,6 +65,8 @@ export default function ProductLookupModal({
   onBarcodeChange,
   onBarcodeSubmit,
   selectedCount,
+  title,
+  maxSelection,
 }: ProductLookupModalProps) {
   if (!open) return null;
 
@@ -94,7 +98,14 @@ export default function ProductLookupModal({
     <div className="fixed inset-0 z-[100002] bg-black/40 backdrop-blur-sm flex items-center justify-center">
       <div className="w-[1200px] max-w-[95vw] h-[700px] bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-6 py-3 border-b bg-gray-50">
-          <h2 className="text-lg font-semibold text-gray-700">Select Products</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-lg font-semibold text-gray-700">{title || "Select Products"}</h2>
+            {maxSelection !== undefined && (
+              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800">
+                Limit: {maxSelection} items
+              </span>
+            )}
+          </div>
 
           <div className="flex items-end gap-3">
             {errorMessage && <span className="text-red-500 text-sm">{errorMessage}</span>}
@@ -107,8 +118,8 @@ export default function ProductLookupModal({
                 + Add New ItemPO
               </button>
             ) : null}
-            <button onClick={onClose} className="text-gray-500 hover:text-black text-xl">
-              x
+            <button onClick={onClose} className="text-gray-500 hover:text-black text-xl cursor-pointer">
+              ✕
             </button>
           </div>
         </div>
@@ -134,16 +145,17 @@ export default function ProductLookupModal({
                   <input
                     type="checkbox"
                     checked={allSelected}
+                    disabled={maxSelection !== undefined}
                     onChange={(e) => onToggleAll(e.target.checked, items)}
                   />
                 </th>
                 {PRODUCT_LOOKUP_COLUMNS.map((col) => (
-                  <th key={col} className="p-3 text-left text-gray-600 font-semibold bg-gray-50">
+                  <th key={col} className="p-3 text-left text-gray-600 font-semibold bg-gray-50 whitespace-nowrap">
                     {PRODUCT_LOOKUP_COLUMN_LABELS[col]}
                   </th>
                 ))}
                 {isPurchaseLookup && (
-                  <th className="p-3 text-left text-gray-600 font-semibold bg-gray-50">
+                  <th className="p-3 text-left text-gray-600 font-semibold bg-gray-50 whitespace-nowrap">
                     Supplier Price
                   </th>
                 )}
@@ -153,13 +165,13 @@ export default function ProductLookupModal({
             <tbody>
               {loading ? (
                 <tr className="border-t">
-                  <td colSpan={isPurchaseLookup ? 9 : 8} className="p-6 text-center text-gray-500">
+                  <td colSpan={isPurchaseLookup ? 11 : 10} className="p-6 text-center text-gray-500">
                     Loading products...
                   </td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr className="border-t">
-                  <td colSpan={isPurchaseLookup ? 9 : 8} className="p-6 text-center text-gray-500">
+                  <td colSpan={isPurchaseLookup ? 11 : 10} className="p-6 text-center text-gray-500">
                     No products found.
                   </td>
                 </tr>
@@ -194,14 +206,45 @@ export default function ProductLookupModal({
                         </span>
                       );
                     })(),
+                    new_stock_date: item.new_stock_date ? (
+                      <span className="text-xs text-gray-700 whitespace-nowrap">
+                        {new Date(item.new_stock_date).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
+                      </span>
+                    ) : (
+                      "-"
+                    ),
+                    created_on: item.created_on ? (
+                      <span className="text-xs text-gray-500 whitespace-nowrap">
+                        {new Date(item.created_on).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
+                      </span>
+                    ) : (
+                      "-"
+                    ),
                   };
                   const isRowSelected = isSelected(item);
+                  const isMaxReached = maxSelection !== undefined && !isRowSelected && countToShow >= maxSelection;
+
                   return (
                     <tr
                       key={item.variant_id}
                       id={`product-row-${item.variant_id}`}
-                      onClick={() => onToggle(item)}
-                      className={`border-t cursor-pointer transition-colors hover:bg-blue-50/50 ${
+                      onClick={() => {
+                        if (isMaxReached) return;
+                        onToggle(item);
+                      }}
+                      className={`border-t transition-colors ${
+                        isMaxReached
+                          ? "opacity-50 cursor-not-allowed bg-gray-50/50"
+                          : "cursor-pointer hover:bg-blue-50/50"
+                      } ${
                         isRowSelected ? "bg-blue-50 font-medium border-l-4 border-l-blue-600" : ""
                       }`}
                     >
@@ -209,8 +252,12 @@ export default function ProductLookupModal({
                         <input
                           type="checkbox"
                           checked={isRowSelected}
-                          onChange={() => onToggle(item)}
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          disabled={isMaxReached}
+                          onChange={() => {
+                            if (isMaxReached) return;
+                            onToggle(item);
+                          }}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer disabled:cursor-not-allowed"
                         />
                       </td>
                       {PRODUCT_LOOKUP_COLUMNS.map((col) => (

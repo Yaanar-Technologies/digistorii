@@ -27,6 +27,9 @@ import {
   mockFooterSettings,
 } from "@/components/storefront";
 import ImageUploadInput from "@/components/ui/ImageUploadInput";
+import ProductLookupModal from "@/components/product/ProductLookupModal";
+import { useProductLookup } from "@/hooks/useProductLookup";
+import type { ProductLookupItem } from "@/lib/product-lookup";
 import { getGoogleFontUrl, getFontFamilyCss } from "@/lib/font-utils";
 import {
   PlusIcon,
@@ -147,6 +150,17 @@ export default function ThemeCustomizationPage() {
   // Navigation and Homepage Sections state
   const [navItems, setNavItems] = useState<NavItem[]>([]);
   const [homeSections, setHomeSections] = useState<HomeSection[]>([]);
+
+  // Product Variant Lookup Modal state for ProductCarouselSection
+  const [isVariantModalOpen, setIsVariantModalOpen] = useState(false);
+  const [activeCarouselSectionId, setActiveCarouselSectionId] = useState<string | null>(null);
+  const [tempSelectedVariantIds, setTempSelectedVariantIds] = useState<number[]>([]);
+  const [modalMaxLimit, setModalMaxLimit] = useState<number>(8);
+
+  const productLookup = useProductLookup({
+    lookupType: "carousel_lookup",
+    enabled: isVariantModalOpen,
+  });
 
   // Tenant entities from database
   const [workspaceCategories, setWorkspaceCategories] = useState<CategoryType[]>([]);
@@ -307,7 +321,6 @@ export default function ThemeCustomizationPage() {
         if (config.nav_items && config.nav_items.length > 0) {
           setNavItems(config.nav_items);
         } else {
-          // Default initial nav items
           const defaultNav: NavItem[] = [
             { id: "nav-cat-all", type: "category", label: "All Products", enabled: true, order: 1 },
             { id: "nav-new", type: "new_arrivals", label: "New Arrivals", enabled: true, order: 2 },
@@ -321,7 +334,6 @@ export default function ThemeCustomizationPage() {
         if (config.home_sections && config.home_sections.length > 0) {
           setHomeSections(config.home_sections);
         } else {
-          // Default initial sections: Hero + Shop by Category + New Arrivals
           const defaultSecs: HomeSection[] = [
             {
               id: "hero-1",
@@ -451,7 +463,6 @@ export default function ThemeCustomizationPage() {
     setPublishing(true);
     setMessage(null);
     try {
-      // 1. Save draft
       await apiFetch("/api/company/ecom-theme", company, {
         method: "POST",
         body: JSON.stringify({
@@ -459,7 +470,6 @@ export default function ThemeCustomizationPage() {
         }),
       });
 
-      // 2. Trigger publish action
       const res = await apiFetch("/api/company/ecom-theme?action=publish", company, {
         method: "POST",
         body: JSON.stringify({
@@ -557,6 +567,7 @@ export default function ThemeCustomizationPage() {
           order: newOrder,
           title: "Featured Products",
           limit: 8,
+          productVariantIds: [],
         };
         break;
       case "offers":
@@ -695,6 +706,55 @@ export default function ThemeCustomizationPage() {
     updated[targetIdx] = temp;
     updated.forEach((i, idx) => (i.order = idx + 1));
     setNavItems(updated);
+  };
+
+  // Carousel Variant Modal Handlers
+  const handleOpenVariantLookup = (sectionId: string, currentVariantIds: number[] = [], limit: number = 8) => {
+    setActiveCarouselSectionId(sectionId);
+    setTempSelectedVariantIds([...currentVariantIds]);
+    setModalMaxLimit(limit);
+    setIsVariantModalOpen(true);
+  };
+
+  const handleToggleVariantSelection = (item: ProductLookupItem) => {
+    const vId = Number(item.variant_id);
+    if (tempSelectedVariantIds.includes(vId)) {
+      setTempSelectedVariantIds(tempSelectedVariantIds.filter((id) => id !== vId));
+    } else {
+      if (tempSelectedVariantIds.length >= modalMaxLimit) return;
+      setTempSelectedVariantIds([...tempSelectedVariantIds, vId]);
+    }
+  };
+
+  const handleToggleAllVariants = (checked: boolean, pageItems: ProductLookupItem[]) => {
+    if (!checked) {
+      const pageVariantIds = new Set(pageItems.map((p) => Number(p.variant_id)));
+      setTempSelectedVariantIds(tempSelectedVariantIds.filter((id) => !pageVariantIds.has(id)));
+    } else {
+      const needed = modalMaxLimit - tempSelectedVariantIds.length;
+      if (needed <= 0) return;
+      const newToAdd: number[] = [];
+      for (const item of pageItems) {
+        const vId = Number(item.variant_id);
+        if (!tempSelectedVariantIds.includes(vId) && !newToAdd.includes(vId)) {
+          newToAdd.push(vId);
+          if (newToAdd.length >= needed) break;
+        }
+      }
+      setTempSelectedVariantIds([...tempSelectedVariantIds, ...newToAdd]);
+    }
+  };
+
+  const handleSaveVariantSelection = () => {
+    if (!activeCarouselSectionId) return;
+    setHomeSections(
+      homeSections.map((s) =>
+        s.id === activeCarouselSectionId && s.type === "product_carousel"
+          ? { ...s, productVariantIds: tempSelectedVariantIds }
+          : s
+      )
+    );
+    setIsVariantModalOpen(false);
   };
 
   if (loading) {
@@ -1347,28 +1407,17 @@ export default function ThemeCustomizationPage() {
 
                         <div className="grid grid-cols-2 gap-2 text-xs">
                           <div>
-                            <label className="block font-semibold text-gray-700 mb-1">Category Filter</label>
-                            <select
-                              value={sec.category || "all"}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setHomeSections(
-                                  homeSections.map((s) =>
-                                    s.id === sec.id && s.type === "product_carousel"
-                                      ? { ...s, category: val }
-                                      : s
-                                  )
-                                );
-                              }}
-                              className="w-full rounded border border-gray-300 p-1.5 focus:outline-none"
+                            <label className="block font-semibold text-gray-700 mb-1">
+                              Product Variants ({(sec.productVariantIds || []).length} / {sec.limit || 8} max)
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenVariantLookup(sec.id, sec.productVariantIds || [], sec.limit || 8)}
+                              className="w-full inline-flex items-center justify-center gap-1.5 rounded border border-blue-300 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 transition-colors cursor-pointer shadow-xs"
                             >
-                              <option value="all">All Products</option>
-                              {workspaceCategories.map((c) => (
-                                <option key={c.id} value={c.name}>
-                                  {c.name}
-                                </option>
-                              ))}
-                            </select>
+                              <PlusIcon className="h-3.5 w-3.5" />
+                              <span>{(sec.productVariantIds || []).length > 0 ? "Edit Variants" : "Select Variants"}</span>
+                            </button>
                           </div>
 
                           <div>
@@ -1383,7 +1432,11 @@ export default function ThemeCustomizationPage() {
                                 setHomeSections(
                                   homeSections.map((s) =>
                                     s.id === sec.id && s.type === "product_carousel"
-                                      ? { ...s, limit: val }
+                                      ? {
+                                          ...s,
+                                          limit: val,
+                                          productVariantIds: (s.productVariantIds || []).slice(0, val),
+                                        }
                                       : s
                                   )
                                 );
@@ -1392,6 +1445,47 @@ export default function ThemeCustomizationPage() {
                             />
                           </div>
                         </div>
+
+                        {/* Selected Variants List Preview Chips */}
+                        {(sec.productVariantIds || []).length > 0 && (
+                          <div className="space-y-1 pt-1">
+                            <span className="text-[11px] font-semibold text-gray-500">Selected Variants ({sec.productVariantIds?.length}):</span>
+                            <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto p-1.5 bg-gray-50 rounded-lg border border-gray-200">
+                              {sec.productVariantIds?.map((vId) => {
+                                const foundProd = workspaceProducts.find((p) => p.variantId === vId);
+                                const foundLookup = productLookup.items.find((it) => it.variant_id === vId);
+                                const label = foundProd?.name || foundLookup?.name || `Variant #${vId}`;
+                                const sku = foundLookup?.sku || "";
+
+                                return (
+                                  <span
+                                    key={vId}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-white text-gray-800 border border-gray-300 shadow-xs"
+                                  >
+                                    <span className="truncate max-w-[140px]">{label}{sku ? ` (${sku})` : ""}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const updatedIds = (sec.productVariantIds || []).filter((id) => id !== vId);
+                                        setHomeSections(
+                                          homeSections.map((s) =>
+                                            s.id === sec.id && s.type === "product_carousel"
+                                              ? { ...s, productVariantIds: updatedIds }
+                                              : s
+                                          )
+                                        );
+                                      }}
+                                      className="text-gray-400 hover:text-red-500 font-bold ml-0.5 cursor-pointer"
+                                      title="Remove variant"
+                                    >
+                                      ✕
+                                    </button>
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -2049,6 +2143,29 @@ export default function ThemeCustomizationPage() {
           </div>
         </div>
       </div>
+
+      {/* Product Variant Lookup Modal for Carousel */}
+      <ProductLookupModal
+        open={isVariantModalOpen}
+        onClose={() => setIsVariantModalOpen(false)}
+        onAddSelected={handleSaveVariantSelection}
+        title={`Select Carousel Product Variants (Max: ${modalMaxLimit})`}
+        maxSelection={modalMaxLimit}
+        items={productLookup.items}
+        loading={productLookup.loading}
+        filters={productLookup.filters}
+        onFiltersChange={productLookup.setFilters}
+        categoryOptions={productLookup.categoryOptions}
+        page={productLookup.page}
+        totalPages={productLookup.totalPages}
+        itemsPerPage={productLookup.itemsPerPage}
+        totalCount={productLookup.totalCount}
+        onPageChange={productLookup.setPage}
+        isSelected={(item) => tempSelectedVariantIds.includes(Number(item.variant_id))}
+        onToggle={handleToggleVariantSelection}
+        onToggleAll={handleToggleAllVariants}
+        selectedCount={tempSelectedVariantIds.length}
+      />
     </div>
   );
 }

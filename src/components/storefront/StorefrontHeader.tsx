@@ -122,21 +122,17 @@ export const StorefrontHeader: React.FC<StorefrontHeaderProps> = ({
         if (onSelectCategory) {
           onSelectCategory(catName);
         } else {
-          router.push(`${baseStore}/products?category=${encodeURIComponent(catName)}`);
+          const catIdParam = item.categoryId ? `&category_id=${item.categoryId}` : "";
+          router.push(`${baseStore}/products?category=${encodeURIComponent(catName)}${catIdParam}`);
         }
         break;
       }
       case "new_arrivals": {
-        router.push(`${baseStore}/products?sort=new_arrivals`);
+        router.push(`${baseStore}/products?filter=new_arrivals`);
         break;
       }
       case "offers": {
-        const elem = document.getElementById("offers");
-        if (elem) {
-          elem.scrollIntoView({ behavior: "smooth" });
-        } else {
-          router.push(`${baseStore}#offers`);
-        }
+        router.push(`${baseStore}/products?filter=offers`);
         break;
       }
       case "about": {

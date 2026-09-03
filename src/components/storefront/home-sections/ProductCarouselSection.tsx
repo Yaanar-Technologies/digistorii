@@ -23,7 +23,12 @@ export const ProductCarouselHomeSection: React.FC<ProductCarouselSectionProps> =
 }) => {
   let displayProducts = [...products];
 
-  if (section.category && section.category !== "all") {
+  if (section.productVariantIds && section.productVariantIds.length > 0) {
+    const idMap = new Map(displayProducts.map((p) => [p.variantId, p]));
+    displayProducts = section.productVariantIds
+      .map((id) => idMap.get(id))
+      .filter((p): p is StorefrontProduct => Boolean(p));
+  } else if (section.category && section.category !== "all") {
     displayProducts = displayProducts.filter(
       (p) =>
         p.category?.toLowerCase() === section.category?.toLowerCase() ||

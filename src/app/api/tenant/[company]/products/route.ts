@@ -54,20 +54,40 @@ export async function GET(
 
     // Query parameters
     const url = req.nextUrl;
+    const filterParam = url.searchParams.get("filter") || "";
     const sortParam = url.searchParams.get("sort") || "";
     const limitParam = url.searchParams.get("limit");
     const categoryParam = url.searchParams.get("category") || "";
+    const categoryIdParam = url.searchParams.get("category_id") || "";
     const searchParam = url.searchParams.get("search") || "";
     const attributeParam = url.searchParams.get("attribute") || "";
     const valueIdParam = url.searchParams.get("value_id") || "";
     const colorIdParam = url.searchParams.get("color_id") || (attributeParam === "color" ? valueIdParam : "");
     const materialIdParam = url.searchParams.get("material_id") || (attributeParam === "material" ? valueIdParam : "");
+    const variantIdsParam = url.searchParams.get("variant_ids") || "";
 
     const conditions: string[] = ["pv.status = 'active'", "sp.is_live = TRUE"];
     const values: any[] = [];
     let valIdx = 1;
 
-    if (categoryParam && categoryParam !== "all") {
+    if (filterParam === "offers" || url.searchParams.get("offers") === "true") {
+      conditions.push("act_disc.discount_value > 0 AND act_disc.discount_value IS NOT NULL");
+    }
+
+    if (variantIdsParam) {
+      const vIds = variantIdsParam.split(",").map(Number).filter((n) => !isNaN(n) && n > 0);
+      if (vIds.length > 0) {
+        conditions.push(`pv.id = ANY($${valIdx}::bigint[])`);
+        values.push(vIds);
+        valIdx++;
+      }
+    }
+
+    if (categoryIdParam && !isNaN(Number(categoryIdParam))) {
+      conditions.push(`(pcat.id = $${valIdx} OR p.category = $${valIdx}::text)`);
+      values.push(Number(categoryIdParam));
+      valIdx++;
+    } else if (categoryParam && categoryParam !== "all") {
       if (!isNaN(Number(categoryParam))) {
         conditions.push(`p.category = $${valIdx}`);
         values.push(categoryParam);
@@ -100,8 +120,8 @@ export async function GET(
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     let outerOrderBy = "ORDER BY sub.product_name ASC";
-    if (sortParam === "new_arrivals" || sortParam === "newest") {
-      outerOrderBy = "ORDER BY sub.created_at DESC";
+    if (filterParam === "new_arrivals" || sortParam === "new_arrivals" || sortParam === "newest") {
+      outerOrderBy = "ORDER BY sub.latest_stock_date DESC NULLS LAST, sub.created_at DESC";
     } else if (sortParam === "price_asc") {
       outerOrderBy = "ORDER BY sub.final_selling_price ASC";
     } else if (sortParam === "price_desc") {
@@ -122,6 +142,7 @@ export async function GET(
           pv.id AS variant_id,
           p.name AS product_name,
           p.created_at AS created_at,
+          new_stock.latest_stock_date AS latest_stock_date,
           pcat.path_string AS category_path,
           pcat.category_name AS category_name,
           COALESCE(
@@ -166,6 +187,12 @@ export async function GET(
         INNER JOIN "${schema}".product_variants pv ON pv.product_id = p.id
         INNER JOIN "${schema}".storefront_products sp ON sp.variant_id = pv.id
         LEFT JOIN "${schema}".product_categories pcat ON pcat.id = NULLIF(p.category, '')::integer
+        LEFT JOIN LATERAL (
+          SELECT MAX(sl.created_at) AS latest_stock_date
+          FROM "${schema}".stock_ledger sl
+          WHERE sl.product_id = pv.id
+            AND sl.qty_in > 0
+        ) new_stock ON TRUE
         LEFT JOIN LATERAL (
           SELECT
             d.name AS discount_name,

@@ -18,6 +18,8 @@ export interface ProductGridProps {
   selectedCategory?: string;
   onSelectCategory?: (category: string) => void;
   initialSearch?: string;
+  title?: string;
+  subtitle?: string;
 }
 
 interface ProductCardProps {
@@ -142,6 +144,8 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
   selectedCategory: propSelectedCategory,
   onSelectCategory: propOnSelectCategory,
   initialSearch = "",
+  title: propTitle,
+  subtitle: propSubtitle,
 }) => {
   const [localSelectedCategory, setLocalSelectedCategory] = useState<string>("all");
   const [quickViewProduct, setQuickViewProduct] = useState<StorefrontProduct | null>(null);
@@ -241,9 +245,11 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
         {/* Header Title & Top Controls */}
         <div className="flex flex-col gap-4 border-b border-gray-100 pb-6 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-2xl font-bold tracking-tight text-gray-900">Featured Products</h2>
+            <h2 className="text-2xl font-bold tracking-tight text-gray-900">
+              {propTitle || (selectedCategory !== "all" ? selectedCategory : "Featured Products")}
+            </h2>
             <p className="mt-1 text-sm text-gray-500">
-              Showing {filteredProducts.length} of {products.length} items
+              {propSubtitle || `Showing ${filteredProducts.length} of ${products.length} items`}
             </p>
           </div>
 
