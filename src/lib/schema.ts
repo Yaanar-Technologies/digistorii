@@ -474,10 +474,14 @@ ON "${schema}".product_variants(status);
       file_hash VARCHAR(64),
       category_id BIGINT REFERENCES "${schema}".product_categories(id),
       material_id INT REFERENCES "${schema}".product_materials(id),
+      color_id INT REFERENCES "${schema}".product_colors(id),
       uom_id INT REFERENCES "${schema}".uom(id),
-      source VARCHAR(20) CHECK (source IN ('vendor','own')),
+      source VARCHAR(50),
       created_at TIMESTAMP DEFAULT NOW()
     );
+
+    ALTER TABLE "${schema}".image_master
+      ADD COLUMN IF NOT EXISTS color_id INT REFERENCES "${schema}".product_colors(id);
   `);
 
   await client.query(`

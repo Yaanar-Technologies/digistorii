@@ -46,6 +46,193 @@ export async function GET(req: NextRequest) {
   }
 }
 
+async function validateThemeReferences(client: any, schema: string, theme: any) {
+  if (!theme || typeof theme !== "object") return;
+
+  const categoryIds = new Set<number>();
+  const colorIds = new Set<number>();
+  const materialIds = new Set<number>();
+  const discountIds = new Set<number>();
+  const imageIds = new Set<number>();
+
+  if (Array.isArray(theme.featured_category_ids)) {
+    theme.featured_category_ids.forEach((id: any) => {
+      const n = Number(id);
+      if (!isNaN(n) && n > 0) categoryIds.add(n);
+    });
+  }
+
+  if (Array.isArray(theme.nav_items)) {
+    for (const item of theme.nav_items) {
+      if (item.categoryId) {
+        const n = Number(item.categoryId);
+        if (!isNaN(n) && n > 0) categoryIds.add(n);
+      }
+      if (Array.isArray(item.collections)) {
+        for (const col of item.collections) {
+          if (col.kind === "color" && col.colorId) {
+            const n = Number(col.colorId);
+            if (!isNaN(n) && n > 0) colorIds.add(n);
+          }
+          if (col.kind === "material" && col.materialId) {
+            const n = Number(col.materialId);
+            if (!isNaN(n) && n > 0) materialIds.add(n);
+          }
+          if (col.imageId) {
+            const n = Number(col.imageId);
+            if (!isNaN(n) && n > 0) imageIds.add(n);
+          }
+        }
+      }
+    }
+  }
+
+  if (Array.isArray(theme.home_sections)) {
+    for (const sec of theme.home_sections) {
+      if (sec.type === "hero_carousel" && Array.isArray(sec.slides)) {
+        for (const slide of sec.slides) {
+          if (slide.imageId) {
+            const n = Number(slide.imageId);
+            if (!isNaN(n) && n > 0) imageIds.add(n);
+          }
+        }
+      }
+      if (sec.type === "shop_by_category") {
+        if (Array.isArray(sec.categoryIds)) {
+          sec.categoryIds.forEach((id: any) => {
+            const n = Number(id);
+            if (!isNaN(n) && n > 0) categoryIds.add(n);
+          });
+        }
+        if (sec.overrides && typeof sec.overrides === "object") {
+          Object.entries(sec.overrides).forEach(([k, v]: [string, any]) => {
+            const n = Number(k);
+            if (!isNaN(n) && n > 0) categoryIds.add(n);
+            if (v?.imageId) {
+              const imgN = Number(v.imageId);
+              if (!isNaN(imgN) && imgN > 0) imageIds.add(imgN);
+            }
+          });
+        }
+      }
+      if (sec.type === "shop_by_color" && Array.isArray(sec.items)) {
+        for (const it of sec.items) {
+          if (it.colorId) {
+            const n = Number(it.colorId);
+            if (!isNaN(n) && n > 0) colorIds.add(n);
+          }
+          if (it.imageId) {
+            const n = Number(it.imageId);
+            if (!isNaN(n) && n > 0) imageIds.add(n);
+          }
+        }
+      }
+      if (sec.type === "shop_by_material" && Array.isArray(sec.items)) {
+        for (const it of sec.items) {
+          if (it.materialId) {
+            const n = Number(it.materialId);
+            if (!isNaN(n) && n > 0) materialIds.add(n);
+          }
+          if (it.imageId) {
+            const n = Number(it.imageId);
+            if (!isNaN(n) && n > 0) imageIds.add(n);
+          }
+        }
+      }
+      if (sec.type === "offers") {
+        if (Array.isArray(sec.discountIds)) {
+          sec.discountIds.forEach((id: any) => {
+            const n = Number(id);
+            if (!isNaN(n) && n > 0) discountIds.add(n);
+          });
+        }
+        if (sec.bannerImageId) {
+          const n = Number(sec.bannerImageId);
+          if (!isNaN(n) && n > 0) imageIds.add(n);
+        }
+      }
+      if (sec.type === "about" && Array.isArray(sec.blocks)) {
+        for (const b of sec.blocks) {
+          if (b.imageId) {
+            const n = Number(b.imageId);
+            if (!isNaN(n) && n > 0) imageIds.add(n);
+          }
+        }
+      }
+    }
+  }
+
+  // Validate Categories
+  if (categoryIds.size > 0) {
+    const ids = Array.from(categoryIds);
+    const res = await client.query(
+      `SELECT id FROM "${schema}".product_categories WHERE id = ANY($1::bigint[])`,
+      [ids]
+    );
+    const found = new Set(res.rows.map((r: any) => Number(r.id)));
+    const missing = ids.filter((id) => !found.has(id));
+    if (missing.length > 0) {
+      throw new Error(`Referenced category ID(s) [${missing.join(", ")}] do not exist`);
+    }
+  }
+
+  // Validate Colors
+  if (colorIds.size > 0) {
+    const ids = Array.from(colorIds);
+    const res = await client.query(
+      `SELECT id FROM "${schema}".product_colors WHERE id = ANY($1::int[])`,
+      [ids]
+    );
+    const found = new Set(res.rows.map((r: any) => Number(r.id)));
+    const missing = ids.filter((id) => !found.has(id));
+    if (missing.length > 0) {
+      throw new Error(`Referenced color ID(s) [${missing.join(", ")}] do not exist`);
+    }
+  }
+
+  // Validate Materials
+  if (materialIds.size > 0) {
+    const ids = Array.from(materialIds);
+    const res = await client.query(
+      `SELECT id FROM "${schema}".product_materials WHERE id = ANY($1::int[])`,
+      [ids]
+    );
+    const found = new Set(res.rows.map((r: any) => Number(r.id)));
+    const missing = ids.filter((id) => !found.has(id));
+    if (missing.length > 0) {
+      throw new Error(`Referenced material ID(s) [${missing.join(", ")}] do not exist`);
+    }
+  }
+
+  // Validate Discounts
+  if (discountIds.size > 0) {
+    const ids = Array.from(discountIds);
+    const res = await client.query(
+      `SELECT id FROM "${schema}".discounts WHERE id = ANY($1::bigint[])`,
+      [ids]
+    );
+    const found = new Set(res.rows.map((r: any) => Number(r.id)));
+    const missing = ids.filter((id) => !found.has(id));
+    if (missing.length > 0) {
+      throw new Error(`Referenced discount ID(s) [${missing.join(", ")}] do not exist`);
+    }
+  }
+
+  // Validate Images
+  if (imageIds.size > 0) {
+    const ids = Array.from(imageIds);
+    const res = await client.query(
+      `SELECT id FROM "${schema}".image_master WHERE id = ANY($1::bigint[])`,
+      [ids]
+    );
+    const found = new Set(res.rows.map((r: any) => Number(r.id)));
+    const missing = ids.filter((id) => !found.has(id));
+    if (missing.length > 0) {
+      throw new Error(`Referenced image ID(s) [${missing.join(", ")}] do not exist in image_master`);
+    }
+  }
+}
+
 export async function POST(req: NextRequest) {
   const client = await pool.connect();
   try {
@@ -74,6 +261,10 @@ export async function POST(req: NextRequest) {
       );
       const currentTheme = themeRes.rows[0];
       const draftTheme = currentTheme?.draft_theme || {};
+
+      // Validate references before publishing
+      await validateThemeReferences(client, schema, draftTheme);
+
       const nextVersion = (currentTheme?.version || 0) + 1;
       const publisher = body.publisher || "Workspace User";
 
@@ -111,6 +302,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, message: "draft_theme is required" }, { status: 400 });
       }
 
+      // Validate references on save
+      await validateThemeReferences(client, schema, draft_theme);
+
       const existRes = await client.query(
         `SELECT id FROM "${schema}".storefront_config WHERE company_id = $1 LIMIT 1`,
         [companyId]
@@ -142,3 +336,4 @@ export async function POST(req: NextRequest) {
     client.release();
   }
 }
+

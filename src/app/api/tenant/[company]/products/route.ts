@@ -52,12 +52,76 @@ export async function GET(
       END $$;
     `);
 
+    // Query parameters
+    const url = req.nextUrl;
+    const sortParam = url.searchParams.get("sort") || "";
+    const limitParam = url.searchParams.get("limit");
+    const categoryParam = url.searchParams.get("category") || "";
+    const searchParam = url.searchParams.get("search") || "";
+    const attributeParam = url.searchParams.get("attribute") || "";
+    const valueIdParam = url.searchParams.get("value_id") || "";
+    const colorIdParam = url.searchParams.get("color_id") || (attributeParam === "color" ? valueIdParam : "");
+    const materialIdParam = url.searchParams.get("material_id") || (attributeParam === "material" ? valueIdParam : "");
+
+    const conditions: string[] = ["pv.status = 'active'", "sp.is_live = TRUE"];
+    const values: any[] = [];
+    let valIdx = 1;
+
+    if (categoryParam && categoryParam !== "all") {
+      if (!isNaN(Number(categoryParam))) {
+        conditions.push(`p.category = $${valIdx}`);
+        values.push(categoryParam);
+        valIdx++;
+      } else {
+        conditions.push(`(pcat.category_name ILIKE $${valIdx} OR pcat.path_string ILIKE $${valIdx} OR p.category ILIKE $${valIdx})`);
+        values.push(`%${categoryParam}%`);
+        valIdx++;
+      }
+    }
+
+    if (colorIdParam && !isNaN(Number(colorIdParam))) {
+      conditions.push(`pv.color_id = $${valIdx}`);
+      values.push(Number(colorIdParam));
+      valIdx++;
+    }
+
+    if (materialIdParam && !isNaN(Number(materialIdParam))) {
+      conditions.push(`p.material = $${valIdx}`);
+      values.push(materialIdParam);
+      valIdx++;
+    }
+
+    if (searchParam) {
+      conditions.push(`(p.name ILIKE $${valIdx} OR p.description ILIKE $${valIdx} OR pcat.category_name ILIKE $${valIdx})`);
+      values.push(`%${searchParam}%`);
+      valIdx++;
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    let outerOrderBy = "ORDER BY sub.product_name ASC";
+    if (sortParam === "new_arrivals" || sortParam === "newest") {
+      outerOrderBy = "ORDER BY sub.created_at DESC";
+    } else if (sortParam === "price_asc") {
+      outerOrderBy = "ORDER BY sub.final_selling_price ASC";
+    } else if (sortParam === "price_desc") {
+      outerOrderBy = "ORDER BY sub.final_selling_price DESC";
+    }
+
+    let limitClause = "";
+    if (limitParam && !isNaN(Number(limitParam)) && Number(limitParam) > 0) {
+      limitClause = `LIMIT $${valIdx}`;
+      values.push(Number(limitParam));
+      valIdx++;
+    }
+
     // 2. Fetch the storefront products that are live (is_live = true)
     const query = `
       SELECT * FROM (
         SELECT DISTINCT ON (p.id)
           pv.id AS variant_id,
           p.name AS product_name,
+          p.created_at AS created_at,
           pcat.path_string AS category_path,
           pcat.category_name AS category_name,
           COALESCE(
@@ -99,8 +163,8 @@ export async function GET(
           act_disc.discount_type,
           act_disc.discount_value
         FROM "${schema}".products p
-        INNER JOIN "${schema}".product_variants pv ON pv.product_id = p.id AND pv.status = 'active'
-        INNER JOIN "${schema}".storefront_products sp ON sp.variant_id = pv.id AND sp.is_live = TRUE
+        INNER JOIN "${schema}".product_variants pv ON pv.product_id = p.id
+        INNER JOIN "${schema}".storefront_products sp ON sp.variant_id = pv.id
         LEFT JOIN "${schema}".product_categories pcat ON pcat.id = NULLIF(p.category, '')::integer
         LEFT JOIN LATERAL (
           SELECT
@@ -118,12 +182,14 @@ export async function GET(
           ORDER BY d.priority ASC, d.value DESC, d.created_at DESC
           LIMIT 1
         ) act_disc ON true
+        ${whereClause}
         ORDER BY p.id, pv.id ASC
       ) sub
-      ORDER BY sub.product_name ASC
+      ${outerOrderBy}
+      ${limitClause}
     `;
 
-    const result = await client.query(query);
+    const result = await client.query(query, values);
 
     const products = result.rows.map((row) => {
       const discountObj = row.discount_type && Number(row.discount_value) > 0

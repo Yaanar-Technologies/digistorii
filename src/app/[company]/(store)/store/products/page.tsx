@@ -51,7 +51,8 @@ export default function StoreProductsPage() {
 
     const loadData = async () => {
       try {
-        const res = await fetch(`/api/tenant/${company}/products`);
+        const queryStr = searchParams.toString();
+        const res = await fetch(`/api/tenant/${company}/products${queryStr ? `?${queryStr}` : ""}`);
         if (res.ok) {
           const data = await res.json();
           if (data.success && Array.isArray(data.products)) {
@@ -88,7 +89,7 @@ export default function StoreProductsPage() {
     };
 
     loadData();
-  }, [company]);
+  }, [company, searchParams]);
 
   const handleSelectCategory = (cat: string) => {
     setSelectedCategory(cat);

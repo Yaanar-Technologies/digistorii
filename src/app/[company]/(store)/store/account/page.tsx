@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { GlobeAltIcon, BuildingStorefrontIcon } from "@heroicons/react/24/outline";
 import {
   StorefrontHeader,
   StorefrontFooter,
@@ -9,6 +10,12 @@ import {
   mockFooterSettings,
   useStorefrontTheme,
 } from "@/components/storefront";
+import {
+  ArchiveBoxIcon,
+  MapPinIcon,
+  EnvelopeIcon,
+  PhoneIcon,
+} from "@heroicons/react/24/outline";
 import { useCartStore } from "@/store/cartStore";
 import { useCustomerAuthStore } from "@/store/customerAuthStore";
 import { formatPrice } from "@/lib/currency";
@@ -124,9 +131,19 @@ export default function CustomerAccountPage() {
                   </div>
                   <div>
                     <h1 className="text-xl font-bold text-gray-900 sm:text-2xl">{customer?.name}</h1>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 mt-1">
-                      {customer?.email && <span>📧 {customer.email}</span>}
-                      {customer?.phone && <span>📱 +91 {customer.phone}</span>}
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 mt-1">
+                      {customer?.email && (
+                        <span className="inline-flex items-center gap-1.5">
+                          <EnvelopeIcon className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                          {customer.email}
+                        </span>
+                      )}
+                      {customer?.phone && (
+                        <span className="inline-flex items-center gap-1.5">
+                          <PhoneIcon className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                          +91 {customer.phone}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -148,17 +165,15 @@ export default function CustomerAccountPage() {
               <div className="flex border-b border-gray-200 gap-8 text-sm font-semibold">
                 <button
                   onClick={() => setActiveTab("orders")}
-                  className={`pb-3.5 border-b-2 transition-colors cursor-pointer ${
-                    activeTab === "orders" ? "border-black text-black" : "border-transparent text-gray-400 hover:text-gray-600"
-                  }`}
+                  className={`pb-3.5 border-b-2 transition-colors cursor-pointer ${activeTab === "orders" ? "border-black text-black" : "border-transparent text-gray-400 hover:text-gray-600"
+                    }`}
                 >
                   📦 Order History ({orders.length})
                 </button>
                 <button
                   onClick={() => setActiveTab("addresses")}
-                  className={`pb-3.5 border-b-2 transition-colors cursor-pointer ${
-                    activeTab === "addresses" ? "border-black text-black" : "border-transparent text-gray-400 hover:text-gray-600"
-                  }`}
+                  className={`pb-3.5 border-b-2 transition-colors cursor-pointer ${activeTab === "addresses" ? "border-black text-black" : "border-transparent text-gray-400 hover:text-gray-600"
+                    }`}
                 >
                   📍 Saved Addresses ({addresses.length})
                 </button>
@@ -195,12 +210,14 @@ export default function CustomerAccountPage() {
 
                               {/* Channel Badge: Online Storefront vs POS In-Store */}
                               {order.channel_type === "online" ? (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 text-[11px] font-bold text-indigo-700">
-                                  🌐 Online Order
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 text-[11px] font-bold text-indigo-700">
+                                  <GlobeAltIcon className="h-3.5 w-3.5 shrink-0 text-indigo-600" />
+                                  <span>Online Order</span>
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700">
-                                  🏬 In-Store POS Purchase
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700">
+                                  <BuildingStorefrontIcon className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                                  <span>In-Store POS Purchase</span>
                                 </span>
                               )}
                             </div>

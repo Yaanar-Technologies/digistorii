@@ -5,9 +5,13 @@ import React, { useState, useRef } from "react";
 export interface ImageUploadInputProps {
   label: string;
   value: string;
-  onChange: (url: string) => void;
+  onChange: (url: string, imageId?: number) => void;
   company: string;
   assetType?: string;
+  categoryId?: number;
+  materialId?: number;
+  colorId?: number;
+  source?: string;
   placeholder?: string;
   helpText?: string;
 }
@@ -18,6 +22,10 @@ export const ImageUploadInput: React.FC<ImageUploadInputProps> = ({
   onChange,
   company,
   assetType = "ecom",
+  categoryId,
+  materialId,
+  colorId,
+  source,
   placeholder = "https://example.com/image.png",
   helpText,
 }) => {
@@ -36,6 +44,10 @@ export const ImageUploadInput: React.FC<ImageUploadInputProps> = ({
       const formData = new FormData();
       formData.append("file", file);
       formData.append("asset_type", assetType);
+      if (categoryId) formData.append("category_id", String(categoryId));
+      if (materialId) formData.append("material_id", String(materialId));
+      if (colorId) formData.append("color_id", String(colorId));
+      if (source) formData.append("source", source);
 
       const targetCompany = company || "default";
       const res = await fetch(`/api/${targetCompany}/upload`, {
@@ -50,7 +62,7 @@ export const ImageUploadInput: React.FC<ImageUploadInputProps> = ({
 
       const data = await res.json();
       if (data.success && data.url) {
-        onChange(data.url);
+        onChange(data.url, data.id || data.imageId);
       } else {
         throw new Error(data.message || "Invalid upload response");
       }

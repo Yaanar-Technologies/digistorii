@@ -2,6 +2,12 @@
 
 import React, { useState, useEffect } from "react";
 import { StorefrontTheme, CategoryType } from "./types";
+import {
+  ArchiveBoxIcon,
+  MapPinIcon,
+  EnvelopeIcon,
+  PhoneIcon,
+} from "@heroicons/react/24/outline";
 import { useCartStore } from "@/store/cartStore";
 import { useWishlistStore } from "@/store/wishlistStore";
 import { useCustomerAuthStore } from "@/store/customerAuthStore";
@@ -82,6 +88,17 @@ export const StorefrontHeader: React.FC<StorefrontHeaderProps> = ({
     router.push(path);
   };
 
+  const [moreDropdownOpen, setMoreDropdownOpen] = useState(false);
+
+  const activeNavItems = React.useMemo(() => {
+    if (theme.navItems && theme.navItems.length > 0) {
+      return [...theme.navItems]
+        .filter((item) => item.enabled)
+        .sort((a, b) => a.order - b.order);
+    }
+    return null;
+  }, [theme.navItems]);
+
   const navCategories = React.useMemo(() => {
     if (!categories || categories.length === 0) return [];
     if (theme.featuredCategoryIds && theme.featuredCategoryIds.length > 0) {
@@ -93,6 +110,72 @@ export const StorefrontHeader: React.FC<StorefrontHeaderProps> = ({
   }, [categories, theme.featuredCategoryIds]);
 
   const firstName = customer?.name ? customer.name.split(" ")[0] : "Customer";
+
+  const handleNavItemClick = (item: any) => {
+    const slug = getCompanySlug();
+    const baseStore = slug ? `/${slug}/store` : "/store";
+
+    switch (item.type) {
+      case "category": {
+        const cat = categories.find((c) => Number(c.id) === Number(item.categoryId));
+        const catName = cat?.slug || cat?.name || item.label;
+        if (onSelectCategory) {
+          onSelectCategory(catName);
+        } else {
+          router.push(`${baseStore}/products?category=${encodeURIComponent(catName)}`);
+        }
+        break;
+      }
+      case "new_arrivals": {
+        router.push(`${baseStore}/products?sort=new_arrivals`);
+        break;
+      }
+      case "offers": {
+        const elem = document.getElementById("offers");
+        if (elem) {
+          elem.scrollIntoView({ behavior: "smooth" });
+        } else {
+          router.push(`${baseStore}#offers`);
+        }
+        break;
+      }
+      case "about": {
+        const elem = document.getElementById("about");
+        if (elem) {
+          elem.scrollIntoView({ behavior: "smooth" });
+        } else {
+          router.push(`${baseStore}#about`);
+        }
+        break;
+      }
+      case "custom_link": {
+        if (item.customUrl) {
+          if (item.customUrl.startsWith("http")) {
+            window.open(item.customUrl, "_blank", "noopener,noreferrer");
+          } else {
+            router.push(item.customUrl);
+          }
+        }
+        break;
+      }
+      default:
+        break;
+    }
+    setMobileMenuOpen(false);
+  };
+
+  const handleCollectionItemClick = (col: any) => {
+    const slug = getCompanySlug();
+    const baseStore = slug ? `/${slug}/store` : "/store";
+    setMoreDropdownOpen(false);
+    setMobileMenuOpen(false);
+
+    if (col.kind === "color") {
+      router.push(`${baseStore}/products?attribute=color&value_id=${col.colorId}`);
+    } else if (col.kind === "material") {
+      router.push(`${baseStore}/products?attribute=material&value_id=${col.materialId}`);
+    }
+  };
 
   return (
     <header
@@ -248,25 +331,82 @@ export const StorefrontHeader: React.FC<StorefrontHeaderProps> = ({
           </div>
         </div>
 
-        {/* Desktop Category Navigation */}
-        {navCategories.length > 0 && (
-          <nav className="hidden md:flex space-x-8 border-t border-gray-100 py-2.5">
-            <button
-              onClick={() => onSelectCategory && onSelectCategory("all")}
-              className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors cursor-pointer"
-            >
-              All Categories
-            </button>
-            {navCategories.map((cat) => (
-              <button
-                key={cat.id}
-                onClick={() => onSelectCategory && onSelectCategory(cat.name)}
-                className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors cursor-pointer"
-              >
-                {cat.name}
-              </button>
-            ))}
+        {/* Desktop Navigation Bar */}
+        {activeNavItems ? (
+          <nav className="hidden md:flex items-center space-x-7 border-t border-gray-100 py-2.5">
+            {activeNavItems.map((item) => {
+              if (item.type === "more") {
+                const collections = item.collections || [];
+                return (
+                  <div key={item.id} className="relative group">
+                    <button
+                      type="button"
+                      onClick={() => setMoreDropdownOpen(!moreDropdownOpen)}
+                      className="inline-flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors cursor-pointer py-1"
+                    >
+                      <span>{item.label || "More"}</span>
+                      <svg className="h-4 w-4 text-gray-400 group-hover:text-gray-600 transition-transform group-hover:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+
+                    {/* Dropdown Menu */}
+                    <div className="absolute left-0 top-full pt-1.5 hidden group-hover:block z-50 w-56">
+                      <div className="rounded-xl bg-white border border-gray-100 shadow-xl py-2 divide-y divide-gray-50">
+                        {collections.length === 0 ? (
+                          <div className="px-4 py-2 text-xs text-gray-400 italic">No collections added</div>
+                        ) : (
+                          collections.map((col: any) => (
+                            <button
+                              key={col.id || `${col.kind}-${col.colorId || col.materialId}`}
+                              onClick={() => handleCollectionItemClick(col)}
+                              className="flex items-center gap-2.5 w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-gray-900 transition-colors cursor-pointer"
+                            >
+                              <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">
+                                {col.kind}
+                              </span>
+                              <span className="font-medium truncate">{col.label || `${col.kind} #${col.colorId || col.materialId}`}</span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => handleNavItemClick(item)}
+                  className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors cursor-pointer py-1"
+                >
+                  {item.label}
+                </button>
+              );
+            })}
           </nav>
+        ) : (
+          /* Legacy Category Navigation Fallback */
+          navCategories.length > 0 && (
+            <nav className="hidden md:flex space-x-8 border-t border-gray-100 py-2.5">
+              <button
+                onClick={() => onSelectCategory && onSelectCategory("all")}
+                className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors cursor-pointer"
+              >
+                All Categories
+              </button>
+              {navCategories.map((cat) => (
+                <button
+                  key={cat.id}
+                  onClick={() => onSelectCategory && onSelectCategory(cat.name)}
+                  className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors cursor-pointer"
+                >
+                  {cat.name}
+                </button>
+              ))}
+            </nav>
+          )
         )}
       </div>
 
@@ -283,30 +423,69 @@ export const StorefrontHeader: React.FC<StorefrontHeaderProps> = ({
             />
           </form>
 
-          <div className="space-y-1">
-            <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider px-2 mb-1">Categories</div>
-            <button
-              onClick={() => {
-                onSelectCategory?.("all");
-                setMobileMenuOpen(false);
-              }}
-              className="block w-full text-left rounded-md px-3 py-2 text-base font-medium text-gray-800 hover:bg-gray-50"
-            >
-              All Products
-            </button>
-            {navCategories.map((cat) => (
+          {activeNavItems ? (
+            <div className="space-y-1">
+              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider px-2 mb-1">Navigation</div>
+              {activeNavItems.map((item) => {
+                if (item.type === "more") {
+                  return (
+                    <div key={item.id} className="space-y-1 pt-1">
+                      <div className="text-xs font-bold text-gray-500 uppercase tracking-wider px-3 py-1">
+                        {item.label || "Collections"}
+                      </div>
+                      {(item.collections || []).map((col: any) => (
+                        <button
+                          key={col.id}
+                          onClick={() => handleCollectionItemClick(col)}
+                          className="flex items-center gap-2 w-full text-left rounded-md px-4 py-1.5 text-sm text-gray-600 hover:bg-gray-50"
+                        >
+                          <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">
+                            {col.kind}
+                          </span>
+                          <span>{col.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  );
+                }
+
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => handleNavItemClick(item)}
+                    className="block w-full text-left rounded-md px-3 py-2 text-base font-medium text-gray-800 hover:bg-gray-50 cursor-pointer"
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider px-2 mb-1">Categories</div>
               <button
-                key={cat.id}
                 onClick={() => {
-                  onSelectCategory?.(cat.name);
+                  onSelectCategory?.("all");
                   setMobileMenuOpen(false);
                 }}
-                className="block w-full text-left rounded-md px-3 py-2 text-base font-medium text-gray-600 hover:bg-gray-50"
+                className="block w-full text-left rounded-md px-3 py-2 text-base font-medium text-gray-800 hover:bg-gray-50"
               >
-                {cat.name}
+                All Products
               </button>
-            ))}
-          </div>
+              {navCategories.map((cat) => (
+                <button
+                  key={cat.id}
+                  onClick={() => {
+                    onSelectCategory?.(cat.name);
+                    setMobileMenuOpen(false);
+                  }}
+                  className="block w-full text-left rounded-md px-3 py-2 text-base font-medium text-gray-600 hover:bg-gray-50"
+                >
+                  {cat.name}
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="pt-2 border-t border-gray-100 space-y-2">
             {!isAuthenticated ? (
@@ -327,15 +506,18 @@ export const StorefrontHeader: React.FC<StorefrontHeaderProps> = ({
                 </div>
                 <button
                   onClick={() => navigateToAccount("orders")}
-                  className="block w-full text-left rounded-lg px-3 py-2 text-sm font-medium text-gray-700 bg-gray-50 hover:bg-gray-100"
+                  className="flex items-center gap-2 w-full text-left rounded-lg px-3 py-2 text-sm font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 transition-colors"
                 >
-                  📦 My Orders (Online & POS)
+                  <ArchiveBoxIcon className="h-4 w-4 text-gray-500 shrink-0" />
+                  <span>My Orders (Online & POS)</span>
                 </button>
+
                 <button
                   onClick={() => navigateToAccount("addresses")}
-                  className="block w-full text-left rounded-lg px-3 py-2 text-sm font-medium text-gray-700 bg-gray-50 hover:bg-gray-100"
+                  className="flex items-center gap-2 w-full text-left rounded-lg px-3 py-2 text-sm font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 transition-colors"
                 >
-                  📍 Saved Addresses
+                  <MapPinIcon className="h-4 w-4 text-gray-500 shrink-0" />
+                  <span>Saved Addresses</span>
                 </button>
                 <button
                   onClick={handleLogout}
@@ -356,3 +538,5 @@ export const StorefrontHeader: React.FC<StorefrontHeaderProps> = ({
 };
 
 export default StorefrontHeader;
+
+
