@@ -209,7 +209,6 @@ export default function PricingPage() {
   const [selectedVariantMap, setSelectedVariantMap] = useState<Record<string, boolean>>({});
 
   const [effectiveDate, setEffectiveDate] = useState(todayYyyyMmDd());
-  const [expiresAt, setExpiresAt] = useState("");
   const [entryRows, setEntryRows] = useState<EntryRow[]>([]);
   const [marginType, setMarginType] = useState<"percentage" | "amount">("percentage");
   const [editingRow, setEditingRow] = useState<ActivePricingRow | null>(null);
@@ -220,7 +219,6 @@ export default function PricingPage() {
   const [editTaxId, setEditTaxId] = useState("");
   const [editTaxPercent, setEditTaxPercent] = useState("0");
   const [editEffectiveDate, setEditEffectiveDate] = useState(todayYyyyMmDd());
-  const [editExpiresAt, setEditExpiresAt] = useState("");
   const [taxOptions, setTaxOptions] = useState<
     Array<{ id: number; tax_name: string; total_percentage: number }>
   >([]);
@@ -579,7 +577,6 @@ export default function PricingPage() {
   function openCreateModal() {
     setCreateModalOpen(true);
     setEffectiveDate(todayYyyyMmDd());
-    setExpiresAt("");
     setEntryRows([]);
     setSelectedVariantMap({});
     resetLookupFilters();
@@ -701,7 +698,7 @@ export default function PricingPage() {
             tax_id: row.tax_id || null,
             tax_percent: asText(row.tax_percent) || "0",
             effective_date: effectiveDate,
-            expires_at: expiresAt || null,
+            expires_at: null,
           })),
         }),
       });
@@ -737,7 +734,6 @@ export default function PricingPage() {
     setEditTaxId(row.tax_id != null ? String(row.tax_id) : "");
     setEditTaxPercent(asText(row.tax_percent || "0"));
     setEditEffectiveDate(asDate(row.active_from) || todayYyyyMmDd());
-    setEditExpiresAt(asDate(row.expires_at) || "");
     setEditModalOpen(true);
 
     if (useLastPurchasePrice) {
@@ -778,7 +774,7 @@ export default function PricingPage() {
           tax_id: editTaxId || null,
           tax_percent: asText(editTaxPercent) || "0",
           effective_date: editEffectiveDate,
-          expires_at: editExpiresAt || null,
+          expires_at: null,
         }),
       });
       const payload = await response.json();
@@ -1038,7 +1034,7 @@ export default function PricingPage() {
               </button>
             </div>
 
-            <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
               <div>
                 <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">
                   Effective Date
@@ -1048,18 +1044,6 @@ export default function PricingPage() {
                   min={new Date().toISOString().split("T")[0]}
                   value={editEffectiveDate}
                   onChange={(e) => setEditEffectiveDate(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">
-                  Expires At (optional)
-                </label>
-                <input
-                  type="date"
-                  min={new Date().toISOString().split("T")[0]}
-                  value={editExpiresAt}
-                  onChange={(e) => setEditExpiresAt(e.target.value)}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                 />
               </div>
@@ -1311,7 +1295,7 @@ export default function PricingPage() {
             </div>
 
             <div className="px-6 py-4 border-b">
-              <div className="grid gap-3 md:grid-cols-3">
+              <div className="grid gap-3 md:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">
                     Effective Date
@@ -1321,18 +1305,6 @@ export default function PricingPage() {
                     min={new Date().toISOString().split("T")[0]}
                     value={effectiveDate}
                     onChange={(e) => setEffectiveDate(e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">
-                    Expires At (optional)
-                  </label>
-                  <input
-                    type="date"
-                    min={new Date().toISOString().split("T")[0]}
-                    value={expiresAt}
-                    onChange={(e) => setExpiresAt(e.target.value)}
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                   />
                 </div>

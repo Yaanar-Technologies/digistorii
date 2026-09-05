@@ -90,7 +90,7 @@ const baseCostSelect = useLastPurchasePrice
     const worksheet = workbook.addWorksheet("Pricing Template");
     worksheet.columns = [
       { header: "Variant ID", key: "variant_id", width: 16 },
-      {header: "Product Code", key: "product_code", width: 24 },
+      { header: "Product Code", key: "product_code", width: 24 },
       { header: "Product Name", key: "product_name", width: 32 },
       { header: "SKU", key: "sku", width: 24 },
       { header: "Base Cost", key: "base_cost", width: 16 },
@@ -98,7 +98,6 @@ const baseCostSelect = useLastPurchasePrice
       { header: "Margin Type", key: "margin_type", width: 16 },
       { header: "Margin Value", key: "margin_value", width: 16 },
       { header: "Active From", key: "active_from", width: 16 },
-      { header: "Expires At", key: "expires_at", width: 16 },
       { header: "Tax Name", key: "tax_name", width: 20 },
     ];
 
@@ -134,13 +133,11 @@ const baseCostSelect = useLastPurchasePrice
         margin_type: row.margin_type ?? "percentage",
         margin_value: row.margin_value ?? "",
         active_from: activeFromValue,
-        expires_at: row.expires_at ? new Date(row.expires_at) : "",
         tax_name: "",
       });
     }
 
     worksheet.getColumn("active_from").numFmt = "yyyy-mm-dd";
-    worksheet.getColumn("expires_at").numFmt = "yyyy-mm-dd";
 
     const taxResult = await client.query(
       `

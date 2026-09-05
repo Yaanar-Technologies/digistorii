@@ -15,7 +15,14 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
         UPDATE "${schema}".discounts
         SET is_active = $1
         WHERE id = $2
-        RETURNING *
+        RETURNING *,
+          CASE 
+            WHEN is_active = TRUE 
+              AND (starts_at IS NULL OR starts_at <= NOW()) 
+              AND (ends_at IS NULL OR ends_at >= NOW()) 
+            THEN 'active'
+            ELSE 'inactive'
+          END AS status
       `,
       [isActive, id]
     );

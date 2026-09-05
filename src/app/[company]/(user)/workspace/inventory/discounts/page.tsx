@@ -32,6 +32,7 @@ type Discount = {
   starts_at?: string | null;
   ends_at?: string | null;
   is_active: boolean;
+  status?: "active" | "inactive" | string;
   created_at?: string;
   variant_count?: number;
   variants?: DiscountVariantRow[];
@@ -127,7 +128,7 @@ export default function DiscountSchemesPage() {
     const needle = search.trim().toLowerCase();
     if (!needle) return discounts;
     return discounts.filter((d) =>
-      `${d.name} ${d.discount_type} ${d.value} ${d.coupon_code || ""} ${d.priority}`
+      `${d.name} ${d.discount_type} ${d.value} ${d.coupon_code || ""} ${d.priority} ${d.status || ""}`
         .toLowerCase()
         .includes(needle)
     );
@@ -442,9 +443,7 @@ export default function DiscountSchemesPage() {
       });
       const data = await res.json();
       if (!data?.success) throw new Error(data?.error || "Failed to update status");
-      setDiscounts((prev) =>
-        prev.map((row) => (row.id === discount.id ? { ...row, is_active: !discount.is_active } : row))
-      );
+      await fetchDiscounts();
     } catch (err) {
       console.error(err);
     }
@@ -589,10 +588,15 @@ export default function DiscountSchemesPage() {
                         <td className="ui-table-td-center">{d.priority}</td>
                         <td className="ui-table-td-center">
                           <span
-                            className={`px-2 py-1 rounded-full text-[10px] font-bold ${d.is_active ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
-                              }`}
+                            className={`px-2 py-1 rounded-full text-[10px] font-bold ${
+                              (d.status ?? (d.is_active ? "active" : "inactive")) === "active"
+                                ? "bg-green-100 text-green-700"
+                                : "bg-red-100 text-red-700"
+                            }`}
                           >
-                            {d.is_active ? "ACTIVE" : "INACTIVE"}
+                            {((d.status ?? (d.is_active ? "active" : "inactive")) === "active"
+                              ? "ACTIVE"
+                              : "INACTIVE")}
                           </span>
                         </td>
                         <td className="ui-table-td-center">

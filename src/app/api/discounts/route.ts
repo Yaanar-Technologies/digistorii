@@ -44,12 +44,28 @@ export async function GET(req: NextRequest) {
           d.ends_at,
           d.is_active,
           d.created_at,
+          CASE 
+            WHEN d.is_active = TRUE 
+              AND (d.starts_at IS NULL OR d.starts_at <= NOW()) 
+              AND (d.ends_at IS NULL OR d.ends_at >= NOW()) 
+            THEN 'active'
+            ELSE 'inactive'
+          END AS status,
           COUNT(dv.variant_id)::int AS variant_count
         FROM "${schema}".discounts d
         LEFT JOIN "${schema}".discount_variants dv
           ON dv.discount_id = d.id
         GROUP BY d.id
-        ORDER BY d.is_active DESC, d.created_at DESC, d.priority ASC
+        ORDER BY
+          CASE 
+            WHEN d.is_active = TRUE 
+              AND (d.starts_at IS NULL OR d.starts_at <= NOW()) 
+              AND (d.ends_at IS NULL OR d.ends_at >= NOW()) 
+            THEN 1
+            ELSE 0
+          END DESC,
+          d.created_at DESC,
+          d.priority ASC
       `
     );
     return NextResponse.json({ success: true, data: result.rows });

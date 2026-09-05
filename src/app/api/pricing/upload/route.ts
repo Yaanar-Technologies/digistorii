@@ -89,9 +89,6 @@ function parseWorksheetRows(buffer: Buffer, useLastPurchasePrice = false): {
   const activeFromIndex = headers.findIndex(
     (header) => header === "active from" || header === "active_from" || header === "effective date"
   );
-  const expiresAtIndex = headers.findIndex(
-    (header) => header === "expires at" || header === "expires_at"
-  );
 
   if (variantIndex < 0 || baseCostIndex < 0) {
     throw new Error("Invalid template columns");
@@ -117,7 +114,6 @@ function parseWorksheetRows(buffer: Buffer, useLastPurchasePrice = false): {
     const marginValueRaw = cellAsText(current[marginValueIndex]);
     const taxNameRaw = cellAsText(current[taxNameIndex]);
     const activeFromRaw = activeFromIndex >= 0 ? cellAsText(current[activeFromIndex]) : "";
-    const expiresAtRaw = expiresAtIndex >= 0 ? cellAsText(current[expiresAtIndex]) : "";
 
     const isEmpty =
       !variantId &&
@@ -126,8 +122,7 @@ function parseWorksheetRows(buffer: Buffer, useLastPurchasePrice = false): {
       !marginTypeRaw &&
       !marginValueRaw &&
       !taxNameRaw &&
-      !activeFromRaw &&
-      !expiresAtRaw;
+      !activeFromRaw;
     if (isEmpty) {
       continue;
     }
@@ -154,12 +149,8 @@ function parseWorksheetRows(buffer: Buffer, useLastPurchasePrice = false): {
       const today = new Date().toISOString().slice(0, 10);
       const activeFrom =
         activeFromRaw === "" ? today : parseDateOnly(activeFromRaw, "Active From");
-      const expiresAt = expiresAtRaw === "" ? null : parseDateOnly(expiresAtRaw, "Expires At");
       if (activeFrom < today) {
         throw new Error("Active From cannot be in the past");
-      }
-      if (expiresAt && expiresAt < activeFrom) {
-        throw new Error("Expires At cannot be before Active From");
       }
 
       if (marginTypeRaw && marginTypeRaw !== "percentage" && marginTypeRaw !== "amount") {
@@ -179,7 +170,7 @@ function parseWorksheetRows(buffer: Buffer, useLastPurchasePrice = false): {
         taxName: taxNameRaw,
         taxPercent: 0,
         activeFrom,
-        expiresAt,
+        expiresAt: null,
       });
     } catch (error: any) {
       errors.push({

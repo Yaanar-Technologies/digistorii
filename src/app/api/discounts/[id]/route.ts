@@ -20,7 +20,19 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     const { id } = await context.params;
 
     const discountRes = await client.query(
-      `SELECT * FROM "${schema}".discounts WHERE id = $1`,
+      `
+        SELECT
+          d.*,
+          CASE 
+            WHEN d.is_active = TRUE 
+              AND (d.starts_at IS NULL OR d.starts_at <= NOW()) 
+              AND (d.ends_at IS NULL OR d.ends_at >= NOW()) 
+            THEN 'active'
+            ELSE 'inactive'
+          END AS status
+        FROM "${schema}".discounts d
+        WHERE d.id = $1
+      `,
       [id]
     );
     if (!discountRes.rows.length) {
