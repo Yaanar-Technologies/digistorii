@@ -1,5 +1,6 @@
 export type NavItemType =
   | "category"        // categoryId -> product_categories.id
+  | "all_categories"
   | "new_arrivals"
   | "offers"
   | "about"

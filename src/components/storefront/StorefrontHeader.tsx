@@ -116,6 +116,14 @@ export const StorefrontHeader: React.FC<StorefrontHeaderProps> = ({
     const baseStore = slug ? `/${slug}/store` : "/store";
 
     switch (item.type) {
+      case "all_categories": {
+        if (onSelectCategory) {
+          onSelectCategory("all");
+        } else {
+          router.push(`${baseStore}/products`);
+        }
+        break;
+      }
       case "category": {
         const isAllCategories =
           !item.categoryId ||

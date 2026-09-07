@@ -635,9 +635,8 @@ export default function ThemeCustomizationPage() {
       case "all_categories":
         newItem = {
           id: newId,
-          type: "category",
+          type: "all_categories",
           label: "All Categories",
-          categoryId: undefined,
           enabled: true,
           order: newOrder,
         };
