@@ -56,6 +56,32 @@ export const ShopByCategoryHomeSection: React.FC<ShopByCategorySectionProps> = (
 
         {/* Categories Grid */}
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 sm:gap-6">
+          {/* All Categories Option Card */}
+          <div
+            onClick={() => onSelectCategory && onSelectCategory("all")}
+            className="group relative flex flex-col overflow-hidden rounded-2xl border border-gray-100 bg-gray-50 shadow-xs transition-all duration-300 hover:-translate-y-1 hover:shadow-lg cursor-pointer"
+          >
+            <div className="aspect-square w-full overflow-hidden bg-gradient-to-br from-gray-100 via-gray-50 to-gray-200 flex flex-col items-center justify-center p-4 text-center group-hover:scale-105 transition-transform duration-500">
+              <div
+                className="h-14 w-14 rounded-2xl flex items-center justify-center text-white shadow-md mb-2 group-hover:scale-110 transition-transform duration-300"
+                style={{ backgroundColor: theme.primaryColor || "#2563eb" }}
+              >
+                <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                </svg>
+              </div>
+              <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Explore Catalog</span>
+            </div>
+            <div className="p-4 text-center">
+              <h3 className="font-semibold text-gray-900 group-hover:text-brand-600 transition-colors">
+                All Categories
+              </h3>
+              <span className="text-xs text-gray-500 mt-0.5 block">
+                All Products
+              </span>
+            </div>
+          </div>
+
           {displayedCategories.map((cat) => {
             const catId = Number(cat.id);
             const override = section.overrides?.[catId];

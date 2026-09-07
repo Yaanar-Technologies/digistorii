@@ -4,6 +4,7 @@ export const mockTheme: StorefrontTheme = {
   primaryColor: "#2563eb",
   secondaryColor: "#1d4ed8",
   logoUrl: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150&auto=format&fit=crop&q=80",
+  headerTitle: "Store",
   bannerImages: [
     "https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=1200&auto=format&fit=crop&q=80",
     "https://images.unsplash.com/photo-1472851294608-062f824d29cc?w=1200&auto=format&fit=crop&q=80",

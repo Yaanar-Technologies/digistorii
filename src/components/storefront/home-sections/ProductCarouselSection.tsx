@@ -3,6 +3,7 @@
 import React from "react";
 import { ProductCarouselSection as ProductCarouselSectionType, StorefrontTheme, StorefrontProduct } from "../types";
 import { ShoppingBagIcon } from "@heroicons/react/24/outline";
+import { formatPrice } from "@/lib/currency";
 
 interface ProductCarouselSectionProps {
   section: ProductCarouselSectionType;
@@ -133,11 +134,11 @@ export const ProductCarouselHomeSection: React.FC<ProductCarouselSectionProps> =
                   <div className="mt-3 flex items-center justify-between pt-2 border-t border-gray-50">
                     <div className="flex items-baseline gap-1.5">
                       <span className="text-base font-bold text-gray-900">
-                        ${p.effectivePrice.toFixed(2)}
+                        {formatPrice(p.effectivePrice)}
                       </span>
                       {p.compareAtPrice && p.compareAtPrice > p.effectivePrice && (
                         <span className="text-xs text-gray-400 line-through">
-                          ${p.compareAtPrice.toFixed(2)}
+                          {formatPrice(p.originalPrice || p.compareAtPrice)}
                         </span>
                       )}
                     </div>

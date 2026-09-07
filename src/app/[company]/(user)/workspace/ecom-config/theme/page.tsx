@@ -77,6 +77,7 @@ export const toStorefrontTheme = (
   secondaryColor: config.secondary_color || "#1e40af",
   logoUrl: (config.logo_image_id && resolvedImages[config.logo_image_id]) || config.logo_url || "",
   logoImageId: config.logo_image_id,
+  headerTitle: config.header_title || "",
   bannerImages: config.hero_banner_image_id && resolvedImages[config.hero_banner_image_id]
     ? [resolvedImages[config.hero_banner_image_id]]
     : config.hero_banner_url
@@ -100,6 +101,7 @@ export const toStorefrontTheme = (
 export const fromStorefrontTheme = (theme: StorefrontTheme): ThemeConfig => ({
   logo_url: theme.logoUrl,
   logo_image_id: theme.logoImageId,
+  header_title: theme.headerTitle || "",
   hero_title: theme.heroTitle,
   hero_subtitle: theme.heroDescription,
   hero_banner_url: theme.bannerImages?.[0] || "",
@@ -322,7 +324,7 @@ export default function ThemeCustomizationPage() {
           setNavItems(config.nav_items);
         } else {
           const defaultNav: NavItem[] = [
-            { id: "nav-cat-all", type: "category", label: "All Products", enabled: true, order: 1 },
+            { id: "nav-cat-all", type: "category", label: "All Categories", enabled: true, order: 1 },
             { id: "nav-new", type: "new_arrivals", label: "New Arrivals", enabled: true, order: 2 },
             { id: "nav-offers", type: "offers", label: "Offers", enabled: true, order: 3 },
             { id: "nav-about", type: "about", label: "About", enabled: true, order: 4 },
@@ -630,6 +632,16 @@ export default function ThemeCustomizationPage() {
     let newItem: NavItem;
 
     switch (type) {
+      case "all_categories":
+        newItem = {
+          id: newId,
+          type: "category",
+          label: "All Categories",
+          categoryId: undefined,
+          enabled: true,
+          order: newOrder,
+        };
+        break;
       case "category":
         newItem = {
           id: newId,
@@ -1754,6 +1766,13 @@ export default function ThemeCustomizationPage() {
                 <span className="text-xs font-semibold text-gray-600 self-center">Add:</span>
                 <button
                   type="button"
+                  onClick={() => addNavItem("all_categories")}
+                  className="px-2.5 py-1 text-xs font-medium rounded-md bg-white border border-gray-300 text-gray-700 hover:bg-gray-100 cursor-pointer shadow-xs"
+                >
+                  + All Categories
+                </button>
+                <button
+                  type="button"
                   onClick={() => addNavItem("category")}
                   className="px-2.5 py-1 text-xs font-medium rounded-md bg-white border border-gray-300 text-gray-700 hover:bg-gray-100 cursor-pointer shadow-xs"
                 >
@@ -1862,21 +1881,32 @@ export default function ThemeCustomizationPage() {
                       <div className="mt-2 pt-2 border-t border-gray-100 flex items-center gap-2 text-xs">
                         <label className="text-gray-500">Target Category:</label>
                         <select
-                          value={item.categoryId || ""}
+                          value={item.categoryId ? String(item.categoryId) : "all"}
                           onChange={(e) => {
-                            const val = Number(e.target.value);
-                            const foundCat = workspaceCategories.find((c) => Number(c.id) === val);
-                            setNavItems(
-                              navItems.map((i) =>
-                                i.id === item.id
-                                  ? { ...i, categoryId: val, label: foundCat?.name || i.label }
-                                  : i
-                              )
-                            );
+                            const valStr = e.target.value;
+                            if (valStr === "all" || !valStr) {
+                              setNavItems(
+                                navItems.map((i) =>
+                                  i.id === item.id
+                                    ? { ...i, categoryId: undefined, label: "All Categories" }
+                                    : i
+                                )
+                              );
+                            } else {
+                              const val = Number(valStr);
+                              const foundCat = workspaceCategories.find((c) => Number(c.id) === val);
+                              setNavItems(
+                                navItems.map((i) =>
+                                  i.id === item.id
+                                    ? { ...i, categoryId: val, label: foundCat?.name || i.label }
+                                    : i
+                                )
+                              );
+                            }
                           }}
                           className="rounded border border-gray-300 p-1 text-xs focus:outline-none"
                         >
-                          <option value="">Select Category</option>
+                          <option value="all">All Categories (All Products)</option>
                           {workspaceCategories.map((c) => (
                             <option key={c.id} value={c.id}>
                               {c.path_string || c.name}

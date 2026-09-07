@@ -90,17 +90,11 @@ export async function GET(
       conditions.push("act_disc.discount_value > 0 AND act_disc.discount_value IS NOT NULL");
     }
 
-    if (filterParam === "new_arrivals") {
+    const isNewArrivalsFilter = filterParam === "new_arrivals";
+
+    if (isNewArrivalsFilter) {
       if (newArrivalVariantIds.length > 0 && newArrivalsValIdx !== null) {
-        conditions.push(`EXISTS (
-          SELECT 1
-          FROM "${schema}".product_variants pv_na
-          INNER JOIN "${schema}".storefront_products sp_na ON sp_na.variant_id = pv_na.id
-          WHERE pv_na.product_id = p.id
-            AND pv_na.status = 'active'
-            AND sp_na.is_live = TRUE
-            AND pv_na.id = ANY($${newArrivalsValIdx}::bigint[])
-        )`);
+        conditions.push(`pv.id = ANY($${newArrivalsValIdx}::bigint[])`);
       }
     }
 
@@ -153,7 +147,7 @@ export async function GET(
     let outerOrderBy = "ORDER BY sub.product_name ASC";
     if (filterParam === "new_arrivals" || sortParam === "new_arrivals") {
       if (newArrivalVariantIds.length > 0 && newArrivalsValIdx !== null) {
-        outerOrderBy = `ORDER BY (sub.is_new_arrival = TRUE) DESC, array_position($${newArrivalsValIdx}::bigint[], sub.variant_id) ASC NULLS LAST, sub.latest_stock_date DESC NULLS LAST, sub.created_at DESC`;
+        outerOrderBy = `ORDER BY array_position($${newArrivalsValIdx}::bigint[], sub.variant_id) ASC, sub.latest_stock_date DESC NULLS LAST, sub.created_at DESC`;
       } else {
         outerOrderBy = "ORDER BY sub.latest_stock_date DESC NULLS LAST, sub.created_at DESC";
       }
@@ -176,11 +170,13 @@ export async function GET(
       ? `(pv.id = ANY($${newArrivalsValIdx}::bigint[]))`
       : `FALSE`;
 
-    const distinctClause = isExplicitVariantList
+    const isVariantLevelGrid = isExplicitVariantList || (isNewArrivalsFilter && newArrivalVariantIds.length > 0);
+
+    const distinctClause = isVariantLevelGrid
       ? ""
       : "DISTINCT ON (p.id)";
 
-    const innerOrderByClause = isExplicitVariantList
+    const innerOrderByClause = isVariantLevelGrid
       ? "ORDER BY p.id, pv.id ASC"
       : newArrivalsValIdx !== null
       ? `ORDER BY p.id, (pv.id = ANY($${newArrivalsValIdx}::bigint[])) DESC, pv.id ASC`

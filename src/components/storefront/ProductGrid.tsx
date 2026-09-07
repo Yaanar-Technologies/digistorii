@@ -338,8 +338,8 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
                   style={{ accentColor: theme.primaryColor }}
                 />
                 <div className="flex justify-between text-xs text-gray-500 font-medium">
-                  <span>$0</span>
-                  <span>${maxPriceFilter ?? Math.ceil(maxProductPrice)}</span>
+                  <span>{formatPrice(0)}</span>
+                  <span>{formatPrice(maxPriceFilter ?? Math.ceil(maxProductPrice))}</span>
                 </div>
               </div>
             </div>

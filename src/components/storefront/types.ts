@@ -184,6 +184,7 @@ export type StorefrontTheme = {
   secondaryColor: string;
   logoUrl: string;
   logoImageId?: number;
+  headerTitle?: string;
   bannerImages: string[];
   bannerImageId?: number;
   fontFamily: string;

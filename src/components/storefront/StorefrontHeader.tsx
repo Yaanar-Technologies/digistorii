@@ -117,13 +117,29 @@ export const StorefrontHeader: React.FC<StorefrontHeaderProps> = ({
 
     switch (item.type) {
       case "category": {
-        const cat = categories.find((c) => Number(c.id) === Number(item.categoryId));
-        const catName = cat?.slug || cat?.name || item.label;
-        if (onSelectCategory) {
-          onSelectCategory(catName);
+        const isAllCategories =
+          !item.categoryId ||
+          String(item.categoryId) === "all" ||
+          Number(item.categoryId) === 0 ||
+          item.label?.toLowerCase() === "all categories" ||
+          item.label?.toLowerCase() === "all products" ||
+          item.label?.toLowerCase() === "all";
+
+        if (isAllCategories) {
+          if (onSelectCategory) {
+            onSelectCategory("all");
+          } else {
+            router.push(`${baseStore}/products`);
+          }
         } else {
-          const catIdParam = item.categoryId ? `&category_id=${item.categoryId}` : "";
-          router.push(`${baseStore}/products?category=${encodeURIComponent(catName)}${catIdParam}`);
+          const cat = categories.find((c) => Number(c.id) === Number(item.categoryId));
+          const catName = cat?.slug || cat?.name || item.label;
+          if (onSelectCategory) {
+            onSelectCategory(catName);
+          } else {
+            const catIdParam = item.categoryId ? `&category_id=${item.categoryId}` : "";
+            router.push(`${baseStore}/products?category=${encodeURIComponent(catName)}${catIdParam}`);
+          }
         }
         break;
       }
@@ -183,12 +199,12 @@ export const StorefrontHeader: React.FC<StorefrontHeaderProps> = ({
         className="px-4 py-1.5 text-center text-xs font-medium text-white transition-colors"
         style={{ backgroundColor: theme.primaryColor }}
       >
-        <span>Free shipping on orders over $50 | 100% Secure Checkout</span>
+        <span>Free shipping on orders over ₹500 | 100% Secure Checkout</span>
       </div>
 
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between gap-4">
-          {/* Left: Mobile Menu Button & Brand Logo */}
+          {/* Left: Mobile Menu Button & Brand Logo + Header Title */}
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -205,13 +221,22 @@ export const StorefrontHeader: React.FC<StorefrontHeaderProps> = ({
               </svg>
             </button>
 
-            {/* Logo */}
-            <a href={`/${getCompanySlug()}/store`} className="flex items-center gap-2">
-              {theme.logoUrl ? (
-                <img src={theme.logoUrl} alt="Store Logo" className="h-9 w-auto max-w-[150px] object-contain" />
-              ) : (
-                <span className="text-xl font-bold tracking-tight text-gray-900">Store</span>
+            {/* Logo & Header Title */}
+            <a href={`/${getCompanySlug()}/store`} className="flex items-center gap-3">
+              {theme.logoUrl && (
+                <img
+                  src={theme.logoUrl}
+                  alt={theme.headerTitle || "Store Logo"}
+                  className="h-9 w-auto max-w-[140px] sm:max-w-[160px] object-contain shrink-0"
+                />
               )}
+              {theme.headerTitle ? (
+                <span className="text-base sm:text-lg font-bold tracking-tight text-gray-900 truncate max-w-[180px] sm:max-w-[280px]">
+                  {theme.headerTitle}
+                </span>
+              ) : !theme.logoUrl ? (
+                <span className="text-xl font-bold tracking-tight text-gray-900">Store</span>
+              ) : null}
             </a>
           </div>
 

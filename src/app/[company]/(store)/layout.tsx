@@ -39,6 +39,7 @@ export default function StorefrontLayout({
               secondaryColor: pub.secondary_color || "#1e40af",
               logoUrl: pub.logo_url || "",
               logoImageId: pub.logo_image_id,
+              headerTitle: pub.header_title || "",
               bannerImages: pub.hero_banner_url ? [pub.hero_banner_url] : mockTheme.bannerImages,
               bannerImageId: pub.hero_banner_image_id,
               fontFamily: pub.font_family || "Inter",

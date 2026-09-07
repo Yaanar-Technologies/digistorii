@@ -3,6 +3,7 @@
 import React from "react";
 import { OffersSection as OffersSectionType, StorefrontTheme, TenantOffer } from "../types";
 import { TagIcon, SparklesIcon } from "@heroicons/react/24/outline";
+import { formatPrice } from "@/lib/currency";
 
 interface OffersSectionProps {
   section: OffersSectionType;
@@ -81,7 +82,7 @@ export const OffersHomeSection: React.FC<OffersSectionProps> = ({
             const formattedValue =
               offer.discountType === "percentage"
                 ? `${offer.discountValue}% OFF`
-                : `$${offer.discountValue.toFixed(2)} OFF`;
+                : `${formatPrice(offer.discountValue)} OFF`;
 
             return (
               <div
