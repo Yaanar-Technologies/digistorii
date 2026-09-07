@@ -1363,6 +1363,12 @@ export async function createEcomSchema(
       gateway_provider VARCHAR(30),
       gateway_key_id TEXT,
       gateway_key_secret_enc TEXT,
+      gateway_webhook_secret_enc TEXT,
+      delivery_partner VARCHAR(30) DEFAULT NULL,
+      delivery_api_key_enc TEXT,
+      delivery_api_secret_enc TEXT,
+      delivery_webhook_secret_enc TEXT,
+      pickup_location_code VARCHAR(100),
       serviceable_countries TEXT[] NOT NULL DEFAULT ARRAY['India'],
       serviceable_states TEXT[],
       serviceable_pincodes TEXT[],
@@ -1378,6 +1384,16 @@ export async function createEcomSchema(
       created_at TIMESTAMP DEFAULT NOW(),
       updated_at TIMESTAMP DEFAULT NOW()
     );
+  `);
+
+  await client.query(`
+    ALTER TABLE "${schema}".ecom_settings
+      ADD COLUMN IF NOT EXISTS gateway_webhook_secret_enc TEXT,
+      ADD COLUMN IF NOT EXISTS delivery_partner VARCHAR(30),
+      ADD COLUMN IF NOT EXISTS delivery_api_key_enc TEXT,
+      ADD COLUMN IF NOT EXISTS delivery_api_secret_enc TEXT,
+      ADD COLUMN IF NOT EXISTS delivery_webhook_secret_enc TEXT,
+      ADD COLUMN IF NOT EXISTS pickup_location_code VARCHAR(100);
   `);
 
   // 2. Create storefront_config table
@@ -1523,6 +1539,134 @@ export async function createEcomSchema(
       added_at TIMESTAMP DEFAULT NOW(),
       CONSTRAINT unique_customer_wishlist_variant UNIQUE (customer_id, variant_id)
     );
+  `);
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "${schema}".online_orders (
+      id BIGSERIAL PRIMARY KEY,
+      order_no VARCHAR(30) UNIQUE NOT NULL,
+      company_id INT NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
+      customer_id INT NOT NULL REFERENCES "${schema}".customers(id) ON DELETE RESTRICT,
+      location_id INT REFERENCES "${schema}".locations(id) ON DELETE RESTRICT,
+      warehouse_id INT REFERENCES "${schema}".warehouses(id) ON DELETE RESTRICT,
+      shipping_address_id INT REFERENCES "${schema}".customer_addresses(id) ON DELETE RESTRICT,
+      billing_address_id INT REFERENCES "${schema}".customer_addresses(id) ON DELETE RESTRICT,
+      currency VARCHAR(10) NOT NULL DEFAULT 'INR',
+      subtotal NUMERIC(12,2) NOT NULL DEFAULT 0,
+      tax_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+      shipping_fee NUMERIC(12,2) NOT NULL DEFAULT 0,
+      discount_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+      total_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+      order_status VARCHAR(30) NOT NULL DEFAULT 'placed'
+        CHECK (order_status IN ('placed','confirmed','packed','shipped',
+          'out_for_delivery','delivered','cancelled','payment_failed',
+          'returned','refunded')),
+      payment_status VARCHAR(20) NOT NULL DEFAULT 'pending'
+        CHECK (payment_status IN ('pending','authorized','paid','failed','refunded','partial')),
+      payment_method VARCHAR(20)
+        CHECK (payment_method IN ('upi','card','netbanking','wallet','cod')),
+      delivery_status VARCHAR(30) NOT NULL DEFAULT 'not_shipped'
+        CHECK (delivery_status IN ('not_shipped','picked_up','in_transit',
+          'out_for_delivery','delivered','failed_delivery','rto')),
+      delivery_partner VARCHAR(50),
+      order_type VARCHAR(10) NOT NULL DEFAULT 'online' CHECK (order_type = 'online'),
+      notes TEXT,
+      created_by VARCHAR(100),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_by VARCHAR(100),
+      updated_at TIMESTAMPTZ
+    );
+  `);
+
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "${schema}".online_order_items (
+      id BIGSERIAL PRIMARY KEY,
+      order_id BIGINT NOT NULL REFERENCES "${schema}".online_orders(id) ON DELETE CASCADE,
+      variant_id BIGINT NOT NULL REFERENCES "${schema}".product_variants(id) ON DELETE RESTRICT,
+      product_name VARCHAR(255) NOT NULL,
+      uom VARCHAR(20),
+      hsn_no VARCHAR(20),
+      rate NUMERIC(12,2) NOT NULL DEFAULT 0,
+      qty NUMERIC(12,2) NOT NULL DEFAULT 0,
+      discount NUMERIC(12,2) DEFAULT 0,
+      tax_master_id INT REFERENCES "${schema}".tax_master(id) ON DELETE SET NULL,
+      tax_amount NUMERIC(12,2) DEFAULT 0,
+      line_total NUMERIC(12,2) DEFAULT 0,
+      reservation_id BIGINT REFERENCES "${schema}".inventory_reservations(id) ON DELETE SET NULL,
+      fulfillment_status VARCHAR(20) NOT NULL DEFAULT 'pending'
+        CHECK (fulfillment_status IN ('pending','reserved','allocated','fulfilled','cancelled')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "${schema}".online_order_payments (
+      id BIGSERIAL PRIMARY KEY,
+      order_id BIGINT NOT NULL REFERENCES "${schema}".online_orders(id) ON DELETE CASCADE,
+      gateway VARCHAR(30) NOT NULL DEFAULT 'razorpay',
+      gateway_order_id VARCHAR(100),
+      gateway_payment_id VARCHAR(100),
+      gateway_signature VARCHAR(255),
+      amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+      status VARCHAR(20) NOT NULL DEFAULT 'created'
+        CHECK (status IN ('created','authorized','captured','failed','refunded')),
+      method VARCHAR(20),
+      raw_response JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "${schema}".online_order_status_history (
+      id BIGSERIAL PRIMARY KEY,
+      order_id BIGINT NOT NULL REFERENCES "${schema}".online_orders(id) ON DELETE CASCADE,
+      status_type VARCHAR(20) NOT NULL CHECK (status_type IN ('order','payment','delivery')),
+      from_status VARCHAR(30),
+      to_status VARCHAR(30) NOT NULL,
+      changed_by VARCHAR(100),
+      note TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "${schema}".online_order_deliveries (
+      id BIGSERIAL PRIMARY KEY,
+      order_id BIGINT NOT NULL UNIQUE REFERENCES "${schema}".online_orders(id) ON DELETE CASCADE,
+      courier_partner VARCHAR(50),
+      awb_number VARCHAR(100),
+      tracking_url TEXT,
+      pickup_scheduled_at TIMESTAMPTZ,
+      picked_up_at TIMESTAMPTZ,
+      out_for_delivery_at TIMESTAMPTZ,
+      delivered_at TIMESTAMPTZ,
+      estimated_delivery_at TIMESTAMPTZ,
+      last_location TEXT,
+      last_webhook_payload JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ
+    );
+  `);
+
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS idx_online_orders_customer
+      ON "${schema}".online_orders(customer_id);
+
+    CREATE INDEX IF NOT EXISTS idx_online_orders_status
+      ON "${schema}".online_orders(order_status);
+
+    CREATE INDEX IF NOT EXISTS idx_online_orders_payment_status
+      ON "${schema}".online_orders(payment_status);
+
+    CREATE INDEX IF NOT EXISTS idx_online_order_items_order
+      ON "${schema}".online_order_items(order_id);
+
+    CREATE INDEX IF NOT EXISTS idx_online_order_payments_order
+      ON "${schema}".online_order_payments(order_id);
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_online_order_payments_gateway_order
+      ON "${schema}".online_order_payments(gateway_order_id)
+      WHERE gateway_order_id IS NOT NULL;
+
+    CREATE INDEX IF NOT EXISTS idx_online_order_status_history_order
+      ON "${schema}".online_order_status_history(order_id, created_at);
   `);
 }
 
