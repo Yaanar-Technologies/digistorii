@@ -99,6 +99,9 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
   const savingsAmount = activeVariant
     ? (activeVariant.savingsAmount || (originalPrice ? originalPrice - currentPrice : 0))
     : (product.savingsAmount || (originalPrice ? originalPrice - currentPrice : 0));
+  const isNewArrival = activeVariant
+    ? Boolean(activeVariant.isNewArrival)
+    : Boolean(product.isNewArrival);
 
   const currentAvailableQty = activeVariant ? activeVariant.availableQty : (product.availableQty ?? (product.inStock ? 10 : 0));
   const currentLowStockThreshold = activeVariant ? activeVariant.lowStockThreshold : (product.lowStockThreshold ?? 5);
@@ -332,11 +335,29 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                 <span>Zoom</span>
               </button>
 
-              {!isInStock && (
-                <span className="absolute top-4 left-4 rounded-full bg-red-600 px-3 py-1 text-xs font-bold text-white shadow-md z-10">
-                  Out of Stock
-                </span>
-              )}
+              <div className="absolute top-4 left-4 flex flex-col gap-2 z-10">
+                {!isInStock ? (
+                  <span className="rounded-full bg-red-600 px-3 py-1 text-xs font-bold text-white shadow-md">
+                    Out of Stock
+                  </span>
+                ) : (
+                  <>
+                    {isNewArrival && (
+                      <span className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-bold uppercase tracking-wider text-white shadow-md">
+                        New
+                      </span>
+                    )}
+                    {isOnSale && (
+                      <span
+                        className="rounded-full px-3 py-1 text-xs font-bold text-white shadow-md"
+                        style={{ backgroundColor: theme.primaryColor || "#ef4444" }}
+                      >
+                        {discountBadgeText || "Sale"}
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
 
             {/* Thumbnail Row */}
@@ -428,6 +449,11 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                   {isOnSale && originalPrice && originalPrice > currentPrice && (
                     <span className="text-base text-gray-400 line-through">
                       {formatPrice(originalPrice)}
+                    </span>
+                  )}
+                  {isNewArrival && (
+                    <span className="inline-flex items-center rounded-md bg-emerald-50 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wider text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
+                      New Arrival
                     </span>
                   )}
                   {isOnSale && (

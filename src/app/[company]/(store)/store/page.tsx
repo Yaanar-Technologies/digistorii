@@ -75,6 +75,7 @@ export default function StoreHomePage() {
               discountBadgeText: p.discount_badge_text || undefined,
               savingsAmount: p.savings_amount != null ? Number(p.savings_amount) : undefined,
               inStock: Number(p.available_qty ?? 0) > 0,
+              isNewArrival: Boolean(p.is_new_arrival),
               sortOrder: 1,
             }));
             setProducts(mappedProducts);
@@ -132,6 +133,62 @@ export default function StoreHomePage() {
 
     loadStorefront();
   }, [company]);
+
+  // Load curated carousel variants to ensure all variants (even multiples of the same product) are available
+  useEffect(() => {
+    if (!company) return;
+
+    const loadCarouselVariants = async () => {
+      const carouselVariantIds = new Set<number>();
+      (theme.homeSections || []).forEach((sec) => {
+        if (sec.type === "product_carousel" && Array.isArray(sec.productVariantIds)) {
+          sec.productVariantIds.forEach((id) => {
+            if (id && Number(id) > 0) {
+              carouselVariantIds.add(Number(id));
+            }
+          });
+        }
+      });
+
+      if (carouselVariantIds.size === 0) return;
+
+      try {
+        const res = await fetch(`/api/tenant/${company}/products?variant_ids=${Array.from(carouselVariantIds).join(",")}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && Array.isArray(data.products)) {
+            const mappedVariants: StorefrontProduct[] = data.products.map((p: any) => ({
+              variantId: Number(p.id),
+              name: p.products.name,
+              category: p.products.category || "General",
+              images: p.product_images || ["https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&auto=format&fit=crop&q=80"],
+              originalPrice: p.original_price != null ? Number(p.original_price) : undefined,
+              effectivePrice: Number(p.effective_price ?? p.product_pricing?.price ?? 0),
+              compareAtPrice: p.is_on_sale ? Number(p.original_price || 0) : undefined,
+              isOnSale: p.is_on_sale === true,
+              discountValue: p.discount_value != null ? Number(p.discount_value) : undefined,
+              discountType: p.discount_type || undefined,
+              discountBadgeText: p.discount_badge_text || undefined,
+              savingsAmount: p.savings_amount != null ? Number(p.savings_amount) : undefined,
+              inStock: Number(p.available_qty ?? 0) > 0,
+              isNewArrival: Boolean(p.is_new_arrival),
+              sortOrder: 1,
+            }));
+
+            setProducts((prev) => {
+              const existingMap = new Map(prev.map((p) => [p.variantId, p]));
+              mappedVariants.forEach((mv) => existingMap.set(mv.variantId, mv));
+              return Array.from(existingMap.values());
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load carousel variants:", err);
+      }
+    };
+
+    loadCarouselVariants();
+  }, [company, theme.homeSections]);
 
   // Batch resolve all imageId references in theme
   useEffect(() => {

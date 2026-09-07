@@ -91,7 +91,12 @@ export const ProductCarouselHomeSection: React.FC<ProductCarouselSectionProps> =
                   />
 
                   {/* Badges */}
-                  <div className="absolute top-2.5 left-2.5 flex flex-col gap-1">
+                  <div className="absolute top-2.5 left-2.5 flex flex-col gap-1 z-10">
+                    {p.isNewArrival && (
+                      <span className="rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-bold uppercase tracking-wider text-white shadow-xs">
+                        NEW
+                      </span>
+                    )}
                     {p.isOnSale && (
                       <span
                         className="rounded-md px-2 py-1 text-[11px] font-bold text-white shadow-xs"

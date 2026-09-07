@@ -3,6 +3,35 @@ import { StorefrontTheme, StorefrontProduct, CategoryType, FooterSettings } from
 import { toStorefrontTheme } from "@/app/[company]/(user)/workspace/ecom-config/theme/page";
 import { calculateEcomPricing } from "@/lib/ecomDiscount";
 
+export function getNewArrivalVariantIds(themeConfig: any): number[] {
+  if (!themeConfig || typeof themeConfig !== "object") return [];
+  const homeSections = Array.isArray(themeConfig.home_sections)
+    ? themeConfig.home_sections
+    : Array.isArray(themeConfig.homeSections)
+    ? themeConfig.homeSections
+    : [];
+
+  const newArrivalSection =
+    homeSections.find(
+      (s: any) =>
+        s.type === "product_carousel" &&
+        (String(s.title || "").toLowerCase().includes("new") || String(s.id || "").includes("new"))
+    ) ||
+    homeSections.find(
+      (s: any) => s.type === "product_carousel" && Array.isArray(s.productVariantIds) && s.productVariantIds.length > 0
+    ) ||
+    homeSections.find((s: any) => s.type === "product_carousel");
+
+  const ids: number[] = [];
+  if (newArrivalSection && Array.isArray(newArrivalSection.productVariantIds)) {
+    newArrivalSection.productVariantIds.forEach((id: any) => {
+      const n = Number(id);
+      if (!isNaN(n) && n > 0) ids.push(n);
+    });
+  }
+  return ids;
+}
+
 export async function getStorefrontData(companySlug: string) {
   const slug = (companySlug || "").trim().toLowerCase();
   if (!slug) return null;

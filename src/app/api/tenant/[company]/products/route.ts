@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { calculateEcomPricing } from "@/lib/ecomDiscount";
+import { getNewArrivalVariantIds } from "@/lib/storefrontProducts";
 
 export async function GET(
   req: NextRequest,
@@ -35,7 +36,7 @@ export async function GET(
       );
     }
 
-    const { schema_name: schema } = tenantRes.rows[0];
+    const { schema_name: schema, id: companyId } = tenantRes.rows[0];
 
     // Ensure discounts table has channel column if missing
     await client.query(`
@@ -51,6 +52,14 @@ export async function GET(
         END IF;
       END $$;
     `);
+
+    // Fetch theme configuration to extract curated New Arrivals variants
+    const configRes = await client.query(
+      `SELECT published_theme, draft_theme FROM "${schema}".storefront_config WHERE company_id = $1 LIMIT 1`,
+      [companyId]
+    );
+    const themeConfig = configRes.rows[0]?.published_theme || configRes.rows[0]?.draft_theme || {};
+    const newArrivalVariantIds = getNewArrivalVariantIds(themeConfig);
 
     // Query parameters
     const url = req.nextUrl;
@@ -70,10 +79,32 @@ export async function GET(
     const values: any[] = [];
     let valIdx = 1;
 
+    let newArrivalsValIdx: number | null = null;
+    if (newArrivalVariantIds.length > 0) {
+      newArrivalsValIdx = valIdx;
+      values.push(newArrivalVariantIds);
+      valIdx++;
+    }
+
     if (filterParam === "offers" || url.searchParams.get("offers") === "true") {
       conditions.push("act_disc.discount_value > 0 AND act_disc.discount_value IS NOT NULL");
     }
 
+    if (filterParam === "new_arrivals") {
+      if (newArrivalVariantIds.length > 0 && newArrivalsValIdx !== null) {
+        conditions.push(`EXISTS (
+          SELECT 1
+          FROM "${schema}".product_variants pv_na
+          INNER JOIN "${schema}".storefront_products sp_na ON sp_na.variant_id = pv_na.id
+          WHERE pv_na.product_id = p.id
+            AND pv_na.status = 'active'
+            AND sp_na.is_live = TRUE
+            AND pv_na.id = ANY($${newArrivalsValIdx}::bigint[])
+        )`);
+      }
+    }
+
+    const isExplicitVariantList = Boolean(variantIdsParam);
     if (variantIdsParam) {
       const vIds = variantIdsParam.split(",").map(Number).filter((n) => !isNaN(n) && n > 0);
       if (vIds.length > 0) {
@@ -120,7 +151,13 @@ export async function GET(
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     let outerOrderBy = "ORDER BY sub.product_name ASC";
-    if (filterParam === "new_arrivals" || sortParam === "new_arrivals" || sortParam === "newest") {
+    if (filterParam === "new_arrivals" || sortParam === "new_arrivals") {
+      if (newArrivalVariantIds.length > 0 && newArrivalsValIdx !== null) {
+        outerOrderBy = `ORDER BY (sub.is_new_arrival = TRUE) DESC, array_position($${newArrivalsValIdx}::bigint[], sub.variant_id) ASC NULLS LAST, sub.latest_stock_date DESC NULLS LAST, sub.created_at DESC`;
+      } else {
+        outerOrderBy = "ORDER BY sub.latest_stock_date DESC NULLS LAST, sub.created_at DESC";
+      }
+    } else if (sortParam === "newest") {
       outerOrderBy = "ORDER BY sub.latest_stock_date DESC NULLS LAST, sub.created_at DESC";
     } else if (sortParam === "price_asc") {
       outerOrderBy = "ORDER BY sub.final_selling_price ASC";
@@ -135,18 +172,34 @@ export async function GET(
       valIdx++;
     }
 
+    const newArrivalConditionSql = newArrivalsValIdx !== null
+      ? `(pv.id = ANY($${newArrivalsValIdx}::bigint[]))`
+      : `FALSE`;
+
+    const distinctClause = isExplicitVariantList
+      ? ""
+      : "DISTINCT ON (p.id)";
+
+    const innerOrderByClause = isExplicitVariantList
+      ? "ORDER BY p.id, pv.id ASC"
+      : newArrivalsValIdx !== null
+      ? `ORDER BY p.id, (pv.id = ANY($${newArrivalsValIdx}::bigint[])) DESC, pv.id ASC`
+      : "ORDER BY p.id, pv.id ASC";
+
     // 2. Fetch the storefront products that are live (is_live = true)
     const query = `
       SELECT * FROM (
-        SELECT DISTINCT ON (p.id)
+        SELECT ${distinctClause}
           pv.id AS variant_id,
+          p.id AS product_id,
           p.name AS product_name,
           p.created_at AS created_at,
           new_stock.latest_stock_date AS latest_stock_date,
           pcat.path_string AS category_path,
           pcat.category_name AS category_name,
+          ${newArrivalConditionSql} AS is_new_arrival,
           COALESCE(
-            (SELECT image_url FROM "${schema}".product_images WHERE product_id = p.id ORDER BY is_primary DESC, id ASC LIMIT 1),
+            (SELECT image_url FROM "${schema}".product_images WHERE product_id = p.id AND (variant_id = pv.id OR variant_id IS NULL) ORDER BY (variant_id = pv.id) DESC, is_primary DESC, id ASC LIMIT 1),
             ''
           ) AS image_url,
           COALESCE(
@@ -210,7 +263,7 @@ export async function GET(
           LIMIT 1
         ) act_disc ON true
         ${whereClause}
-        ORDER BY p.id, pv.id ASC
+        ${innerOrderByClause}
       ) sub
       ${outerOrderBy}
       ${limitClause}
@@ -237,6 +290,7 @@ export async function GET(
       return {
         id: String(row.variant_id),
         products: {
+          id: row.product_id,
           name: row.product_name,
           category: row.category_path || row.category_name || null,
         },
@@ -245,6 +299,7 @@ export async function GET(
         },
         product_images: row.image_url ? [row.image_url] : ["https://placehold.co/600x400?text=Image+Not+Available"],
         available_qty: Number(row.available_qty || 0),
+        is_new_arrival: Boolean(row.is_new_arrival),
         // Additional discount fields
         original_price: pricing.originalPrice,
         effective_price: pricing.effectivePrice,

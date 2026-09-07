@@ -217,6 +217,7 @@ export type SiblingVariant = {
   effectivePrice: number;
   compareAtPrice?: number;
   isOnSale?: boolean;
+  isNewArrival?: boolean;
   discountValue?: number;
   discountType?: "percentage" | "fixed";
   discountBadgeText?: string;
@@ -236,6 +237,7 @@ export type StorefrontProduct = {
   effectivePrice: number;     // ecom_price_overrides.ecom_price if active, else product_pricing.final_selling_price or discounted price
   compareAtPrice?: number;
   isOnSale?: boolean;
+  isNewArrival?: boolean;
   discountValue?: number;
   discountType?: "percentage" | "fixed";
   discountBadgeText?: string;

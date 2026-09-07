@@ -51,6 +51,7 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
       compareAtPrice?: number;
       availableQty: number;
       inStock: boolean;
+      isNewArrival?: boolean;
       images: string[];
     }>;
   } | null>(null);
@@ -152,6 +153,7 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
       discountBadgeText: (v as any).discountBadgeText,
       availableQty: v.availableQty,
       inStock: v.inStock,
+      isNewArrival: (v as any).isNewArrival,
     }));
   }, [detailData, product?.variantId]);
 
@@ -181,6 +183,9 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
   const currentBadgeText = activeSizeVariant
     ? (activeSizeVariant.discountBadgeText || product?.discountBadgeText)
     : product?.discountBadgeText;
+  const currentIsNewArrival = activeSizeVariant
+    ? Boolean((activeSizeVariant as any).isNewArrival)
+    : Boolean(product?.isNewArrival);
 
   const currentInStock = activeSizeVariant ? activeSizeVariant.inStock : product?.inStock ?? false;
 
@@ -341,6 +346,11 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
               {currentIsOnSale && currentOriginalPrice && currentOriginalPrice > currentPrice && (
                 <span className="text-base text-gray-400 line-through">
                   {formatPrice(currentOriginalPrice)}
+                </span>
+              )}
+              {currentIsNewArrival && (
+                <span className="inline-flex items-center rounded-md bg-emerald-50 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wider text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
+                  New Arrival
                 </span>
               )}
               {currentIsOnSale && (

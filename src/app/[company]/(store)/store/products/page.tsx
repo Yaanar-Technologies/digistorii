@@ -70,6 +70,7 @@ export default function StoreProductsPage() {
               discountBadgeText: p.discount_badge_text || undefined,
               savingsAmount: p.savings_amount != null ? Number(p.savings_amount) : undefined,
               inStock: Number(p.available_qty ?? 0) > 0,
+              isNewArrival: Boolean(p.is_new_arrival),
               sortOrder: 1,
             }));
             setProducts(mappedProducts);

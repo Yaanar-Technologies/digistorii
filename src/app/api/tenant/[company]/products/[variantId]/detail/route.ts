@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { calculateEcomPricing } from "@/lib/ecomDiscount";
+import { getNewArrivalVariantIds } from "@/lib/storefrontProducts";
 
 export async function GET(
   req: NextRequest,
@@ -55,6 +56,14 @@ export async function GET(
         END IF;
       END $$;
     `);
+
+    // Fetch theme configuration to extract curated New Arrivals variants
+    const configRes = await client.query(
+      `SELECT published_theme, draft_theme FROM "${schema}".storefront_config WHERE company_id = $1 LIMIT 1`,
+      [companyId]
+    );
+    const themeConfig = configRes.rows[0]?.published_theme || configRes.rows[0]?.draft_theme || {};
+    const newArrivalVariantIds = getNewArrivalVariantIds(themeConfig);
 
     // 2. Find target variant to get product_id
     const targetVariantRes = await client.query(
@@ -220,6 +229,7 @@ export async function GET(
         availableQty: Number(row.available_qty || 0),
         lowStockThreshold: Number(row.low_stock_threshold || 5),
         inStock: Number(row.available_qty || 0) > 0,
+        isNewArrival: newArrivalVariantIds.includes(Number(row.variant_id)),
         images: images.length > 0 ? images : ["https://placehold.co/600x400?text=No+Image+Available"],
       };
     });

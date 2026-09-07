@@ -50,19 +50,30 @@ const ProductCard: React.FC<ProductCardProps> = React.memo(({
           className="h-full w-full object-cover object-center cursor-pointer transition-transform duration-300 group-hover:scale-105"
         />
 
-        {/* Stock / Sale Badges */}
-        {!product.inStock ? (
-          <span className="absolute top-3 left-3 rounded-full bg-red-600/90 px-2.5 py-1 text-xs font-bold text-white shadow-sm z-10">
-            Out of Stock
-          </span>
-        ) : (product.isOnSale || (product.compareAtPrice && product.compareAtPrice > product.effectivePrice)) ? (
-          <span
-            className="absolute top-3 left-3 rounded-full px-2.5 py-1 text-xs font-bold text-white shadow-sm z-10"
-            style={{ backgroundColor: theme.primaryColor || "#ef4444" }}
-          >
-            {product.discountBadgeText || "Sale"}
-          </span>
-        ) : null}
+        {/* Stock / Sale / New Badges */}
+        <div className="absolute top-3 left-3 flex flex-col gap-1 z-10">
+          {!product.inStock ? (
+            <span className="rounded-full bg-red-600/90 px-2.5 py-1 text-xs font-bold text-white shadow-sm">
+              Out of Stock
+            </span>
+          ) : (
+            <>
+              {product.isNewArrival && (
+                <span className="rounded-full bg-emerald-600 px-2.5 py-1 text-xs font-bold uppercase tracking-wider text-white shadow-sm">
+                  New
+                </span>
+              )}
+              {(product.isOnSale || (product.compareAtPrice && product.compareAtPrice > product.effectivePrice)) && (
+                <span
+                  className="rounded-full px-2.5 py-1 text-xs font-bold text-white shadow-sm"
+                  style={{ backgroundColor: theme.primaryColor || "#ef4444" }}
+                >
+                  {product.discountBadgeText || "Sale"}
+                </span>
+              )}
+            </>
+          )}
+        </div>
 
         {/* Quick View Eye + Wishlist Heart Overlay Buttons */}
         <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10">
