@@ -98,9 +98,9 @@ export async function POST(
       );
     }
 
-    // Step 2: Load ecom_settings
+    // Step 2: Load payment settings and tenant gateway configuration
     const settingsRes = await client.query(
-      `SELECT payment_mode, gateway_provider, gateway_key_id, gateway_key_secret_enc
+      `SELECT payment_mode
        FROM "${schema}".ecom_settings
        WHERE company_id = $1
        LIMIT 1`,
@@ -130,12 +130,41 @@ export async function POST(
       );
     }
 
+    let tenantKeyId: string | null = null;
+    let tenantKeySecretEnc: string | null = null;
+
     if (paymentMethod !== "cod") {
-      if (!ecomSettings?.gateway_key_id || !ecomSettings?.gateway_key_secret_enc) {
+      // 1. Check primary payment_gateway_configs table
+      const gatewayRes = await client.query(
+        `SELECT key_id, key_secret, is_active
+         FROM "${schema}".payment_gateway_configs 
+         WHERE provider = 'razorpay' AND is_active = TRUE
+         LIMIT 1`
+      );
+
+      if (gatewayRes.rowCount && gatewayRes.rows[0].key_id && gatewayRes.rows[0].key_secret) {
+        tenantKeyId = gatewayRes.rows[0].key_id;
+        tenantKeySecretEnc = gatewayRes.rows[0].key_secret;
+      } else {
+        // Fallback to legacy ecom_settings
+        const legacyRes = await client.query(
+          `SELECT gateway_key_id, gateway_key_secret_enc
+           FROM "${schema}".ecom_settings
+           WHERE company_id = $1
+           LIMIT 1`,
+          [companyId]
+        );
+        if (legacyRes.rowCount && legacyRes.rows[0].gateway_key_id && legacyRes.rows[0].gateway_key_secret_enc) {
+          tenantKeyId = legacyRes.rows[0].gateway_key_id;
+          tenantKeySecretEnc = legacyRes.rows[0].gateway_key_secret_enc;
+        }
+      }
+
+      if (!tenantKeyId || !tenantKeySecretEnc) {
         return NextResponse.json(
           {
             success: false,
-            error: "Payment gateway not configured for this store.",
+            error: "Payment gateway is not configured or active for this store. Please contact the store administrator.",
           },
           { status: 400 }
         );
@@ -467,8 +496,8 @@ export async function POST(
     }
 
     // Prepaid branch: Razorpay Order Creation using tenant's own decrypted credentials
-    const razorpaySecret = decryptSecret(ecomSettings.gateway_key_secret_enc);
-    const razorpayKeyId = ecomSettings.gateway_key_id;
+    const razorpaySecret = decryptSecret(tenantKeySecretEnc!);
+    const razorpayKeyId = tenantKeyId!;
 
     const razorpayClient = new Razorpay({
       key_id: razorpayKeyId,
@@ -512,6 +541,7 @@ export async function POST(
       order_id: orderId,
       razorpay_order_id: rzpOrder.id,
       razorpay_key_id: razorpayKeyId,
+      key_id: razorpayKeyId,
       amount: amountInPaise,
       currency: orderRow.currency || "INR",
       payment_method: paymentMethod,

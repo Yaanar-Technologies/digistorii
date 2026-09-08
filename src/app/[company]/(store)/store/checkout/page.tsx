@@ -186,22 +186,65 @@ export default function CheckoutPage() {
     }, intervalMs);
   };
 
-  // Open Razorpay widget with existing order credentials
+  // Synchronous payment verification
+  const verifyPayment = async (
+    orderInfo: PendingPrepaidOrder,
+    response: {
+      razorpay_payment_id: string;
+      razorpay_order_id: string;
+      razorpay_signature: string;
+    }
+  ) => {
+    setIsPlacingOrder(true);
+    setIsPolling(true);
+    setPollingMessage("Verifying your payment with the store...");
+    setErrorMessage(null);
+
+    try {
+      const verifyRes = await apiFetch(`/api/${company}/ecom/payment/verify`, company, {
+        method: "POST",
+        body: JSON.stringify({
+          orderId: orderInfo.orderId,
+          razorpay_order_id: response.razorpay_order_id,
+          razorpay_payment_id: response.razorpay_payment_id,
+          razorpay_signature: response.razorpay_signature,
+        }),
+      });
+
+      const verifyData = await verifyRes.json();
+
+      if (verifyRes.ok && verifyData.success) {
+        setOrderConfirmedData({
+          orderNo: orderInfo.orderNo,
+          totalAmount: orderInfo.totalAmount,
+        });
+        clearCart();
+        setIsPolling(false);
+        setPendingPrepaidOrder(null);
+      } else {
+        // Fallback to polling if sync verification encountered delay or unexpected response
+        pollOrderPayment(orderInfo.orderId, orderInfo.orderNo, orderInfo.totalAmount);
+      }
+    } catch (err) {
+      console.error("Payment verification error, falling back to status check:", err);
+      pollOrderPayment(orderInfo.orderId, orderInfo.orderNo, orderInfo.totalAmount);
+    } finally {
+      setIsPlacingOrder(false);
+    }
+  };
+
+  // Open Razorpay widget with tenant's dynamic public key and credentials
   const launchRazorpayModal = (orderInfo: PendingPrepaidOrder) => {
     const options = {
-      key: orderInfo.razorpayKeyId,
+      key: orderInfo.razorpayKeyId, // Dynamic tenant public key
       amount: orderInfo.amount,
       currency: orderInfo.currency || "INR",
       name: company,
       description: `Order #${orderInfo.orderNo}`,
       order_id: orderInfo.razorpayOrderId,
-      handler: function (_response: any) {
-        // Payment captured by client widget -> start server polling
-        pollOrderPayment(
-          orderInfo.orderId,
-          orderInfo.orderNo,
-          orderInfo.totalAmount
-        );
+      handler: async function (response: any) {
+        // Immediate synchronous server verification
+        await verifyPayment(orderInfo, response);
       },
       prefill: orderInfo.customerInfo || {},
       notes: {
@@ -331,7 +374,7 @@ export default function CheckoutPage() {
           orderId: checkoutData.order_id,
           orderNo: checkoutData.order_no,
           razorpayOrderId: checkoutData.razorpay_order_id,
-          razorpayKeyId: checkoutData.razorpay_key_id,
+          razorpayKeyId: checkoutData.key_id || checkoutData.razorpay_key_id,
           amount: checkoutData.amount,
           currency: checkoutData.currency || "INR",
           totalAmount: orderData.grandTotal,

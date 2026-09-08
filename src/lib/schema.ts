@@ -1486,7 +1486,7 @@ export async function createEcomSchema(
     LEFT JOIN (
       SELECT variant_id, SUM(qty_reserved) AS reserved_qty
       FROM "${schema}".inventory_reservations
-      WHERE status = 'held' AND expires_at > NOW()
+      WHERE (status = 'held' AND expires_at > NOW()) OR status = 'converted'
       GROUP BY variant_id
     ) r ON r.variant_id = cs.product_id
     WHERE cs.current_stock > 0;
@@ -1667,6 +1667,21 @@ export async function createEcomSchema(
 
     CREATE INDEX IF NOT EXISTS idx_online_order_status_history_order
       ON "${schema}".online_order_status_history(order_id, created_at);
+  `);
+
+  // 12. Create payment_gateway_configs table
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "${schema}".payment_gateway_configs (
+      id SERIAL PRIMARY KEY,
+      provider VARCHAR(50) NOT NULL DEFAULT 'razorpay',
+      key_id VARCHAR(255) NOT NULL,
+      key_secret VARCHAR(255) NOT NULL,
+      webhook_secret VARCHAR(255),
+      is_active BOOLEAN DEFAULT TRUE,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      UNIQUE (provider)
+    );
   `);
 }
 

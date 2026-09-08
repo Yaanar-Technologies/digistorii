@@ -104,7 +104,13 @@ export default function AdminPage() {
           </h1>
           <p className="text-sm text-gray-500">Manage user access permissions and company system configurations.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => router.push(`/${company}/admin/settings/payments`)}
+            className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-gray-50 transition shadow"
+          >
+            Payment Gateway
+          </button>
           <button
             onClick={() => router.push(`/${company}/admin/user-responsibilities`)}
             className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-gray-50 transition shadow"
