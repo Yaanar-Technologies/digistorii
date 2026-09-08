@@ -211,7 +211,7 @@ export async function POST(
            act_disc.discount_value
          FROM "${schema}".product_variants pv
          LEFT JOIN "${schema}".products p ON p.id = pv.product_id
-         LEFT JOIN "${schema}".uom u ON u.id = p.uom
+         LEFT JOIN "${schema}".uom u ON u.id::text = p.uom::text
          LEFT JOIN LATERAL (
            SELECT
              d.name AS discount_name,
