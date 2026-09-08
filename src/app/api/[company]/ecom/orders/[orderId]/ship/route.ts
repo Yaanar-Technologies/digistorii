@@ -11,7 +11,7 @@ function getStaffUsername(req: NextRequest): string {
     try {
       const parsed = JSON.parse(userCookie);
       return parsed?.username || parsed?.email || parsed?.name || `user:${parsed?.id}` || "staff";
-    } catch {}
+    } catch { }
   }
   return req.headers.get("x-user-name") || "staff";
 }
@@ -43,7 +43,7 @@ export async function POST(
     let body: ShipRequestBody = {};
     try {
       body = await req.json();
-    } catch {}
+    } catch { }
 
     let schema = "";
     try {
@@ -173,7 +173,7 @@ export async function POST(
       const itemsRes = await client.query(
         `SELECT
            pv.id AS variant_id,
-           COALESCE(oi.product_name, pv.variant_name, 'Product') AS name,
+           oi.product_name AS name
            oi.qty AS units,
            oi.rate AS selling_price,
            oi.discount,

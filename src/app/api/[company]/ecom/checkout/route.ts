@@ -194,8 +194,7 @@ export async function POST(
       // Step 4: Fetch live price & discount info
       const variantRes = await client.query(
         `SELECT
-           pv.id AS variant_id,
-           COALESCE(pv.variant_name, p.product_name, 'Product') AS product_name,
+           pv.id AS variant_id, p.product_name AS product_name,
            u.name AS uom_name,
            p.hsn_code,
            COALESCE(
