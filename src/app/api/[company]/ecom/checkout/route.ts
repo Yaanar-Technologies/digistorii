@@ -204,7 +204,19 @@ export async function POST(
            ) AS live_price,
            (SELECT pp.unit_price FROM "${schema}".product_pricing pp WHERE pp.variant_id = pv.id AND pp.is_active = TRUE LIMIT 1) AS unit_price,
            (SELECT pp.tax_percent FROM "${schema}".product_pricing pp WHERE pp.variant_id = pv.id AND pp.is_active = TRUE LIMIT 1) AS tax_percent,
-           (SELECT pp.tax_master_id FROM "${schema}".product_pricing pp WHERE pp.variant_id = pv.id AND pp.is_active = TRUE LIMIT 1) AS tax_master_id,
+           (
+  SELECT tm.id 
+  FROM "${schema}".tax_master tm 
+  WHERE tm.total_percentage = (
+    SELECT pp.tax_percent 
+    FROM "${schema}".product_pricing pp 
+    WHERE pp.variant_id = pv.id AND pp.is_active = TRUE 
+    LIMIT 1
+  ) 
+  AND tm.is_active = TRUE 
+  LIMIT 1
+) AS tax_master_id
+
            act_disc.discount_name,
            act_disc.discount_type,
            act_disc.discount_value
