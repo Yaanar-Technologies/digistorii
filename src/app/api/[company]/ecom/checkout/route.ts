@@ -194,8 +194,8 @@ export async function POST(
       // Step 4: Fetch live price & discount info
       const variantRes = await client.query(
         `SELECT
-           pv.id AS variant_id, p.product_name AS product_name,
-           u.name AS uom_name,
+           pv.id AS variant_id, p.name AS product_name,
+           u.uom_name as uom_name,
            p.hsn_code,
            COALESCE(
              (SELECT epo.ecom_price FROM "${schema}".ecom_price_overrides epo WHERE epo.variant_id = pv.id AND epo.is_active = TRUE LIMIT 1),
