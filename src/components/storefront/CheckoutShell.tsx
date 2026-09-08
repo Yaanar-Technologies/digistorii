@@ -4,11 +4,33 @@ import React, { useState, useEffect } from "react";
 import { StorefrontTheme, CartItemType } from "./types";
 import { formatPrice } from "@/lib/currency";
 
+export type CheckoutPaymentMethod = "upi" | "card" | "netbanking" | "wallet" | "cod";
+
+export interface CheckoutOrderDetails {
+  shippingAddress: {
+    fullName: string;
+    email: string;
+    phone: string;
+    addressLine: string;
+    addressLine2?: string;
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
+    isDefault?: boolean;
+  };
+  shippingAddressId?: number;
+  customerId?: number;
+  paymentMethod: CheckoutPaymentMethod;
+  items: CartItemType[];
+  grandTotal: number;
+}
+
 export interface CheckoutShellProps {
   theme: StorefrontTheme;
   company?: string;
   items: CartItemType[];
-  onPlaceOrder?: (orderDetails: any) => void;
+  onPlaceOrder?: (orderDetails: CheckoutOrderDetails) => void;
   onBackToCart?: () => void;
   savedAddresses?: any[];
   isLoading?: boolean;
@@ -28,6 +50,7 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
   const [selectedAddressId, setSelectedAddressId] = useState<number | "new" | null>(null);
   const [addressError, setAddressError] = useState("");
   const [isSavingAddress, setIsSavingAddress] = useState(false);
+  const [savedCustomerId, setSavedCustomerId] = useState<number | null>(null);
 
   // Address State Scaffolding
   const [shippingAddress, setShippingAddress] = useState({
@@ -43,8 +66,8 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
     isDefault: false,
   });
 
-  // Payment Method Scaffolding
-  const [paymentMethod, setPaymentMethod] = useState<"card" | "cod" | "upi">("cod");
+  // Payment Method Scaffolding - normalized values
+  const [paymentMethod, setPaymentMethod] = useState<CheckoutPaymentMethod>("cod");
 
   // Fetch saved customer addresses on mount
   useEffect(() => {
@@ -185,6 +208,9 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
         if (saveResult.success && saveResult.address) {
           setAddresses((prev) => [saveResult.address, ...prev.filter((a) => a.id !== saveResult.address.id)]);
           setSelectedAddressId(saveResult.address.id);
+          if (saveResult.address.customer_id) {
+            setSavedCustomerId(saveResult.address.customer_id);
+          }
         }
       } catch (err) {
         console.error("Address auto-save notice:", err);
@@ -200,8 +226,11 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
 
   const handleFinalPlaceOrder = () => {
     if (onPlaceOrder) {
+      const activeAddressId = typeof selectedAddressId === "number" ? selectedAddressId : undefined;
       onPlaceOrder({
         shippingAddress,
+        shippingAddressId: activeAddressId,
+        customerId: savedCustomerId || undefined,
         paymentMethod,
         items,
         grandTotal,
@@ -493,6 +522,26 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
                   </label>
 
                   <label
+                    className={`flex items-center justify-between rounded-xl border p-4 cursor-pointer transition-all ${paymentMethod === "upi"
+                        ? "border-blue-600 bg-blue-50/40 ring-1 ring-blue-600"
+                        : "border-gray-200 hover:bg-gray-50"
+                      }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="radio"
+                        name="payment"
+                        checked={paymentMethod === "upi"}
+                        onChange={() => setPaymentMethod("upi")}
+                      />
+                      <div>
+                        <div className="text-sm font-bold text-gray-900">UPI / QR Code</div>
+                        <div className="text-xs text-gray-500">Google Pay, PhonePe, Paytm, BHIM UPI</div>
+                      </div>
+                    </div>
+                  </label>
+
+                  <label
                     className={`flex items-center justify-between rounded-xl border p-4 cursor-pointer transition-all ${paymentMethod === "card"
                         ? "border-blue-600 bg-blue-50/40 ring-1 ring-blue-600"
                         : "border-gray-200 hover:bg-gray-50"
@@ -507,13 +556,13 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
                       />
                       <div>
                         <div className="text-sm font-bold text-gray-900">Credit / Debit Card</div>
-                        <div className="text-xs text-gray-500">Secure online card payment via Razorpay</div>
+                        <div className="text-xs text-gray-500">Visa, MasterCard, RuPay, Maestro</div>
                       </div>
                     </div>
                   </label>
 
                   <label
-                    className={`flex items-center justify-between rounded-xl border p-4 cursor-pointer transition-all ${paymentMethod === "upi"
+                    className={`flex items-center justify-between rounded-xl border p-4 cursor-pointer transition-all ${paymentMethod === "netbanking"
                         ? "border-blue-600 bg-blue-50/40 ring-1 ring-blue-600"
                         : "border-gray-200 hover:bg-gray-50"
                       }`}
@@ -522,12 +571,32 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
                       <input
                         type="radio"
                         name="payment"
-                        checked={paymentMethod === "upi"}
-                        onChange={() => setPaymentMethod("upi")}
+                        checked={paymentMethod === "netbanking"}
+                        onChange={() => setPaymentMethod("netbanking")}
                       />
                       <div>
-                        <div className="text-sm font-bold text-gray-900">UPI / Digital Wallet</div>
-                        <div className="text-xs text-gray-500">Google Pay, PhonePe, Paytm, BHIM UPI</div>
+                        <div className="text-sm font-bold text-gray-900">Net Banking</div>
+                        <div className="text-xs text-gray-500">All major Indian banks supported</div>
+                      </div>
+                    </div>
+                  </label>
+
+                  <label
+                    className={`flex items-center justify-between rounded-xl border p-4 cursor-pointer transition-all ${paymentMethod === "wallet"
+                        ? "border-blue-600 bg-blue-50/40 ring-1 ring-blue-600"
+                        : "border-gray-200 hover:bg-gray-50"
+                      }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="radio"
+                        name="payment"
+                        checked={paymentMethod === "wallet"}
+                        onChange={() => setPaymentMethod("wallet")}
+                      />
+                      <div>
+                        <div className="text-sm font-bold text-gray-900">Wallets</div>
+                        <div className="text-xs text-gray-500">Paytm, PhonePe, Mobikwik, etc.</div>
                       </div>
                     </div>
                   </label>

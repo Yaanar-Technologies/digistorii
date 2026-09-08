@@ -98,10 +98,10 @@ const navItems: NavItem[] = [
     icon: <ShoppingCartIcon className="w-5 h-5" />,
     ecommerce_access: true,
     subItems: [
-      { name: "Online Orders", path: "/workspace/ecom-orders", pro: false },
       { name: "Store Settings", path: "/workspace/ecom-config/settings", pro: false },
       { name: "Product Catalog", path: "/workspace/ecom-config/products", pro: false },
       { name: "Theme & Customize", path: "/workspace/ecom-config/theme", pro: false },
+      { name: "Online Orders", path: "/workspace/ecom-orders", pro: false },
     ],
   },
   {
