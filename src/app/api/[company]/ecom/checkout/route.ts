@@ -215,7 +215,7 @@ export async function POST(
   ) 
   AND tm.is_active = TRUE 
   LIMIT 1
-) AS tax_master_id
+) AS tax_master_id,
 
            act_disc.discount_name,
            act_disc.discount_type,
