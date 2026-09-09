@@ -199,6 +199,16 @@ export default function SalesForm() {
         header: ThermalPrintHeader;
         details: ThermalPrintDetail[];
     } | null>(null);
+    const [appliedCoupon, setAppliedCoupon] = useState<{
+        id: number | string;
+        name: string;
+        discount_type: "percentage" | "fixed";
+        value: number;
+        coupon_code: string;
+        applies_to: "entire_order" | "specific_variants";
+        allowed_variants: number[];
+    } | null>(null);
+    const [couponValidationMessage, setCouponValidationMessage] = useState<string>("");
     const [paymentPanelOpen, setPaymentPanelOpen] = useState(false);
     const [activeLineIndex, setActiveLineIndex] = useState<number | null>(null);
     const [billsSearch, setBillsSearch] = useState("");
@@ -479,7 +489,77 @@ export default function SalesForm() {
         });
     }, [billsList, billsSearch]);
 
+    useEffect(() => {
+        const code = String(couponCode || "").trim();
+        if (!code || !company) {
+            setAppliedCoupon(null);
+            setCouponValidationMessage("");
+            return;
+        }
+
+        const timer = setTimeout(async () => {
+            try {
+                const checkDate = header.sales_date || new Date().toISOString().split("T")[0];
+                const res = await fetch(
+                    `/api/discounts/validate?code=${encodeURIComponent(code)}&date=${encodeURIComponent(checkDate)}`,
+                    {
+                        headers: { "x-tenant": company },
+                    }
+                );
+                const data = await res.json();
+                if (res.ok && data?.success && data?.data) {
+                    setAppliedCoupon({
+                        ...data.data,
+                        value: Number(data.data.value || 0),
+                        allowed_variants: Array.isArray(data.data.allowed_variants)
+                            ? data.data.allowed_variants.map((id: any) => Number(id))
+                            : [],
+                    });
+                    setCouponValidationMessage("");
+                } else {
+                    setAppliedCoupon(null);
+                    setCouponValidationMessage(data?.error || "Invalid or expired coupon");
+                }
+            } catch (err) {
+                console.error("Failed to validate coupon:", err);
+                setAppliedCoupon(null);
+                setCouponValidationMessage("Failed to validate coupon");
+            }
+        }, 350);
+
+        return () => clearTimeout(timer);
+    }, [couponCode, header.sales_date, company]);
+
     const billingTotals = useMemo(() => calculateSalesTotals(details), [details]);
+
+    const couponDiscountAmount = useMemo(() => {
+        if (!appliedCoupon) return 0;
+        const { applies_to, discount_type, value, allowed_variants } = appliedCoupon;
+
+        if (applies_to === "entire_order") {
+            const baseSubtotal = billingTotals.subtotal;
+            if (discount_type === "percentage") {
+                return roundMoney((baseSubtotal * value) / 100);
+            } else {
+                return roundMoney(Math.min(value, baseSubtotal));
+            }
+        } else {
+            const eligibleDetails = details.filter((d) =>
+                allowed_variants.includes(Number(d.product_id))
+            );
+            const eligibleSubtotal = eligibleDetails.reduce(
+                (sum, d) => sum + Number(d.amount || (Number(d.rate || 0) * Number(d.qty || 0)) || 0),
+                0
+            );
+            if (eligibleSubtotal <= 0) return 0;
+
+            if (discount_type === "percentage") {
+                return roundMoney((eligibleSubtotal * value) / 100);
+            } else {
+                return roundMoney(Math.min(value, eligibleSubtotal));
+            }
+        }
+    }, [appliedCoupon, billingTotals.subtotal, details]);
 
     const returnedCreditValue = useMemo(() => {
         return returnedItemsList.reduce(
@@ -489,8 +569,8 @@ export default function SalesForm() {
     }, [returnedItemsList]);
 
     const netTotalAmount = useMemo(() => {
-        return roundMoney(billingTotals.total - returnedCreditValue);
-    }, [billingTotals.total, returnedCreditValue]);
+        return roundMoney(Math.max(0, billingTotals.total - returnedCreditValue - couponDiscountAmount));
+    }, [billingTotals.total, returnedCreditValue, couponDiscountAmount]);
 
     const {
         activeWarehouseId,
@@ -2205,6 +2285,9 @@ export default function SalesForm() {
                                 </div>
                                 <div className="flex justify-between">
                                     <span>Total Qty</span>
+                                    <span className="font-medium">{details.reduce((sum, d) => sum + Number(d.qty || 0), 0)}</span>
+                                </div>
+                                <div className="flex justify-between">
                                     <span className="text-gray-500">Subtotal</span>
                                     <span>{billingTotals.subtotal.toFixed(2)}</span>
                                 </div>
@@ -2212,6 +2295,17 @@ export default function SalesForm() {
                                     <span className="text-gray-500">Discount</span>
                                     <span>-{billingTotals.discount.toFixed(2)}</span>
                                 </div>
+                                {couponDiscountAmount > 0 && (
+                                    <div className="mt-1 flex justify-between text-emerald-600 font-semibold">
+                                        <span>Coupon ({appliedCoupon?.coupon_code})</span>
+                                        <span>-{couponDiscountAmount.toFixed(2)}</span>
+                                    </div>
+                                )}
+                                {couponValidationMessage && !appliedCoupon && couponCode.trim() && (
+                                    <div className="text-[11px] text-red-500 text-right">
+                                        {couponValidationMessage}
+                                    </div>
+                                )}
                                 <div className="mt-1 flex justify-between">
                                     <span className="text-gray-500">Tax</span>
                                     <span>{billingTotals.tax.toFixed(2)}</span>

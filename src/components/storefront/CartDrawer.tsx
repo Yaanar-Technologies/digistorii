@@ -15,6 +15,7 @@ export interface CartDrawerProps {
   onProceedToCheckout?: () => void;
   onCheckout?: () => void;
   freeShippingThreshold?: number;
+  shippingFee?: number;
 }
 
 export const CartDrawer: React.FC<CartDrawerProps> = ({
@@ -26,13 +27,20 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   onRemoveItem,
   onProceedToCheckout,
   onCheckout,
-  freeShippingThreshold = 50,
+  freeShippingThreshold = 500,
+  shippingFee = 49,
 }) => {
   if (!isOpen) return null;
 
+  const effectiveThreshold = Math.max(0, Number(freeShippingThreshold) || 0);
+  const effectiveShippingFee = Math.max(0, Number(shippingFee) || 0);
+
   const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const remainingForFreeShipping = Math.max(0, freeShippingThreshold - subtotal);
-  const shippingProgress = Math.min(100, (subtotal / freeShippingThreshold) * 100);
+  const isFreeShipping = subtotal >= effectiveThreshold;
+  const remainingForFreeShipping = Math.max(0, effectiveThreshold - subtotal);
+  const shippingProgress = effectiveThreshold > 0 ? Math.min(100, (subtotal / effectiveThreshold) * 100) : 100;
+  const currentShipping = isFreeShipping ? 0 : effectiveShippingFee;
+  const estimatedTotal = subtotal + currentShipping;
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden" style={{ fontFamily: theme.fontFamily }}>
@@ -168,11 +176,13 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 </div>
                 <div className="flex justify-between text-gray-600">
                   <span>Shipping</span>
-                  <span>{remainingForFreeShipping === 0 ? "FREE" : "Calculated at checkout"}</span>
+                  <span className={isFreeShipping ? "text-emerald-600 font-semibold" : "font-medium text-gray-900"}>
+                    {isFreeShipping ? "FREE" : formatPrice(currentShipping)}
+                  </span>
                 </div>
                 <div className="flex justify-between text-base font-bold text-gray-900 pt-2 border-t border-gray-200">
                   <span>Total Amount</span>
-                  <span>{formatPrice(subtotal)}</span>
+                  <span>{formatPrice(estimatedTotal)}</span>
                 </div>
               </div>
 

@@ -28,6 +28,7 @@ type Discount = {
   discount_type: "percentage" | "fixed";
   value: number;
   coupon_code?: string | null;
+  applies_to?: "specific_variants" | "entire_order";
   priority: number;
   starts_at?: string | null;
   ends_at?: string | null;
@@ -52,6 +53,7 @@ const initialForm: Discount = {
   discount_type: "percentage",
   value: 0,
   coupon_code: "",
+  applies_to: "specific_variants",
   priority: 1,
   starts_at: "",
   ends_at: "",
@@ -265,6 +267,7 @@ export default function DiscountSchemesPage() {
         discount_type: row.discount_type,
         value: Number(row.value || 0),
         coupon_code: row.coupon_code || "",
+        applies_to: row.applies_to || "specific_variants",
         priority: Number(row.priority || 1),
         starts_at: row.starts_at ? String(row.starts_at).slice(0, 10) : "",
         ends_at: row.ends_at ? String(row.ends_at).slice(0, 10) : "",
@@ -334,8 +337,8 @@ export default function DiscountSchemesPage() {
     if (form.starts_at && form.ends_at && form.starts_at > form.ends_at) {
       next.ends_at = "End date must be after start date";
     }
-    if (selectedVariantIds.length === 0) {
-      next.variants = "Select at least one variant";
+    if (form.applies_to === "specific_variants" && selectedVariantIds.length === 0) {
+      next.variants = "Select at least one variant or switch discount scope to 'Entire Order'";
     }
     setErrors(next);
     return Object.keys(next).length === 0;
@@ -351,11 +354,12 @@ export default function DiscountSchemesPage() {
         discount_type: form.discount_type,
         value: form.value,
         coupon_code: form.coupon_code || null,
+        applies_to: form.applies_to || "specific_variants",
         priority: form.priority,
         starts_at: form.starts_at || null,
         ends_at: form.ends_at || null,
         is_active: duplicatedFromId ? true : form.is_active,
-        variant_ids: selectedVariantIds,
+        variant_ids: form.applies_to === "entire_order" ? [] : selectedVariantIds,
       };
       const isEdit = Boolean(form.id);
       if (isEdit) {
@@ -466,6 +470,7 @@ export default function DiscountSchemesPage() {
         discount_type: row.discount_type,
         value: Number(row.value || 0),
         coupon_code: "",
+        applies_to: row.applies_to || "specific_variants",
         priority: Number(row.priority || 1),
         starts_at: row.starts_at ? String(row.starts_at).slice(0, 10) : "",
         ends_at: row.ends_at ? String(row.ends_at).slice(0, 10) : "",
@@ -561,6 +566,7 @@ export default function DiscountSchemesPage() {
                     <th className="ui-table-th">Name</th>
                     <th>Type</th>
                     <th>Value</th>
+                    <th>Scope</th>
                     <th>Coupon</th>
                     <th>Start Date</th>
                     <th>End Date</th>
@@ -572,7 +578,7 @@ export default function DiscountSchemesPage() {
                 <tbody>
                   {loading ? (
                     <tr className="ui-table-row">
-                      <td colSpan={9} className="ui-loading-row">
+                      <td colSpan={10} className="ui-loading-row">
                         Loading...
                       </td>
                     </tr>
@@ -582,6 +588,13 @@ export default function DiscountSchemesPage() {
                         <td className="ui-table-th">{d.name}</td>
                         <td className="text-center capitalize">{d.discount_type}</td>
                         <td className="ui-table-td-center">{Number(d.value || 0).toFixed(2)}</td>
+                        <td className="ui-table-td-center">
+                          <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${
+                            d.applies_to === "entire_order" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"
+                          }`}>
+                            {d.applies_to === "entire_order" ? "Entire Order" : "Specific Items"}
+                          </span>
+                        </td>
                         <td className="ui-table-td-center">{d.coupon_code || "-"}</td>
                         <td className="ui-table-td-center">{d.starts_at ? String(d.starts_at).slice(0, 10) : "-"}</td>
                         <td className="ui-table-td-center">{d.ends_at ? String(d.ends_at).slice(0, 10) : "-"}</td>
@@ -616,7 +629,7 @@ export default function DiscountSchemesPage() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={9} className="ui-loading-row">
+                      <td colSpan={10} className="ui-loading-row">
                         No records found.
                       </td>
                     </tr>
@@ -828,12 +841,32 @@ export default function DiscountSchemesPage() {
                 <input
                   value={form.coupon_code || ""}
                   onChange={(e) => setForm({ ...form, coupon_code: e.target.value })}
+                  placeholder="e.g. SAVE20 (Optional)"
                   className="w-full border p-3 rounded"
                 />
               </div>
 
-              <div className="md:col-span-2">
-                <label className="inline-flex items-center gap-2 text-sm font-medium">
+              <div>
+                <label className="text-sm font-semibold mb-1 block">
+                  Applies To <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={form.applies_to || "specific_variants"}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      applies_to: e.target.value as "specific_variants" | "entire_order",
+                    })
+                  }
+                  className="w-full border p-3 rounded"
+                >
+                  <option value="specific_variants">Specific Variants Only</option>
+                  <option value="entire_order">Entire Order / All Products</option>
+                </select>
+              </div>
+
+              <div className="flex items-center">
+                <label className="inline-flex items-center gap-2 text-sm font-medium mt-6">
                   <input
                     type="checkbox"
                     checked={form.is_active}
@@ -873,72 +906,83 @@ export default function DiscountSchemesPage() {
             </div>
           </section>
 
-          <section className="rounded-xl border border-gray-200 p-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-600">
-                  Selected Variants
-                </h3>
-                <p className="text-xs text-gray-500 mt-1">
-                  {selectedVariantIds.length} variant{selectedVariantIds.length === 1 ? "" : "s"} selected
-                </p>
+          {form.applies_to === "entire_order" ? (
+            <section className="rounded-xl border border-purple-200 bg-purple-50/50 p-5 space-y-2">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-purple-900">
+                Entire Order Discount Scope
+              </h3>
+              <p className="text-sm text-purple-700">
+                This discount automatically applies to all eligible products in the order / entire cart. Variant selection is not required.
+              </p>
+            </section>
+          ) : (
+            <section className="rounded-xl border border-gray-200 p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-600">
+                    Selected Variants
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {selectedVariantIds.length} variant{selectedVariantIds.length === 1 ? "" : "s"} selected
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectModalOpen(true);
+                    resetLookupFilters();
+                  }}
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white"
+                >
+                  Select Variants
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectModalOpen(true);
-                  resetLookupFilters();
-                }}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white"
-              >
-                Select Variants
-              </button>
-            </div>
 
-            <div className="bg-white rounded-xl shadow overflow-x-auto">
-              <div className="max-h-[280px] overflow-y-auto">
-                <table className="ui-table">
-                  <thead className="bg-indigo-50 text-gray-600 text-sm sticky top-0 z-10">
-                    <tr className="ui-table-row">
-                      <th className="ui-table-th">Product</th>
-                      <th className="ui-table-th">Variant</th>
-                      <th className="ui-table-th">SKU</th>
-                      <th className="ui-table-th">Barcode</th>
-                      <th className="p-3 text-center w-12"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedVariantRows.length === 0 ? (
-                      <tr className="border-t">
-                        <td colSpan={5} className="p-6 text-center text-gray-500">
-                          No variants selected.
-                        </td>
+              <div className="bg-white rounded-xl shadow overflow-x-auto">
+                <div className="max-h-[280px] overflow-y-auto">
+                  <table className="ui-table">
+                    <thead className="bg-indigo-50 text-gray-600 text-sm sticky top-0 z-10">
+                      <tr className="ui-table-row">
+                        <th className="ui-table-th">Product</th>
+                        <th className="ui-table-th">Variant</th>
+                        <th className="ui-table-th">SKU</th>
+                        <th className="ui-table-th">Barcode</th>
+                        <th className="p-3 text-center w-12"></th>
                       </tr>
-                    ) : (
-                      selectedVariantRows.map((row) => (
-                        <tr key={row.variantId} className="ui-table-row">
-                          <td className="ui-table-td">{row.product}</td>
-                          <td className="ui-table-td">{row.variant}</td>
-                          <td className="ui-table-td">{row.sku}</td>
-                          <td className="ui-table-td">{row.barcode}</td>
-                          <td className="ui-table-td-center">
-                            <button
-                              type="button"
-                              onClick={() => removeSelectedVariant(row.variantId)}
-                              className="text-red-600 hover:text-red-800 inline-flex items-center justify-center"
-                            >
-                              <TrashIcon className="w-4 h-4" />
-                            </button>
+                    </thead>
+                    <tbody>
+                      {selectedVariantRows.length === 0 ? (
+                        <tr className="border-t">
+                          <td colSpan={5} className="p-6 text-center text-gray-500">
+                            No variants selected.
                           </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                      ) : (
+                        selectedVariantRows.map((row) => (
+                          <tr key={row.variantId} className="ui-table-row">
+                            <td className="ui-table-td">{row.product}</td>
+                            <td className="ui-table-td">{row.variant}</td>
+                            <td className="ui-table-td">{row.sku}</td>
+                            <td className="ui-table-td">{row.barcode}</td>
+                            <td className="ui-table-td-center">
+                              <button
+                                type="button"
+                                onClick={() => removeSelectedVariant(row.variantId)}
+                                className="text-red-600 hover:text-red-800 inline-flex items-center justify-center"
+                              >
+                                <TrashIcon className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-            {errors.variants && <p className="text-red-500 text-sm">{errors.variants}</p>}
-          </section>
+              {errors.variants && <p className="text-red-500 text-sm">{errors.variants}</p>}
+            </section>
+          )}
 
           <div className="flex justify-end gap-3 pt-4 border-t">
             <button

@@ -1,6 +1,9 @@
 import { PoolClient } from "pg";
 import { transitionOrderStatus } from "@/lib/orderStateMachine";
 
+export const RESERVATION_TTL_MINUTES = 20;
+export const RESERVATION_TTL_MS = RESERVATION_TTL_MINUTES * 60 * 1000;
+
 /**
  * Finds inventory_reservations with status='held' AND expires_at < NOW(),
  * sets them to 'released', updates online_order_items fulfillment_status, and

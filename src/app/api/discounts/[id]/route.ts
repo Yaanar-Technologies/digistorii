@@ -3,6 +3,7 @@ import { pool } from "@/lib/db";
 import { getTenantSchema } from "@/lib/tenant";
 
 const ALLOWED_TYPES = new Set(["percentage", "fixed"]);
+const ALLOWED_APPLIES_TO = new Set(["specific_variants", "entire_order"]);
 
 function asText(value: unknown): string {
   return String(value ?? "").trim();
@@ -85,6 +86,7 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
 
     const name = asText(body.name);
     const discountType = asText(body.discount_type || "").toLowerCase();
+    const appliesTo = asText(body.applies_to || "specific_variants").toLowerCase();
     const value = toNumber(body.value, NaN);
     const priority = Math.max(1, Math.floor(toNumber(body.priority, 1)));
     const couponCode = asText(body.coupon_code);
@@ -104,6 +106,8 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
         { status: 400 }
       );
     }
+    const resolvedAppliesTo = ALLOWED_APPLIES_TO.has(appliesTo) ? appliesTo : "specific_variants";
+
     if (!Number.isFinite(value) || value < 0) {
       return NextResponse.json({ success: false, error: "Discount value must be >= 0" }, { status: 400 });
     }
@@ -124,11 +128,12 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
           discount_type = $3,
           value = $4,
           coupon_code = $5,
-          priority = $6,
-          starts_at = $7,
-          ends_at = $8,
-          is_active = $9
-        WHERE id = $10
+          applies_to = $6,
+          priority = $7,
+          starts_at = $8,
+          ends_at = $9,
+          is_active = $10
+        WHERE id = $11
         RETURNING *
       `,
       [
@@ -137,6 +142,7 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
         discountType,
         value,
         couponValue,
+        resolvedAppliesTo,
         priority,
         startsAt,
         endsAt,
@@ -155,7 +161,7 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
       [id]
     );
 
-    if (variantIds.length) {
+    if (resolvedAppliesTo === "specific_variants" && variantIds.length) {
       await client.query(
         `
           INSERT INTO "${schema}".discount_variants

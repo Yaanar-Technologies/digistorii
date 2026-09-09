@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   StorefrontHeader,
@@ -23,11 +23,87 @@ export default function CartPage() {
 
   const theme = useStorefrontTheme();
   const [footerSettings] = useState(mockFooterSettings);
+  const [shippingSettings, setShippingSettings] = useState<{ freeThreshold: number; fee: number }>({
+    freeThreshold: 500,
+    fee: 49,
+  });
 
   const cartItems = useCartStore((state) => state.items);
   const removeItemFromCart = useCartStore((state) => state.removeItem);
   const updateItemQty = useCartStore((state) => state.updateQuantity);
   const wishlistCount = useWishlistStore((state) => state.items.length);
+
+  const [couponInput, setCouponInput] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState<{
+    id: number | string;
+    name: string;
+    discount_type: "percentage" | "fixed";
+    value: number;
+    coupon_code: string;
+    applies_to: "entire_order" | "specific_variants";
+    allowed_variants: number[];
+  } | null>(null);
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [couponError, setCouponError] = useState("");
+
+  const handleApplyCoupon = async () => {
+    const code = couponInput.trim();
+    if (!code) return;
+    setCouponLoading(true);
+    setCouponError("");
+    try {
+      const res = await fetch(
+        `/api/discounts/validate?code=${encodeURIComponent(code)}&company=${encodeURIComponent(company)}`,
+        {
+          headers: { "x-tenant": company },
+        }
+      );
+      const data = await res.json();
+      if (res.ok && data?.success && data?.data) {
+        setAppliedCoupon({
+          ...data.data,
+          value: Number(data.data.value || 0),
+          allowed_variants: Array.isArray(data.data.allowed_variants)
+            ? data.data.allowed_variants.map((id: any) => Number(id))
+            : [],
+        });
+        setCouponInput("");
+        setCouponError("");
+      } else {
+        setCouponError(data?.error || "Invalid or expired coupon code");
+      }
+    } catch (err: any) {
+      setCouponError(err.message || "Failed to apply coupon");
+    } finally {
+      setCouponLoading(false);
+    }
+  };
+
+  const handleRemoveCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponError("");
+  };
+
+  useEffect(() => {
+    if (!company) return;
+    const loadSettings = async () => {
+      try {
+        const res = await fetch(`/api/tenant/${company}/settings`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.settings) {
+            setShippingSettings({
+              freeThreshold: data.settings.shipping_free_threshold != null ? Number(data.settings.shipping_free_threshold) : 500,
+              fee: data.settings.shipping_fee != null ? Number(data.settings.shipping_fee) : 49,
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load storefront shipping settings:", err);
+      }
+    };
+    loadSettings();
+  }, [company]);
 
   const handleUpdateQty = (id: string, qty: number) => {
     updateItemQty(id, qty);
@@ -59,6 +135,38 @@ export default function CartPage() {
   }));
 
   const subtotal = cartItems.reduce((acc, i) => acc + i.price * i.quantity, 0);
+
+  const couponDiscountAmount = React.useMemo(() => {
+    if (!appliedCoupon) return 0;
+    const { applies_to, discount_type, value, allowed_variants } = appliedCoupon;
+
+    if (applies_to === "entire_order") {
+      if (discount_type === "percentage") {
+        return Number(((subtotal * value) / 100).toFixed(2));
+      } else {
+        return Math.min(value, subtotal);
+      }
+    } else {
+      const eligibleItems = cartItems.filter((i) =>
+        allowed_variants.includes(Number(i.id))
+      );
+      const eligibleSubtotal = eligibleItems.reduce(
+        (sum, i) => sum + i.price * i.quantity,
+        0
+      );
+      if (eligibleSubtotal <= 0) return 0;
+
+      if (discount_type === "percentage") {
+        return Number(((eligibleSubtotal * value) / 100).toFixed(2));
+      } else {
+        return Math.min(value, eligibleSubtotal);
+      }
+    }
+  }, [appliedCoupon, subtotal, cartItems]);
+
+  const isFreeShipping = subtotal >= shippingSettings.freeThreshold;
+  const currentShippingFee = isFreeShipping ? 0 : shippingSettings.fee;
+  const estimatedTotal = Math.max(0, subtotal - couponDiscountAmount + currentShippingFee);
 
   return (
     <div className="min-h-screen bg-white flex flex-col justify-between" style={{ fontFamily: theme.fontFamily }}>
@@ -145,21 +253,79 @@ export default function CartPage() {
               <div className="lg:col-span-4">
                 <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm space-y-4">
                   <h2 className="text-lg font-bold text-gray-900">Order Summary</h2>
-                  <div className="flex justify-between text-sm text-gray-600 border-b pb-3">
+
+                  {/* Promo Code Input Box */}
+                  <div className="pt-1">
+                    <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">
+                      Promo Code
+                    </label>
+                    {appliedCoupon ? (
+                      <div className="flex items-center justify-between rounded-xl bg-emerald-50 border border-emerald-200 p-2.5 text-xs text-emerald-800">
+                        <span className="font-bold">
+                          {appliedCoupon.coupon_code} ({appliedCoupon.discount_type === "percentage" ? `${appliedCoupon.value}% OFF` : `₹${appliedCoupon.value} OFF`})
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleRemoveCoupon}
+                          className="font-bold text-red-500 hover:text-red-700 ml-2"
+                          title="Remove coupon"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={couponInput}
+                          onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                          placeholder="Enter coupon code"
+                          className="flex-1 rounded-xl border border-gray-200 px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleApplyCoupon}
+                          disabled={couponLoading || !couponInput.trim()}
+                          className="rounded-xl px-4 py-2 text-xs font-bold text-white shadow-sm disabled:opacity-50 cursor-pointer"
+                          style={{ backgroundColor: theme.primaryColor }}
+                        >
+                          {couponLoading ? "..." : "Apply"}
+                        </button>
+                      </div>
+                    )}
+                    {couponError && (
+                      <p className="mt-1 text-xs text-red-500 font-medium">{couponError}</p>
+                    )}
+                  </div>
+
+                  <div className="flex justify-between text-sm text-gray-600 border-t pt-3">
                     <span>Subtotal</span>
                     <span className="font-semibold text-gray-900">{formatPrice(subtotal)}</span>
                   </div>
+
+                  {couponDiscountAmount > 0 && (
+                    <div className="flex justify-between text-sm text-emerald-600 font-semibold">
+                      <span>Coupon Discount</span>
+                      <span>-{formatPrice(couponDiscountAmount)}</span>
+                    </div>
+                  )}
+
                   <div className="flex justify-between text-sm text-gray-600 border-b pb-3">
                     <span>Shipping</span>
-                    <span className="font-medium text-emerald-600">Free</span>
+                    <span className={isFreeShipping ? "font-medium text-emerald-600" : "font-semibold text-gray-900"}>
+                      {isFreeShipping ? "Free" : formatPrice(currentShippingFee)}
+                    </span>
                   </div>
                   <div className="flex justify-between text-base font-bold text-gray-900 pt-2">
                     <span>Total</span>
-                    <span>{formatPrice(subtotal)}</span>
+                    <span>{formatPrice(estimatedTotal)}</span>
                   </div>
 
                   <button
-                    onClick={() => router.push(`/${company}/store/checkout`)}
+                    onClick={() => {
+                      const query = appliedCoupon ? `?coupon=${encodeURIComponent(appliedCoupon.coupon_code)}` : "";
+                      router.push(`/${company}/store/checkout${query}`);
+                    }}
                     className="w-full rounded-xl py-3.5 px-4 text-center text-sm font-semibold text-white shadow-md hover:opacity-95 cursor-pointer"
                     style={{ backgroundColor: theme.primaryColor }}
                   >

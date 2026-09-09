@@ -70,11 +70,21 @@ export async function POST(req: NextRequest) {
       delivery_note,
       support_email,
       support_phone,
+      shipping_free_threshold,
+      shipping_fee,
       use_custom_pricing,
       use_custom_discounts,
       custom_domain,
       custom_domain_status,
     } = body;
+
+    const parsedThreshold = shipping_free_threshold !== undefined && shipping_free_threshold !== null && !isNaN(Number(shipping_free_threshold))
+      ? Math.max(0, Number(shipping_free_threshold))
+      : 500.00;
+
+    const parsedShippingFee = shipping_fee !== undefined && shipping_fee !== null && !isNaN(Number(shipping_fee))
+      ? Math.max(0, Number(shipping_fee))
+      : 49.00;
 
     // Start transaction
     await client.query("BEGIN");
@@ -108,11 +118,13 @@ export async function POST(req: NextRequest) {
              delivery_note = $10,
              support_email = $11,
              support_phone = $12,
-             use_custom_pricing = $13,
-             use_custom_discounts = $14,
-             setup_status = $15,
+             shipping_free_threshold = $13,
+             shipping_fee = $14,
+             use_custom_pricing = $15,
+             use_custom_discounts = $16,
+             setup_status = $17,
              updated_at = NOW()
-         WHERE company_id = $16`,
+         WHERE company_id = $18`,
         [
           payment_mode || "cod_only",
           gateway_provider || null,
@@ -126,6 +138,8 @@ export async function POST(req: NextRequest) {
           delivery_note || null,
           support_email || null,
           support_phone || null,
+          parsedThreshold,
+          parsedShippingFee,
           use_custom_pricing === true,
           use_custom_discounts === true,
           setup_status,
@@ -137,9 +151,10 @@ export async function POST(req: NextRequest) {
         `INSERT INTO "${schema}".ecom_settings (
           company_id, payment_mode, gateway_provider, gateway_key_id, gateway_key_secret_enc,
           serviceable_countries, serviceable_states, serviceable_pincodes, terms_and_conditions,
-          return_refund_policy, delivery_note, support_email, support_phone, use_custom_pricing,
+          return_refund_policy, delivery_note, support_email, support_phone,
+          shipping_free_threshold, shipping_fee, use_custom_pricing,
           use_custom_discounts, setup_status
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
         [
           companyId,
           payment_mode || "cod_only",
@@ -154,6 +169,8 @@ export async function POST(req: NextRequest) {
           delivery_note || null,
           support_email || null,
           support_phone || null,
+          parsedThreshold,
+          parsedShippingFee,
           use_custom_pricing === true,
           use_custom_discounts === true,
           setup_status,

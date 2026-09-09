@@ -31,6 +31,10 @@ export default function ProductDetailPage() {
   const [product, setProduct] = useState<StorefrontProduct | null>(null);
   const [categories, setCategories] = useState<CategoryType[]>([]);
   const [footerSettings, setFooterSettings] = useState<FooterSettings>(mockFooterSettings);
+  const [shippingSettings, setShippingSettings] = useState<{ freeThreshold: number; fee: number }>({
+    freeThreshold: 500,
+    fee: 49,
+  });
   
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
@@ -119,6 +123,18 @@ export default function ProductDetailPage() {
           const catData = await catRes.json();
           if (catData.success && Array.isArray(catData.categories)) {
             setCategories(catData.categories);
+          }
+        }
+
+        // Fetch tenant shipping settings
+        const settingsRes = await fetch(`/api/tenant/${company}/settings`);
+        if (settingsRes.ok) {
+          const settingsData = await settingsRes.json();
+          if (settingsData.success && settingsData.settings) {
+            setShippingSettings({
+              freeThreshold: settingsData.settings.shipping_free_threshold != null ? Number(settingsData.settings.shipping_free_threshold) : 500,
+              fee: settingsData.settings.shipping_fee != null ? Number(settingsData.settings.shipping_fee) : 49,
+            });
           }
         }
       } catch (err) {
@@ -221,6 +237,8 @@ export default function ProductDetailPage() {
         isOpen={isCartOpen}
         onClose={() => setIsCartOpen(false)}
         items={convertedCartItems}
+        freeShippingThreshold={shippingSettings.freeThreshold}
+        shippingFee={shippingSettings.fee}
         onUpdateQuantity={(vId, newQty) => {
           if (newQty <= 0) removeItemFromCart(String(vId));
           else updateItemQty(String(vId), newQty);

@@ -1,5 +1,7 @@
 // src/lib/orderStateMachine.ts
 import { PoolClient } from "pg";
+import Razorpay from "razorpay";
+import { decryptSecret } from "@/lib/cryptoHelper";
 
 export type OrderStatus =
   | "placed"
@@ -457,14 +459,29 @@ class OrderStateMachine {
           [orderId]
         );
 
-        // 2. If payment_status was 'paid', create an online_order_payments refund intent row (status 'created')
+        // 2. If payment_status was 'paid', initiate Razorpay refund
         if (order.payment_status === "paid") {
-          await client.query(
+          // Fetch the original captured/authorized payment transaction details
+          const paymentRes = await client.query(
+            `SELECT id, gateway, gateway_order_id, gateway_payment_id, amount, status, raw_response
+             FROM "${schema}".online_order_payments
+             WHERE order_id = $1 AND gateway_payment_id IS NOT NULL
+             ORDER BY (CASE WHEN status = 'captured' THEN 1 ELSE 2 END), created_at DESC
+             LIMIT 1`,
+            [orderId]
+          );
+          const originalPayment = paymentRes.rows[0] || null;
+
+          // Insert an initial refund tracking row
+          const refundInsertRes = await client.query(
             `INSERT INTO "${schema}".online_order_payments
-               (order_id, gateway, amount, status, method, raw_response, created_at)
-             VALUES ($1, 'razorpay', $2, 'created', $3, $4, NOW())`,
+               (order_id, gateway, gateway_order_id, gateway_payment_id, amount, status, method, raw_response, created_at)
+             VALUES ($1, 'razorpay', $2, $3, $4, 'created', $5, $6, NOW())
+             RETURNING id`,
             [
               orderId,
+              originalPayment?.gateway_order_id || null,
+              originalPayment?.gateway_payment_id || null,
               order.total_amount || 0,
               order.payment_method || "card",
               JSON.stringify({
@@ -475,6 +492,121 @@ class OrderStateMachine {
               }),
             ]
           );
+          const refundRecordId = refundInsertRes.rows[0]?.id;
+
+          if (originalPayment?.gateway_payment_id) {
+            // Fetch tenant Razorpay credentials
+            let tenantKeyId: string | null = null;
+            let tenantKeySecretEnc: string | null = null;
+
+            const gwRes = await client.query(
+              `SELECT key_id, key_secret
+               FROM "${schema}".payment_gateway_configs
+               WHERE provider = 'razorpay' AND is_active = TRUE
+               LIMIT 1`
+            );
+
+            if (gwRes.rowCount && gwRes.rows[0].key_id && gwRes.rows[0].key_secret) {
+              tenantKeyId = gwRes.rows[0].key_id;
+              tenantKeySecretEnc = gwRes.rows[0].key_secret;
+            } else {
+              // Fallback to legacy ecom_settings
+              const legacyRes = await client.query(
+                `SELECT gateway_key_id, gateway_key_secret_enc
+                 FROM "${schema}".ecom_settings
+                 LIMIT 1`
+              );
+              if (
+                legacyRes.rowCount &&
+                legacyRes.rows[0].gateway_key_id &&
+                legacyRes.rows[0].gateway_key_secret_enc
+              ) {
+                tenantKeyId = legacyRes.rows[0].gateway_key_id;
+                tenantKeySecretEnc = legacyRes.rows[0].gateway_key_secret_enc;
+              }
+            }
+
+            if (tenantKeyId && tenantKeySecretEnc) {
+              try {
+                const razorpaySecret = decryptSecret(tenantKeySecretEnc);
+                const razorpayClient = new Razorpay({
+                  key_id: tenantKeyId,
+                  key_secret: razorpaySecret,
+                });
+
+                const amountInPaise = Math.round(Number(order.total_amount) * 100);
+                const idempotencyKey = `refund_order_${orderId}_${originalPayment.gateway_payment_id}`;
+
+                // Invoke Razorpay Refund API
+                const refundPayload: any = {
+                  amount: amountInPaise,
+                  speed: "normal",
+                  notes: {
+                    order_id: String(orderId),
+                    order_no: String(order.order_no || ""),
+                    reason: opts.note || "Order cancelled",
+                    idempotency_key: idempotencyKey,
+                  },
+                };
+
+                const refundRes = await razorpayClient.payments.refund(
+                  originalPayment.gateway_payment_id,
+                  refundPayload
+                );
+
+                // Update refund payment status to 'refunded'
+                if (refundRecordId) {
+                  await client.query(
+                    `UPDATE "${schema}".online_order_payments
+                     SET status = 'refunded',
+                         raw_response = $1
+                     WHERE id = $2`,
+                    [
+                      JSON.stringify({
+                        intent: "refund",
+                        refund_id: (refundRes as any)?.id,
+                        refund_status: (refundRes as any)?.status,
+                        razorpay_response: refundRes,
+                        refunded_at: new Date().toISOString(),
+                      }),
+                      refundRecordId,
+                    ]
+                  );
+                }
+              } catch (refundErr: any) {
+                console.error(
+                  `[OrderStateMachine] Razorpay refund API failed for order #${orderId}:`,
+                  refundErr
+                );
+                // Safe non-blocking error capture: update record to failed without throwing
+                if (refundRecordId) {
+                  await client.query(
+                    `UPDATE "${schema}".online_order_payments
+                     SET status = 'failed',
+                         raw_response = $1
+                     WHERE id = $2`,
+                    [
+                      JSON.stringify({
+                        intent: "refund",
+                        refund_failed: true,
+                        error: refundErr?.message || String(refundErr),
+                        failed_at: new Date().toISOString(),
+                      }),
+                      refundRecordId,
+                    ]
+                  );
+                }
+              }
+            } else {
+              console.warn(
+                `[OrderStateMachine] No active payment gateway credentials found for schema '${schema}'. Refund intent created with status 'created' for manual processing on order #${orderId}.`
+              );
+            }
+          } else {
+            console.warn(
+              `[OrderStateMachine] No captured gateway payment ID found for order #${orderId}. Refund intent recorded for manual review.`
+            );
+          }
         }
         break;
       }

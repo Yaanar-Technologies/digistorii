@@ -25,6 +25,7 @@ export interface CheckoutOrderDetails {
   paymentMethod: CheckoutPaymentMethod;
   items: CartItemType[];
   grandTotal: number;
+  couponCode?: string;
 }
 
 export interface CheckoutShellProps {
@@ -35,6 +36,9 @@ export interface CheckoutShellProps {
   onBackToCart?: () => void;
   savedAddresses?: any[];
   isLoading?: boolean;
+  shippingFreeThreshold?: number;
+  shippingFee?: number;
+  initialCouponCode?: string;
 }
 
 export const CheckoutShell: React.FC<CheckoutShellProps> = ({
@@ -45,6 +49,9 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
   onBackToCart,
   savedAddresses: propSavedAddresses = [],
   isLoading = false,
+  shippingFreeThreshold = 500,
+  shippingFee: propShippingFee = 49,
+  initialCouponCode = "",
 }) => {
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [addresses, setAddresses] = useState<any[]>(propSavedAddresses);
@@ -52,6 +59,19 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
   const [addressError, setAddressError] = useState("");
   const [isSavingAddress, setIsSavingAddress] = useState(false);
   const [savedCustomerId, setSavedCustomerId] = useState<number | null>(null);
+
+  const [couponInput, setCouponInput] = useState(initialCouponCode || "");
+  const [appliedCoupon, setAppliedCoupon] = useState<{
+    id: number | string;
+    name: string;
+    discount_type: "percentage" | "fixed";
+    value: number;
+    coupon_code: string;
+    applies_to: "entire_order" | "specific_variants";
+    allowed_variants: number[];
+  } | null>(null);
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [couponError, setCouponError] = useState("");
 
   // Address State Scaffolding
   const [shippingAddress, setShippingAddress] = useState({
@@ -139,9 +159,85 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
     }));
   };
 
+  const handleApplyCoupon = async (codeToApply?: string) => {
+    const code = (codeToApply ?? couponInput).trim();
+    if (!code || !company) return;
+    setCouponLoading(true);
+    setCouponError("");
+    try {
+      const res = await fetch(
+        `/api/discounts/validate?code=${encodeURIComponent(code)}&company=${encodeURIComponent(company)}`,
+        {
+          headers: { "x-tenant": company },
+        }
+      );
+      const data = await res.json();
+      if (res.ok && data?.success && data?.data) {
+        setAppliedCoupon({
+          ...data.data,
+          value: Number(data.data.value || 0),
+          allowed_variants: Array.isArray(data.data.allowed_variants)
+            ? data.data.allowed_variants.map((id: any) => Number(id))
+            : [],
+        });
+        setCouponInput("");
+        setCouponError("");
+      } else {
+        setAppliedCoupon(null);
+        setCouponError(data?.error || "Invalid or expired promo code");
+      }
+    } catch (err: any) {
+      setCouponError(err.message || "Failed to apply promo code");
+    } finally {
+      setCouponLoading(false);
+    }
+  };
+
+  const handleRemoveCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponError("");
+  };
+
+  useEffect(() => {
+    if (initialCouponCode && company) {
+      handleApplyCoupon(initialCouponCode);
+    }
+  }, [initialCouponCode, company]);
+
   const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const shippingFee = subtotal >= 500 ? 0 : 49;
-  const grandTotal = subtotal + shippingFee;
+
+  const couponDiscount = React.useMemo(() => {
+    if (!appliedCoupon) return 0;
+    const { applies_to, discount_type, value, allowed_variants } = appliedCoupon;
+
+    if (applies_to === "entire_order") {
+      if (discount_type === "percentage") {
+        return Number(((subtotal * value) / 100).toFixed(2));
+      } else {
+        return Math.min(value, subtotal);
+      }
+    } else {
+      const eligibleItems = items.filter((i) =>
+        allowed_variants.includes(Number(i.variantId))
+      );
+      const eligibleSubtotal = eligibleItems.reduce(
+        (sum, i) => sum + i.price * i.quantity,
+        0
+      );
+      if (eligibleSubtotal <= 0) return 0;
+
+      if (discount_type === "percentage") {
+        return Number(((eligibleSubtotal * value) / 100).toFixed(2));
+      } else {
+        return Math.min(value, eligibleSubtotal);
+      }
+    }
+  }, [appliedCoupon, subtotal, items]);
+
+  const effectiveFreeThreshold = Math.max(0, Number(shippingFreeThreshold) || 0);
+  const effectiveBaseFee = Math.max(0, Number(propShippingFee) || 0);
+  const shippingFee = subtotal >= effectiveFreeThreshold ? 0 : effectiveBaseFee;
+  const grandTotal = Math.max(0, subtotal - couponDiscount + shippingFee);
 
   const validateIndianPhone = (ph: string) => {
     const clean = ph.replace(/\s+|-|\+/g, "");
@@ -249,6 +345,7 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
         paymentMethod,
         items,
         grandTotal,
+        couponCode: appliedCoupon ? appliedCoupon.coupon_code : undefined,
       });
     }
   };
@@ -734,11 +831,61 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
               Order Summary
             </h3>
 
-            <div className="space-y-2 text-sm">
+            {/* Promo Code Input Box */}
+            <div className="pt-1">
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">
+                Promo Code
+              </label>
+              {appliedCoupon ? (
+                <div className="flex items-center justify-between rounded-xl bg-emerald-50 border border-emerald-200 p-2.5 text-xs text-emerald-800">
+                  <span className="font-bold">
+                    {appliedCoupon.coupon_code} ({appliedCoupon.discount_type === "percentage" ? `${appliedCoupon.value}% OFF` : `₹${appliedCoupon.value} OFF`})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleRemoveCoupon}
+                    className="font-bold text-red-500 hover:text-red-700 ml-2"
+                    title="Remove promo code"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={couponInput}
+                    onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                    placeholder="Enter coupon code"
+                    className="flex-1 rounded-xl border border-gray-200 px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleApplyCoupon()}
+                    disabled={couponLoading || !couponInput.trim()}
+                    className="rounded-xl px-4 py-2 text-xs font-bold text-white shadow-sm disabled:opacity-50 cursor-pointer"
+                    style={{ backgroundColor: theme.primaryColor }}
+                  >
+                    {couponLoading ? "..." : "Apply"}
+                  </button>
+                </div>
+              )}
+              {couponError && (
+                <p className="mt-1 text-xs text-red-500 font-medium">{couponError}</p>
+              )}
+            </div>
+
+            <div className="space-y-2 text-sm border-t border-gray-100 pt-3">
               <div className="flex justify-between text-gray-600">
                 <span>Subtotal ({items.reduce((sum, i) => sum + i.quantity, 0)} items)</span>
                 <span>{formatPrice(subtotal)}</span>
               </div>
+              {couponDiscount > 0 && (
+                <div className="flex justify-between text-emerald-600 font-semibold">
+                  <span>Coupon Discount</span>
+                  <span>-{formatPrice(couponDiscount)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-gray-600">
                 <span>Estimated Shipping</span>
                 <span>{shippingFee === 0 ? "FREE" : formatPrice(shippingFee)}</span>

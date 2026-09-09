@@ -31,7 +31,11 @@ export default function StoreHomePage() {
   useStorefrontSync(company);
 
   const theme = useStorefrontTheme();
-  const [footerSettings] = useState<FooterSettings>(mockFooterSettings);
+  const [footerSettings, setFooterSettings] = useState<FooterSettings>(mockFooterSettings);
+  const [shippingSettings, setShippingSettings] = useState<{ freeThreshold: number; fee: number }>({
+    freeThreshold: 500,
+    fee: 49,
+  });
   const [categories, setCategories] = useState<CategoryType[]>([]);
   const [products, setProducts] = useState<StorefrontProduct[]>([]);
   const [colors, setColors] = useState<TenantColor[]>([]);
@@ -118,7 +122,26 @@ export default function StoreHomePage() {
           }
         }
 
-        // 6. Check customer auth session
+        // 6. Fetch tenant settings (legal, support, shipping fees)
+        const settingsRes = await fetch(`/api/tenant/${company}/settings`);
+        if (settingsRes.ok) {
+          const settingsData = await settingsRes.json();
+          if (settingsData.success && settingsData.settings) {
+            const s = settingsData.settings;
+            setFooterSettings({
+              termsAndConditions: s.terms_and_conditions || "Standard merchant terms apply.",
+              returnRefundPolicy: s.return_refund_policy || "30-day return policy.",
+              supportEmail: s.support_email || "support@merchant.com",
+              supportPhone: s.support_phone || "+1 (800) 555-0199",
+            });
+            setShippingSettings({
+              freeThreshold: s.shipping_free_threshold != null ? Number(s.shipping_free_threshold) : 500,
+              fee: s.shipping_fee != null ? Number(s.shipping_fee) : 49,
+            });
+          }
+        }
+
+        // 7. Check customer auth session
         const authRes = await fetch("/api/storefront/auth/me");
         if (authRes.ok) {
           const authData = await authRes.json();
@@ -360,6 +383,8 @@ export default function StoreHomePage() {
         isOpen={isCartOpen}
         onClose={() => setIsCartOpen(false)}
         items={convertedCartItems}
+        freeShippingThreshold={shippingSettings.freeThreshold}
+        shippingFee={shippingSettings.fee}
         onUpdateQuantity={(variantId, newQty) => {
           if (newQty <= 0) removeItemFromCart(String(variantId));
           else updateItemQty(String(variantId), newQty);

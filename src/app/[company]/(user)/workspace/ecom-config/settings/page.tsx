@@ -36,6 +36,8 @@ export default function StoreSettingsPage() {
   const [termsAndConditions, setTermsAndConditions] = useState("");
   const [returnRefundPolicy, setReturnRefundPolicy] = useState("");
   const [deliveryNote, setDeliveryNote] = useState("");
+  const [shippingFreeThreshold, setShippingFreeThreshold] = useState<number | string>(500);
+  const [shippingFee, setShippingFee] = useState<number | string>(49);
   const [supportEmail, setSupportEmail] = useState("");
   const [supportPhone, setSupportPhone] = useState("");
   const [useCustomPricing, setUseCustomPricing] = useState(false);
@@ -64,6 +66,8 @@ export default function StoreSettingsPage() {
             setTermsAndConditions(s.terms_and_conditions || "");
             setReturnRefundPolicy(s.return_refund_policy || "");
             setDeliveryNote(s.delivery_note || "");
+            setShippingFreeThreshold(s.shipping_free_threshold !== undefined && s.shipping_free_threshold !== null ? s.shipping_free_threshold : 500);
+            setShippingFee(s.shipping_fee !== undefined && s.shipping_fee !== null ? s.shipping_fee : 49);
             setSupportEmail(s.support_email || "");
             setSupportPhone(s.support_phone || "");
             setUseCustomPricing(s.use_custom_pricing === true);
@@ -132,6 +136,9 @@ export default function StoreSettingsPage() {
       ? pincodesInput.split(",").map(p => p.trim()).filter(p => p.length > 0)
       : null;
 
+    const numThreshold = Math.max(0, parseFloat(String(shippingFreeThreshold)) || 0);
+    const numFee = Math.max(0, parseFloat(String(shippingFee)) || 0);
+
     try {
       const res = await apiFetch("/api/company/ecom-settings", company, {
         method: "POST",
@@ -146,6 +153,8 @@ export default function StoreSettingsPage() {
           terms_and_conditions: termsAndConditions,
           return_refund_policy: returnRefundPolicy,
           delivery_note: deliveryNote,
+          shipping_free_threshold: numThreshold,
+          shipping_fee: numFee,
           support_email: supportEmail,
           support_phone: supportPhone,
           use_custom_pricing: useCustomPricing,
@@ -446,6 +455,50 @@ export default function StoreSettingsPage() {
               placeholder="Provide Delivery Instructions"
               className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none"
             />
+          </div>
+        </div>
+
+        {/* Shipping & Delivery Configuration */}
+        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
+          <h2 className="text-lg font-bold text-gray-900 border-b pb-2">Shipping & Delivery Charges</h2>
+          <p className="text-xs text-gray-500">Configure free shipping thresholds and standard base shipping rates. Negative values are not permitted.</p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700">
+                Free Shipping Threshold (₹)
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={shippingFreeThreshold}
+                onChange={e => {
+                  const val = e.target.value === "" ? "" : Math.max(0, parseFloat(e.target.value) || 0);
+                  setShippingFreeThreshold(val);
+                }}
+                placeholder="500.00"
+                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none"
+              />
+              <p className="mt-1 text-xs text-gray-500">Cart subtotal amount required for customers to qualify for free delivery.</p>
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700">
+                Shipping Cost / Base Fee (₹)
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={shippingFee}
+                onChange={e => {
+                  const val = e.target.value === "" ? "" : Math.max(0, parseFloat(e.target.value) || 0);
+                  setShippingFee(val);
+                }}
+                placeholder="49.00"
+                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none"
+              />
+              <p className="mt-1 text-xs text-gray-500">Standard base shipping charge applied when the cart is below the free shipping threshold.</p>
+            </div>
           </div>
         </div>
 

@@ -8,6 +8,7 @@ type DiscountPayload = {
   discount_type?: "percentage" | "fixed";
   value?: number | string;
   coupon_code?: string | null;
+  applies_to?: "specific_variants" | "entire_order";
   priority?: number | string;
   starts_at?: string | null;
   ends_at?: string | null;
@@ -16,6 +17,7 @@ type DiscountPayload = {
 };
 
 const ALLOWED_TYPES = new Set(["percentage", "fixed"]);
+const ALLOWED_APPLIES_TO = new Set(["specific_variants", "entire_order"]);
 
 function asText(value: unknown): string {
   return String(value ?? "").trim();
@@ -39,6 +41,7 @@ export async function GET(req: NextRequest) {
           d.discount_type,
           d.value,
           d.coupon_code,
+          d.applies_to,
           d.priority,
           d.starts_at,
           d.ends_at,
@@ -87,6 +90,7 @@ export async function POST(req: NextRequest) {
 
     const name = asText(body.name);
     const discountType = asText(body.discount_type || "").toLowerCase();
+    const appliesTo = asText(body.applies_to || "specific_variants").toLowerCase();
     const value = toNumber(body.value, NaN);
     const priority = Math.max(1, Math.floor(toNumber(body.priority, 1)));
     const couponCode = asText(body.coupon_code);
@@ -106,6 +110,8 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+    const resolvedAppliesTo = ALLOWED_APPLIES_TO.has(appliesTo) ? appliesTo : "specific_variants";
+
     if (!Number.isFinite(value) || value < 0) {
       return NextResponse.json({ success: false, error: "Discount value must be >= 0" }, { status: 400 });
     }
@@ -120,9 +126,9 @@ export async function POST(req: NextRequest) {
     const insertRes = await client.query(
       `
         INSERT INTO "${schema}".discounts
-          (name, description, discount_type, value, coupon_code, priority, starts_at, ends_at, is_active)
+          (name, description, discount_type, value, coupon_code, applies_to, priority, starts_at, ends_at, is_active)
         VALUES
-          ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         RETURNING *
       `,
       [
@@ -131,6 +137,7 @@ export async function POST(req: NextRequest) {
         discountType,
         value,
         couponValue,
+        resolvedAppliesTo,
         priority,
         startsAt,
         endsAt,
@@ -140,7 +147,7 @@ export async function POST(req: NextRequest) {
 
     const discount = insertRes.rows[0];
 
-    if (variantIds.length) {
+    if (resolvedAppliesTo === "specific_variants" && variantIds.length) {
       await client.query(
         `
           INSERT INTO "${schema}".discount_variants

@@ -4,6 +4,8 @@ import { pool } from "@/lib/db";
 import { getTenantSchema, getTenantSchemaByCompany } from "@/lib/tenant";
 import { decryptSecret } from "@/lib/cryptoHelper";
 import { applySalesRowCalculation, calculateSalesTotals } from "@/lib/pricing/salesCalculations";
+import { transitionOrderStatus } from "@/lib/orderStateMachine";
+import { RESERVATION_TTL_MINUTES } from "@/lib/reservationCleanup";
 
 type PaymentMethod = "upi" | "card" | "netbanking" | "wallet" | "cod";
 
@@ -18,6 +20,8 @@ interface CheckoutRequestBody {
   billingAddressId?: number | string;
   paymentMethod: PaymentMethod;
   items: CheckoutItemInput[];
+  couponCode?: string;
+  idempotencyKey?: string;
 }
 
 function generateOrderNumber(): string {
@@ -100,7 +104,7 @@ export async function POST(
 
     // Step 2: Load payment settings and tenant gateway configuration
     const settingsRes = await client.query(
-      `SELECT payment_mode
+      `SELECT payment_mode, shipping_free_threshold, shipping_fee
        FROM "${schema}".ecom_settings
        WHERE company_id = $1
        LIMIT 1`,
@@ -174,6 +178,139 @@ export async function POST(
     // Begin single DB transaction
     await client.query("BEGIN");
     inTransaction = true;
+
+    // Concurrency guard: Row lock on customer to serialize simultaneous checkouts
+    await client.query(
+      `SELECT id FROM "${schema}".customers WHERE id = $1 FOR UPDATE`,
+      [parsedCustomerId]
+    );
+
+    // Check for existing active pending prepaid order within reservation TTL window
+    const pendingOrderRes = await client.query(
+      `SELECT id, order_no, total_amount, currency, shipping_address_id, billing_address_id, payment_method, notes
+       FROM "${schema}".online_orders
+       WHERE customer_id = $1
+         AND order_status = 'placed'
+         AND payment_status = 'pending'
+         AND payment_method != 'cod'
+         AND created_at >= NOW() - INTERVAL '${RESERVATION_TTL_MINUTES} minutes'
+       ORDER BY created_at DESC
+       LIMIT 1
+       FOR UPDATE`,
+      [parsedCustomerId]
+    );
+
+    if (pendingOrderRes.rowCount && pendingOrderRes.rowCount > 0) {
+      const existingOrder = pendingOrderRes.rows[0];
+
+      // Query existing order items
+      const existingItemsRes = await client.query(
+        `SELECT variant_id, qty FROM "${schema}".online_order_items WHERE order_id = $1`,
+        [existingOrder.id]
+      );
+
+      const requestedCartMap = new Map<number, number>();
+      for (const it of items) {
+        const vId = Number(it.variantId);
+        const q = Number(it.qty);
+        requestedCartMap.set(vId, (requestedCartMap.get(vId) || 0) + q);
+      }
+
+      const existingCartMap = new Map<number, number>();
+      for (const it of existingItemsRes.rows) {
+        const vId = Number(it.variant_id);
+        const q = Number(it.qty);
+        existingCartMap.set(vId, (existingCartMap.get(vId) || 0) + q);
+      }
+
+      let isCartIdentical = requestedCartMap.size === existingCartMap.size;
+      if (isCartIdentical) {
+        for (const [vId, q] of requestedCartMap.entries()) {
+          if (existingCartMap.get(vId) !== q) {
+            isCartIdentical = false;
+            break;
+          }
+        }
+      }
+
+      if (
+        isCartIdentical &&
+        paymentMethod !== "cod" &&
+        existingOrder.payment_method === paymentMethod &&
+        tenantKeyId &&
+        tenantKeySecretEnc
+      ) {
+        // Reuse existing order & existing/new Razorpay order
+        const existingPaymentRes = await client.query(
+          `SELECT gateway_order_id, raw_response
+           FROM "${schema}".online_order_payments
+           WHERE order_id = $1 AND gateway_order_id IS NOT NULL
+           ORDER BY created_at DESC
+           LIMIT 1`,
+          [existingOrder.id]
+        );
+
+        let razorpayOrderId = existingPaymentRes.rows[0]?.gateway_order_id;
+        const razorpaySecret = decryptSecret(tenantKeySecretEnc);
+        const razorpayKeyId = tenantKeyId;
+        const amountInPaise = Math.round(Number(existingOrder.total_amount) * 100);
+
+        if (!razorpayOrderId) {
+          const razorpayClient = new Razorpay({
+            key_id: razorpayKeyId,
+            key_secret: razorpaySecret,
+          });
+
+          const rzpOrder = await razorpayClient.orders.create({
+            amount: amountInPaise,
+            currency: existingOrder.currency || "INR",
+            receipt: existingOrder.order_no,
+            notes: {
+              company: companyName,
+              order_id: String(existingOrder.id),
+              customer_id: String(parsedCustomerId),
+            },
+          });
+          razorpayOrderId = rzpOrder.id;
+
+          await client.query(
+            `INSERT INTO "${schema}".online_order_payments (
+               order_id, gateway, gateway_order_id, amount, status, method, raw_response, created_at
+             )
+             VALUES ($1, 'razorpay', $2, $3, 'created', $4, $5, NOW())`,
+            [
+              existingOrder.id,
+              rzpOrder.id,
+              Number(existingOrder.total_amount),
+              paymentMethod,
+              JSON.stringify(rzpOrder),
+            ]
+          );
+        }
+
+        await client.query("COMMIT");
+        inTransaction = false;
+
+        return NextResponse.json({
+          success: true,
+          order_no: existingOrder.order_no,
+          order_id: Number(existingOrder.id),
+          razorpay_order_id: razorpayOrderId,
+          razorpay_key_id: razorpayKeyId,
+          key_id: razorpayKeyId,
+          amount: amountInPaise,
+          currency: existingOrder.currency || "INR",
+          payment_method: paymentMethod,
+          reused_existing: true,
+        });
+      } else {
+        // Cancel old stale/mismatched order and release its held reservations
+        await transitionOrderStatus(client, schema, Number(existingOrder.id), "cancelled", {
+          changedBy: "system",
+          note: "Superseded by new checkout attempt",
+        });
+      }
+    }
 
     // Step 3: Stock availability check across all items
     const shortItems: Array<{
@@ -365,10 +502,80 @@ export async function POST(
     );
 
     const subtotal = totals.subtotal;
-    const discountAmount = totals.discount;
+    let discountAmount = totals.discount;
     const taxAmount = totals.tax;
-    const shippingFee = 0;
-    const totalAmount = totals.total;
+
+    // Phase 2: Apply entered coupon code discount if provided
+    let couponDiscount = 0;
+    let couponAppliedNotes: string | null = null;
+    const rawCouponCode = String(body.couponCode || "").trim();
+
+    if (rawCouponCode) {
+      const couponRes = await client.query(
+        `
+          SELECT
+            d.id,
+            d.name,
+            d.discount_type,
+            d.value,
+            d.coupon_code,
+            d.applies_to,
+            array_remove(array_agg(dv.variant_id), NULL) AS allowed_variants
+          FROM "${schema}".discounts d
+          LEFT JOIN "${schema}".discount_variants dv ON d.id = dv.discount_id
+          WHERE d.is_active = TRUE
+            AND LOWER(d.coupon_code) = LOWER($1)
+            AND (d.starts_at IS NULL OR d.starts_at <= NOW())
+            AND (d.ends_at IS NULL OR d.ends_at >= NOW())
+          GROUP BY d.id
+          LIMIT 1
+        `,
+        [rawCouponCode]
+      );
+
+      if (couponRes.rowCount) {
+        const couponInfo = couponRes.rows[0];
+        const couponVal = Number(couponInfo.value || 0);
+        const appliesTo = couponInfo.applies_to || "specific_variants";
+        const discType = couponInfo.discount_type;
+
+        if (appliesTo === "entire_order") {
+          if (discType === "percentage") {
+            couponDiscount = Number(((subtotal * couponVal) / 100).toFixed(2));
+          } else {
+            couponDiscount = Math.min(couponVal, subtotal);
+          }
+        } else {
+          const allowedVariants: number[] = (couponInfo.allowed_variants || []).map((id: any) => Number(id));
+          const matchingItems = preparedItems.filter((p) => allowedVariants.includes(Number(p.variantId)));
+          const eligibleSubtotal = matchingItems.reduce((sum, p) => sum + (p.rate * p.requestedQty), 0);
+
+          if (eligibleSubtotal > 0) {
+            if (discType === "percentage") {
+              couponDiscount = Number(((eligibleSubtotal * couponVal) / 100).toFixed(2));
+            } else {
+              couponDiscount = Math.min(couponVal, eligibleSubtotal);
+            }
+          }
+        }
+
+        if (couponDiscount > 0) {
+          couponAppliedNotes = `Coupon: ${couponInfo.coupon_code} (-₹${couponDiscount.toFixed(2)})`;
+        }
+      }
+    }
+
+    const totalDiscountAmount = Number((discountAmount + couponDiscount).toFixed(2));
+
+    const shippingFreeThreshold = ecomSettings?.shipping_free_threshold != null
+      ? Math.max(0, Number(ecomSettings.shipping_free_threshold))
+      : 500;
+    const baseShippingFee = ecomSettings?.shipping_fee != null
+      ? Math.max(0, Number(ecomSettings.shipping_fee))
+      : 49;
+
+    const shippingFee = subtotal >= shippingFreeThreshold ? 0 : baseShippingFee;
+    const totalAmount = Math.max(0, Number((totals.total - couponDiscount + shippingFee).toFixed(2)));
 
     // Step 5: INSERT online_orders with retry for unique order_no collision
     let orderRow: { id: number; order_no: string; total_amount: string; currency: string } | null =
@@ -384,9 +591,9 @@ export async function POST(
              order_no, company_id, customer_id, shipping_address_id, billing_address_id,
              currency, subtotal, tax_amount, shipping_fee, discount_amount, total_amount,
              order_status, payment_status, payment_method, delivery_status,
-             order_type, created_by, created_at
+             order_type, notes, created_by, created_at
            )
-           VALUES ($1, $2, $3, $4, $5, 'INR', $6, $7, $8, $9, $10, 'placed', 'pending', $11, 'not_shipped', 'online', 'customer', NOW())
+           VALUES ($1, $2, $3, $4, $5, 'INR', $6, $7, $8, $9, $10, 'placed', 'pending', $11, 'not_shipped', 'online', $12, 'customer', NOW())
            RETURNING id, order_no, total_amount, currency`,
           [
             candidateOrderNo,
@@ -397,9 +604,10 @@ export async function POST(
             subtotal,
             taxAmount,
             shippingFee,
-            discountAmount,
+            totalDiscountAmount,
             totalAmount,
             paymentMethod,
+            couponAppliedNotes,
           ]
         );
         orderRow = orderInsertRes.rows[0];
@@ -451,7 +659,7 @@ export async function POST(
         `INSERT INTO "${schema}".inventory_reservations (
            variant_id, qty_reserved, order_ref_id, status, expires_at, created_at
          )
-         VALUES ($1, $2, $3, 'held', NOW() + interval '20 minutes', NOW())
+         VALUES ($1, $2, $3, 'held', NOW() + interval '${RESERVATION_TTL_MINUTES} minutes', NOW())
          RETURNING id`,
         [item.variantId, item.requestedQty, orderId]
       );

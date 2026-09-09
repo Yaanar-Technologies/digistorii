@@ -541,6 +541,7 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
       discount_type VARCHAR(20) NOT NULL CHECK (discount_type IN ('percentage', 'fixed')),
       value NUMERIC(12,2) NOT NULL CHECK (value >= 0),
       coupon_code VARCHAR(100) UNIQUE,
+      applies_to VARCHAR(30) NOT NULL DEFAULT 'specific_variants' CHECK (applies_to IN ('entire_order', 'specific_variants')),
       priority INTEGER NOT NULL DEFAULT 1,
       starts_at TIMESTAMP,
       ends_at TIMESTAMP,
@@ -1378,6 +1379,8 @@ export async function createEcomSchema(
       delivery_note TEXT,
       support_email VARCHAR(150),
       support_phone VARCHAR(20),
+      shipping_free_threshold NUMERIC(12,2) NOT NULL DEFAULT 500.00,
+      shipping_fee NUMERIC(12,2) NOT NULL DEFAULT 49.00,
       use_custom_pricing BOOLEAN NOT NULL DEFAULT FALSE,
       use_custom_discounts BOOLEAN NOT NULL DEFAULT FALSE,
       setup_status VARCHAR(20) NOT NULL DEFAULT 'incomplete'
@@ -1394,7 +1397,9 @@ export async function createEcomSchema(
       ADD COLUMN IF NOT EXISTS delivery_api_key_enc TEXT,
       ADD COLUMN IF NOT EXISTS delivery_api_secret_enc TEXT,
       ADD COLUMN IF NOT EXISTS delivery_webhook_secret_enc TEXT,
-      ADD COLUMN IF NOT EXISTS pickup_location_code VARCHAR(100);
+      ADD COLUMN IF NOT EXISTS pickup_location_code VARCHAR(100),
+      ADD COLUMN IF NOT EXISTS shipping_free_threshold NUMERIC(12,2) NOT NULL DEFAULT 500.00,
+      ADD COLUMN IF NOT EXISTS shipping_fee NUMERIC(12,2) NOT NULL DEFAULT 49.00;
   `);
 
   // 2. Create storefront_config table

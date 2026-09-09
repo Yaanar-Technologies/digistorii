@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   StorefrontHeader,
   CheckoutShell,
@@ -50,10 +50,16 @@ interface PendingPrepaidOrder {
 export default function CheckoutPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const company = (params.company as string) || "";
+  const initialCoupon = searchParams.get("coupon") || "";
 
   const theme = useStorefrontTheme();
   const [footerSettings] = useState(mockFooterSettings);
+  const [shippingSettings, setShippingSettings] = useState<{ freeThreshold: number; fee: number }>({
+    freeThreshold: 500,
+    fee: 49,
+  });
 
   const [customer, setCustomer] = useState<{
     id: number;
@@ -108,6 +114,27 @@ export default function CheckoutPage() {
       }
     };
     checkAuth();
+
+    // Fetch tenant dynamic settings (shipping fees & thresholds)
+    const loadTenantSettings = async () => {
+      try {
+        const res = await fetch(`/api/tenant/${company}/settings`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.settings) {
+            setShippingSettings({
+              freeThreshold: data.settings.shipping_free_threshold != null ? Number(data.settings.shipping_free_threshold) : 500,
+              fee: data.settings.shipping_fee != null ? Number(data.settings.shipping_fee) : 49,
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load storefront shipping settings:", err);
+      }
+    };
+    if (company) {
+      loadTenantSettings();
+    }
 
     return () => {
       if (pollTimerRef.current) {
@@ -324,11 +351,18 @@ export default function CheckoutPage() {
       }
 
       // 2. Call POST /api/[company]/ecom/checkout
+      const idempotencyKey =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `chk_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
       const checkoutPayload = {
         customerId: finalCustomerId,
         shippingAddressId: finalAddressId,
         billingAddressId: finalAddressId,
         paymentMethod: orderData.paymentMethod,
+        couponCode: orderData.couponCode,
+        idempotencyKey,
         items: convertedCartItems.map((item) => ({
           variantId: item.variantId,
           qty: item.quantity,
@@ -340,6 +374,9 @@ export default function CheckoutPage() {
         company,
         {
           method: "POST",
+          headers: {
+            "x-idempotency-key": idempotencyKey,
+          },
           body: JSON.stringify(checkoutPayload),
         }
       );
@@ -520,6 +557,9 @@ export default function CheckoutPage() {
                 onPlaceOrder={handlePlaceOrder}
                 savedAddresses={customer?.addresses}
                 isLoading={isPlacingOrder}
+                shippingFreeThreshold={shippingSettings.freeThreshold}
+                shippingFee={shippingSettings.fee}
+                initialCouponCode={initialCoupon}
               />
             </>
           )}
