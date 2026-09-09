@@ -17,6 +17,7 @@ export interface CheckoutOrderDetails {
     state: string;
     postalCode: string;
     country: string;
+    addressType?: string;
     isDefault?: boolean;
   };
   shippingAddressId?: number;
@@ -63,6 +64,7 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
     state: "",
     postalCode: "",
     country: "India",
+    addressType: "Home",
     isDefault: false,
   });
 
@@ -113,6 +115,7 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
       state: addr.state || "",
       postalCode: addr.pincode || addr.postalCode || "",
       country: addr.country || "India",
+      addressType: addr.address_type || addr.addressType || "Home",
       isDefault: addr.is_default || false,
     }));
   };
@@ -131,6 +134,7 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
       city: "",
       state: "",
       postalCode: "",
+      addressType: "Home",
       isDefault: false,
     }));
   };
@@ -184,38 +188,49 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
         return;
       }
 
-      // Save address to database asynchronously
-      try {
-        setIsSavingAddress(true);
-        const saveRes = await fetch("/api/ecom/customer/addresses", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            company: company || "",
-            recipient_name: shippingAddress.fullName.trim(),
-            recipient_phone: shippingAddress.phone.trim(),
-            address_line1: shippingAddress.addressLine.trim(),
-            address_line2: shippingAddress.addressLine2.trim(),
-            city: shippingAddress.city.trim(),
-            state: shippingAddress.state.trim(),
-            pincode: shippingAddress.postalCode.trim(),
-            country: shippingAddress.country || "India",
-            is_default: shippingAddress.isDefault,
-            email: shippingAddress.email.trim(),
-          }),
-        });
-        const saveResult = await saveRes.json();
-        if (saveResult.success && saveResult.address) {
-          setAddresses((prev) => [saveResult.address, ...prev.filter((a) => a.id !== saveResult.address.id)]);
-          setSelectedAddressId(saveResult.address.id);
-          if (saveResult.address.customer_id) {
-            setSavedCustomerId(saveResult.address.customer_id);
+      // Avoid Unnecessary Saves:
+      // Only call POST /api/ecom/customer/addresses if:
+      // 1. selectedAddressId === "new", OR
+      // 2. The customer has zero saved addresses (addresses.length === 0)
+      const shouldSaveNewAddress = selectedAddressId === "new" || addresses.length === 0;
+
+      if (shouldSaveNewAddress) {
+        try {
+          setIsSavingAddress(true);
+          const saveRes = await fetch("/api/ecom/customer/addresses", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              company: company || "",
+              recipient_name: shippingAddress.fullName.trim(),
+              recipient_phone: shippingAddress.phone.trim(),
+              address_line1: shippingAddress.addressLine.trim(),
+              address_line2: shippingAddress.addressLine2.trim(),
+              city: shippingAddress.city.trim(),
+              state: shippingAddress.state.trim(),
+              pincode: shippingAddress.postalCode.trim(),
+              country: shippingAddress.country || "India",
+              address_type: shippingAddress.addressType || "Home",
+              is_default: shippingAddress.isDefault,
+              email: shippingAddress.email.trim(),
+            }),
+          });
+          const saveResult = await saveRes.json();
+          if (saveResult.success && saveResult.address) {
+            setAddresses((prev) => [
+              saveResult.address,
+              ...prev.filter((a) => a.id !== saveResult.address.id),
+            ]);
+            setSelectedAddressId(saveResult.address.id);
+            if (saveResult.address.customer_id) {
+              setSavedCustomerId(saveResult.address.customer_id);
+            }
           }
+        } catch (err) {
+          console.error("Address auto-save notice:", err);
+        } finally {
+          setIsSavingAddress(false);
         }
-      } catch (err) {
-        console.error("Address auto-save notice:", err);
-      } finally {
-        setIsSavingAddress(false);
       }
 
       setCurrentStep(2);
@@ -319,6 +334,9 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
                     <div className="grid grid-cols-1 gap-3">
                       {addresses.map((addr) => {
                         const isSelected = selectedAddressId === addr.id;
+                        const label = addr.address_type || "Home";
+                        const labelIcon = label === "Home" ? "🏠" : label === "Work" ? "💼" : "📍";
+
                         return (
                           <div
                             key={addr.id}
@@ -329,7 +347,12 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
                               }`}
                           >
                             <div className="flex items-center justify-between text-xs font-bold text-gray-900">
-                              <span>{addr.recipient_name || addr.fullName || "Recipient"}</span>
+                              <div className="flex items-center gap-2">
+                                <span>{addr.recipient_name || addr.fullName || "Recipient"}</span>
+                                <span className="bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-md text-[10px] font-semibold">
+                                  {labelIcon} {label}
+                                </span>
+                              </div>
                               {addr.is_default && (
                                 <span className="bg-gray-200 text-gray-700 px-2 py-0.5 rounded text-[10px]">DEFAULT</span>
                               )}
@@ -352,6 +375,27 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
                     </div>
                   </div>
                 )}
+
+                {/* Address Label Selector */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Address Label</label>
+                  <div className="flex items-center gap-2">
+                    {(["Home", "Work", "Other"] as const).map((type) => (
+                      <button
+                        type="button"
+                        key={type}
+                        onClick={() => setShippingAddress({ ...shippingAddress, addressType: type })}
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                          (shippingAddress.addressType || "Home") === type
+                            ? "border-blue-600 bg-blue-50 text-blue-700 ring-1 ring-blue-600 shadow-xs"
+                            : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
+                        }`}
+                      >
+                        {type === "Home" ? "🏠 Home" : type === "Work" ? "💼 Work" : "📍 Other"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>

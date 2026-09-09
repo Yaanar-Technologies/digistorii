@@ -51,7 +51,9 @@ export async function GET(req: NextRequest) {
       `SELECT 
          id, customer_id, recipient_name, recipient_phone,
          address_line1, address_line2, address_line3,
-         city, state, pincode, country, is_default, created_at
+         city, state, pincode, country, is_default,
+         COALESCE(address_type, 'Home') AS address_type,
+         created_at
        FROM "${schema}".customer_addresses
        WHERE customer_id = $1
        ORDER BY is_default DESC, id DESC`,
@@ -95,6 +97,7 @@ export async function POST(req: NextRequest) {
     const state = String(body?.state || "").trim();
     const pincode = String(body?.pincode || body?.postalCode || "").trim();
     const country = String(body?.country || "India").trim();
+    const addressType = String(body?.address_type || body?.addressType || "Home").trim();
     const isDefault = body?.is_default === true || body?.isDefault === true;
 
     if (!recipientName) {
@@ -137,7 +140,7 @@ export async function POST(req: NextRequest) {
           `ECO-${Date.now().toString().slice(-6)}`,
           recipientName,
           recipientName,
-          body?.email || null,
+          body?.email ? String(body.email).trim() : null,
           normalizeIndianPhone(rawRecipientPhone),
         ]
       );
@@ -145,6 +148,57 @@ export async function POST(req: NextRequest) {
     }
 
     await client.query("BEGIN");
+
+    // Deduplication check: Check if identical address already exists for customer_id
+    const duplicateRes = await client.query(
+      `SELECT 
+         id, customer_id, recipient_name, recipient_phone,
+         address_line1, address_line2, city, state, pincode, country, is_default,
+         COALESCE(address_type, 'Home') AS address_type
+       FROM "${schema}".customer_addresses
+       WHERE customer_id = $1
+         AND LOWER(TRIM(address_line1)) = LOWER(TRIM($2))
+         AND TRIM(pincode) = TRIM($3)
+       LIMIT 1`,
+      [customerId, addressLine1, pincode]
+    );
+
+    if (duplicateRes.rows.length > 0) {
+      const existing = duplicateRes.rows[0];
+
+      if (isDefault) {
+        await client.query(
+          `UPDATE "${schema}".customer_addresses SET is_default = FALSE WHERE customer_id = $1`,
+          [customerId]
+        );
+      }
+
+      const updateRes = await client.query(
+        `UPDATE "${schema}".customer_addresses
+         SET is_default = CASE WHEN $1::boolean THEN TRUE ELSE is_default END,
+             recipient_name = COALESCE(NULLIF($2, ''), recipient_name),
+             recipient_phone = COALESCE(NULLIF($3, ''), recipient_phone),
+             address_type = COALESCE(NULLIF($4, ''), address_type),
+             updated_at = NOW()
+         WHERE id = $5
+         RETURNING id, customer_id, recipient_name, recipient_phone, address_line1, address_line2, city, state, pincode, country, is_default, address_type`,
+        [
+          isDefault,
+          recipientName,
+          normalizeIndianPhone(rawRecipientPhone),
+          addressType,
+          existing.id,
+        ]
+      );
+
+      await client.query("COMMIT");
+
+      return NextResponse.json({
+        success: true,
+        message: "Existing address selected",
+        address: updateRes.rows[0] || existing,
+      });
+    }
 
     // If is_default = true, clear previous default flag for this customer
     if (isDefault) {
@@ -156,10 +210,10 @@ export async function POST(req: NextRequest) {
 
     const insertRes = await client.query(
       `INSERT INTO "${schema}".customer_addresses (
-         customer_id, recipient_name, recipient_phone, address_line1, address_line2, city, state, pincode, country, is_default
+         customer_id, recipient_name, recipient_phone, address_line1, address_line2, city, state, pincode, country, address_type, is_default
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING id, customer_id, recipient_name, recipient_phone, address_line1, address_line2, city, state, pincode, country, is_default`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       RETURNING id, customer_id, recipient_name, recipient_phone, address_line1, address_line2, city, state, pincode, country, address_type, is_default`,
       [
         customerId,
         recipientName,
@@ -170,6 +224,7 @@ export async function POST(req: NextRequest) {
         state,
         pincode,
         country || "India",
+        addressType,
         isDefault,
       ]
     );

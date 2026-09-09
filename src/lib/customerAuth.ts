@@ -123,7 +123,8 @@ export async function ensureCustomerSchema(client: PoolClient, schema: string): 
 
     ALTER TABLE "${schema}".customer_addresses
       ADD COLUMN IF NOT EXISTS recipient_name VARCHAR(100),
-      ADD COLUMN IF NOT EXISTS recipient_phone VARCHAR(20);
+      ADD COLUMN IF NOT EXISTS recipient_phone VARCHAR(20),
+      ADD COLUMN IF NOT EXISTS address_type VARCHAR(20) DEFAULT 'Home';
 
     DO $$
     BEGIN

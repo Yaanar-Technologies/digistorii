@@ -282,7 +282,14 @@ export default function CustomerAccountPage() {
                       {addresses.map((addr) => (
                         <div key={addr.id} className="bg-white rounded-2xl border border-gray-100 p-5 shadow-xs space-y-2">
                           <div className="flex items-center justify-between text-sm font-bold text-gray-900">
-                            <span>{addr.recipient_name}</span>
+                            <div className="flex items-center gap-2">
+                              <span>{addr.recipient_name}</span>
+                              {addr.address_type && (
+                                <span className="bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-semibold px-2 py-0.5 rounded">
+                                  {addr.address_type === "Home" ? "🏠 Home" : addr.address_type === "Work" ? "💼 Work" : "📍 " + addr.address_type}
+                                </span>
+                              )}
+                            </div>
                             {addr.is_default && (
                               <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded">
                                 DEFAULT
