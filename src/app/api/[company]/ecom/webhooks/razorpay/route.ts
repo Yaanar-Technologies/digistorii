@@ -174,6 +174,16 @@ export async function POST(
               changedBy: "webhook:razorpay",
               note: `Captured via Razorpay payment ID: ${rzpPaymentId || "N/A"}`,
             });
+
+            // Idempotently clear ordered cart items for this customer
+            await client.query(
+              `DELETE FROM "${schema}".cart_items
+               WHERE customer_id = (SELECT customer_id FROM "${schema}".online_orders WHERE id = $1)
+                 AND variant_id IN (
+                   SELECT variant_id FROM "${schema}".online_order_items WHERE order_id = $1
+                 )`,
+              [paymentRow.order_id]
+            );
           }
         }
       } else if (eventName === "payment.failed") {

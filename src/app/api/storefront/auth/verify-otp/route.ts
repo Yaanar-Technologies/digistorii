@@ -2,6 +2,12 @@ import { createHash } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { resolveCompanySlug } from "@/lib/customerAuth";
+import {
+  signSession,
+  CUSTOMER_COOKIE_NAME,
+  CUSTOMER_SESSION_EXPIRY_SECONDS,
+  getCookieOptions,
+} from "@/lib/session";
 
 function hashOtp(otp: string) {
   return createHash("sha256").update(otp).digest("hex");
@@ -73,18 +79,19 @@ export async function POST(req: NextRequest) {
       company: companySlug,
     };
 
+    const token = await signSession(customerSessionData, CUSTOMER_SESSION_EXPIRY_SECONDS, "customer");
+
     const response = NextResponse.json({
       success: true,
       message: "Authentication successful",
       customer: customerSessionData,
     });
 
-    response.cookies.set("customer_session", JSON.stringify(customerSessionData), {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 30, // 30 days
-    });
+    response.cookies.set(
+      CUSTOMER_COOKIE_NAME,
+      token,
+      getCookieOptions(CUSTOMER_SESSION_EXPIRY_SECONDS)
+    );
 
     return response;
   } catch (err: any) {

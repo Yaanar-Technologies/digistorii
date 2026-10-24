@@ -1,20 +1,27 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { pool } from "@/lib/db";
+import { verifySession, STAFF_COOKIE_NAME, StaffSessionPayload } from "@/lib/session";
 
 export async function GET() {
   const cookieStore = await cookies();
-  const userCookie = cookieStore.get("user");
+  const userCookie = cookieStore.get(STAFF_COOKIE_NAME);
 
-  if (!userCookie) {
+  if (!userCookie?.value) {
     return NextResponse.json({
       success: false,
       message: "User not logged in"
     }, { status: 401 });
   }
 
-  // Extract user ID from cookie
-  const parsedCookie = JSON.parse(userCookie.value);
+  const parsedCookie = await verifySession<StaffSessionPayload>(userCookie.value, "staff");
+  if (!parsedCookie) {
+    return NextResponse.json({
+      success: false,
+      message: "Unauthorized: Invalid or expired session"
+    }, { status: 401 });
+  }
+
   const userId = Number(parsedCookie?.user_id ?? parsedCookie?.id);
   if (!Number.isInteger(userId) || userId <= 0) {
     return NextResponse.json({

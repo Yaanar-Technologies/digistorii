@@ -190,11 +190,7 @@ export async function ensureResponsibilitySchema(client: PoolClient) {
       updated_at TIMESTAMP DEFAULT NOW()
     );
   `);
-  await client.query(`
-    ALTER TABLE public.user_responsibilities
-      ADD COLUMN IF NOT EXISTS ecommerce_access BOOLEAN DEFAULT FALSE;
-  `);
-  // Backfill existing admin responsibilities
+
   await client.query(`
     UPDATE public.user_responsibilities 
     SET ecommerce_access = TRUE 
@@ -357,7 +353,7 @@ export async function getResponsibilitiesForCompany(client: PoolClient, companyI
      FROM public.user_responsibilities
      WHERE company_id = $1
      ORDER BY responsibility_name ASC`,
-     [companyId]
+    [companyId]
   );
   return result.rows.map((row) => coerceResponsibilityRecord(row));
 }

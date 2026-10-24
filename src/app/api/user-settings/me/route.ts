@@ -1,28 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { getTenantSchema } from "@/lib/tenant";
+import { verifySession, STAFF_COOKIE_NAME, StaffSessionPayload } from "@/lib/session";
 
 const schemaValidator = /^[a-z][a-z0-9_]{0,62}$/;
 
-function getUserIdFromCookie(req: NextRequest): number | null {
-  const userCookie = req.cookies.get("user")?.value;
-  if (!userCookie) return null;
+async function getUserIdFromCookie(req: NextRequest): Promise<{ userId: number | null; session: StaffSessionPayload | null }> {
+  const userCookie = req.cookies.get(STAFF_COOKIE_NAME)?.value;
+  if (!userCookie) return { userId: null, session: null };
 
-  try {
-    const parsed = JSON.parse(userCookie);
-    const maybeUserId = Number(parsed?.user_id ?? parsed?.id);
-    if (!Number.isInteger(maybeUserId) || maybeUserId <= 0) return null;
-    return maybeUserId;
-  } catch {
-    return null;
-  }
+  const parsed = await verifySession<StaffSessionPayload>(userCookie, "staff");
+  if (!parsed) return { userId: null, session: null };
+
+  const maybeUserId = Number(parsed?.user_id ?? parsed?.id);
+  if (!Number.isInteger(maybeUserId) || maybeUserId <= 0) return { userId: null, session: null };
+  return { userId: maybeUserId, session: parsed };
 }
 
 export async function GET(req: NextRequest) {
   const client = await pool.connect();
   try {
-    const userId = getUserIdFromCookie(req);
-    if (!userId) {
+    const { userId, session } = await getUserIdFromCookie(req);
+    if (!userId || !session) {
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
         { status: 401 }
@@ -30,6 +29,13 @@ export async function GET(req: NextRequest) {
     }
 
     const { company, schema } = await getTenantSchema(req);
+
+    if (session.company_name && session.company_name.trim().toLowerCase() !== company.trim().toLowerCase()) {
+      return NextResponse.json(
+        { success: false, error: "Forbidden: Company mismatch" },
+        { status: 403 }
+      );
+    }
     if (!schema || !schemaValidator.test(schema)) {
       return NextResponse.json(
         { success: false, error: "Invalid schema" },

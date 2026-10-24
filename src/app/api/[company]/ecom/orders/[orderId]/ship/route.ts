@@ -1,20 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
-import { getTenantSchema, getTenantSchemaByCompany } from "@/lib/tenant";
+import { requireStaff, staffDisplayName } from "@/lib/apiGuard";
 import { decryptSecret } from "@/lib/cryptoHelper";
 import { getCourierAdapter } from "@/lib/couriers";
 import { transitionOrderStatus, OrderTransitionError } from "@/lib/orderStateMachine";
-
-function getStaffUsername(req: NextRequest): string {
-  const userCookie = req.cookies.get("user")?.value;
-  if (userCookie) {
-    try {
-      const parsed = JSON.parse(userCookie);
-      return parsed?.username || parsed?.email || parsed?.name || `user:${parsed?.id}` || "staff";
-    } catch { }
-  }
-  return req.headers.get("x-user-name") || "staff";
-}
 
 interface ShipRequestBody {
   awbNumber?: string;
@@ -33,6 +22,9 @@ export async function POST(
     const { company, orderId: rawOrderId } = await params;
     const orderId = Number(rawOrderId);
 
+    const guard = await requireStaff(req, company, { permission: "ecommerce_access", requireEcom: true });
+    if (!guard.ok) return guard.response;
+
     if (!orderId || isNaN(orderId)) {
       return NextResponse.json(
         { success: false, error: "Invalid order ID provided." },
@@ -45,16 +37,8 @@ export async function POST(
       body = await req.json();
     } catch { }
 
-    let schema = "";
-    try {
-      const tenantInfo = await getTenantSchema(req);
-      schema = tenantInfo.schema;
-    } catch {
-      const tenantInfo = await getTenantSchemaByCompany(company);
-      schema = tenantInfo.schema;
-    }
-
-    const staffUsername = getStaffUsername(req);
+    const schema = guard.schema;
+    const staffUsername = staffDisplayName(guard.staff);
 
     await client.query("BEGIN");
     inTransaction = true;

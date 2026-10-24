@@ -3,9 +3,7 @@ import { createMasterTables } from "./lib";
 import { ensureCurrenciesSeeded } from "./currencySeed";
 import { ensureLocationTableShape } from "./locationSchema";
 
-/**
- * Creates isolated schema + base tables for a new company
- */
+
 export async function createCompanySchema(
   client: PoolClient,
   rawSchema: string
@@ -70,21 +68,6 @@ export async function createCompanySchema(
     `);
 
   await client.query(`
-      ALTER TABLE "${schema}".customers
-        ADD COLUMN IF NOT EXISTS channel VARCHAR(20) NOT NULL DEFAULT 'pos',
-        ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255) NULL,
-        ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT FALSE;
-
-      DO $$
-      BEGIN
-        IF EXISTS (
-          SELECT 1 FROM information_schema.table_constraints
-          WHERE table_schema = '${schema}' AND table_name = 'customers' AND constraint_name = 'unique_cust_email'
-        ) THEN
-          ALTER TABLE "${schema}".customers DROP CONSTRAINT unique_cust_email;
-        END IF;
-      END $$;
-
       CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_unique_email
       ON "${schema}".customers (email) WHERE email IS NOT NULL AND email <> '';
 
@@ -98,6 +81,7 @@ export async function createCompanySchema(
         customer_id INTEGER NOT NULL REFERENCES "${schema}".customers(id) ON DELETE CASCADE,
         recipient_name VARCHAR(100),
         recipient_phone VARCHAR(20),
+        address_type VARCHAR(20) DEFAULT 'Home',
         address_line1 VARCHAR(200),
         address_line2 VARCHAR(200),
         address_line3 VARCHAR(200),
@@ -107,24 +91,9 @@ export async function createCompanySchema(
         country VARCHAR(100) DEFAULT 'India',
         is_default BOOLEAN NOT NULL DEFAULT FALSE,
         created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW()
+        updated_at TIMESTAMP DEFAULT NOW(),
+        CONSTRAINT chk_india_pincode CHECK (pincode IS NULL OR pincode ~ '^[1-9][0-9]{5}$')
       );
-
-      ALTER TABLE "${schema}".customer_addresses
-        ADD COLUMN IF NOT EXISTS recipient_name VARCHAR(100),
-        ADD COLUMN IF NOT EXISTS recipient_phone VARCHAR(20),
-        ADD COLUMN IF NOT EXISTS address_type VARCHAR(20) DEFAULT 'Home';
-
-      DO $$
-      BEGIN
-        IF NOT EXISTS (
-          SELECT 1 FROM information_schema.table_constraints
-          WHERE table_schema = '${schema}' AND table_name = 'customer_addresses' AND constraint_name = 'chk_india_pincode'
-        ) THEN
-          ALTER TABLE "${schema}".customer_addresses
-            ADD CONSTRAINT chk_india_pincode CHECK (pincode IS NULL OR pincode ~ '^[1-9][0-9]{5}$');
-        END IF;
-      END $$;
 
       CREATE UNIQUE INDEX IF NOT EXISTS customer_addresses_customer_default_idx
       ON "${schema}".customer_addresses (customer_id)
@@ -275,6 +244,10 @@ export async function createCompanySchema(
       currency VARCHAR(20),
       timezone VARCHAR(80),
       invoice_prefix VARCHAR(20),
+      default_low_stock_threshold INT NOT NULL DEFAULT 5,
+      default_backorders_allowed BOOLEAN NOT NULL DEFAULT FALSE,
+      low_stock_notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      low_stock_email_notifications_enabled BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TIMESTAMP DEFAULT NOW(),
       updated_at TIMESTAMP DEFAULT NOW()
     );
@@ -401,7 +374,6 @@ CREATE TABLE IF NOT EXISTS "${schema}".products (
   updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-ALTER TABLE "${schema}".products ADD COLUMN IF NOT EXISTS specifications JSONB DEFAULT '[]'::jsonb;
 `);
 
   await client.query(`
@@ -416,6 +388,7 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_variants (
   qty INT NOT NULL DEFAULT 0,
   low_stock_threshold INT DEFAULT 5,
   backorders_allowed BOOLEAN DEFAULT FALSE,
+  last_low_stock_notified_at TIMESTAMPTZ,
   status VARCHAR(20) NOT NULL DEFAULT 'draft',
   barcode VARCHAR(40),
   created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -481,9 +454,7 @@ ON "${schema}".product_variants(status);
       created_at TIMESTAMP DEFAULT NOW()
     );
 
-    ALTER TABLE "${schema}".image_master
-      ADD COLUMN IF NOT EXISTS color_id INT REFERENCES "${schema}".product_colors(id);
-  `);
+     `);
 
   await client.query(`
 CREATE TABLE IF NOT EXISTS "${schema}".product_images (
@@ -538,6 +509,7 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
       id BIGSERIAL PRIMARY KEY,
       name TEXT NOT NULL,
       description TEXT,
+      channel VARCHAR(10) NOT NULL DEFAULT 'both' CHECK (channel IN ('pos','ecom','both')),
       discount_type VARCHAR(20) NOT NULL CHECK (discount_type IN ('percentage', 'fixed')),
       value NUMERIC(12,2) NOT NULL CHECK (value >= 0),
       coupon_code VARCHAR(100) UNIQUE,
@@ -800,6 +772,7 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
           locator_id INT REFERENCES "${schema}".locators(id) ON DELETE RESTRICT,
           status VARCHAR(50) DEFAULT 'Entered',
           payment_status VARCHAR(20) NOT NULL DEFAULT 'unpaid'
+            CONSTRAINT sales_header_payment_status_chk
             CHECK (payment_status IN ('paid', 'unpaid', 'partial')),
           subtotal NUMERIC(12,2) DEFAULT 0,
           tax_amount NUMERIC(12,2) DEFAULT 0,
@@ -945,25 +918,6 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
   `);
 
   await client.query(`
-    DO $$
-    BEGIN
-      IF NOT EXISTS (
-        SELECT 1
-        FROM pg_constraint c
-        JOIN pg_class t ON t.oid = c.conrelid
-        JOIN pg_namespace n ON n.oid = t.relnamespace
-        WHERE c.conname = 'sales_header_payment_status_chk'
-          AND n.nspname = '${schema}'
-      ) THEN
-        ALTER TABLE "${schema}".sales_header
-          ADD CONSTRAINT sales_header_payment_status_chk
-          CHECK (payment_status IN ('paid', 'unpaid', 'partial'));
-      END IF;
-    END $$;
-  `);
-
-
-  await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".sales_payments (
       id SERIAL PRIMARY KEY,
       sales_id INT NOT NULL REFERENCES "${schema}".sales_header(id) ON DELETE CASCADE,
@@ -984,82 +938,12 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
     ON "${schema}".sales_payments(sales_id);
   `);
 
-  // Ensure tables shape is updated for existing schemas and backfill legacy records
-  await client.query(`
-    ALTER TABLE "${schema}".sales_header 
-    ADD COLUMN IF NOT EXISTS return_change NUMERIC(12,2) DEFAULT 0.00;
-  `);
-
-  await client.query(`
-  ALTER TABLE "${schema}".business_settings
-  ADD COLUMN IF NOT EXISTS gst_available BOOLEAN NOT NULL DEFAULT FALSE;
-  `);
-
-  await client.query(`
-    ALTER TABLE "${schema}".sales_payments 
-    ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(12,2) DEFAULT 0.00,
-    ADD COLUMN IF NOT EXISTS actual_amount NUMERIC(12,2) DEFAULT 0.00,
-    ADD COLUMN IF NOT EXISTS return_change NUMERIC(12,2) DEFAULT 0.00;
-  `);
-
   await client.query(`
     UPDATE "${schema}".sales_payments
     SET paid_amount = amount,
         actual_amount = amount
     WHERE paid_amount = 0.00 AND actual_amount = 0.00;
   `);
-
-  /* =========================================================
- SALES / BILLING
-
- 
-  await client.query(`
-        CREATE TABLE IF NOT EXISTS "${schema}".sales_header (
-          id SERIAL PRIMARY KEY,
-          sales_no VARCHAR(30) UNIQUE NOT NULL,  
-          customer_id INTEGER NOT NULL
-          REFERENCES "${schema}".customers(id) ON DELETE CASCADE,
-          sales_date DATE NOT NULL,
-          currency VARCHAR(100),
-          warehouse_id INT REFERENCES "${schema}".warehouses(id) ON DELETE RESTRICT,
-          location_id INT REFERENCES "${schema}".locations(id) ON DELETE RESTRICT,
-          locator_id INT REFERENCES "${schema}".locators(id) ON DELETE RESTRICT,
-          status VARCHAR(50) DEFAULT 'Entered',
-          payment_status VARCHAR(20) NOT NULL DEFAULT 'unpaid'
-            CHECK (payment_status IN ('paid', 'unpaid', 'partial')),
-          subtotal NUMERIC(12,2) DEFAULT 0,
-          tax_amount NUMERIC(12,2) DEFAULT 0,
-          total_amount NUMERIC(12,2) DEFAULT 0,
-          created_by VARCHAR(100),
-          created_at TIMESTAMP,
-          updated_by VARCHAR(100),
-          updated_at TIMESTAMP
-        );
-      `);
- 
-  await client.query(`
-        CREATE TABLE IF NOT EXISTS "${schema}".sales_detail (
-          id SERIAL PRIMARY KEY,
-          sales_id INT NOT NULL
-          REFERENCES "${schema}".sales_header(id) ON DELETE CASCADE,
-          product_id INTEGER NOT NULL
-          REFERENCES "${schema}".product_variants(id) ON DELETE CASCADE,
-          UOM VARCHAR(20),
-          HSN_NO VARCHAR(20),
-          rate NUMERIC(12,2) NOT NULL DEFAULT 0,
-          qty NUMERIC(12,2) NOT NULL DEFAULT 0,
-          discount NUMERIC(12,2) DEFAULT 0,
-          tax_master_id INT
-          REFERENCES "${schema}".tax_master(id) ON DELETE CASCADE,
-          tax_amount NUMERIC(12,2) DEFAULT 0,
-          line_total NUMERIC(12,2) DEFAULT 0,
-          created_by VARCHAR(100),
-          created_at TIMESTAMP,
-          updated_by VARCHAR(100),
-          updated_at TIMESTAMP
-        );
-      `);
-      
 
   /* =========================================================
      OPENING STOCK
@@ -1289,20 +1173,6 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
      INVENTORY ALERTS & NOTIFICATIONS
      ========================================================= */
 
-  await client.query(`
-    ALTER TABLE "${schema}".business_settings
-      ADD COLUMN IF NOT EXISTS default_low_stock_threshold INT NOT NULL DEFAULT 5,
-      ADD COLUMN IF NOT EXISTS default_backorders_allowed BOOLEAN NOT NULL DEFAULT FALSE,
-      ADD COLUMN IF NOT EXISTS low_stock_notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-      ADD COLUMN IF NOT EXISTS low_stock_email_notifications_enabled BOOLEAN NOT NULL DEFAULT FALSE;
-  `);
-
-  await client.query(`
-    ALTER TABLE "${schema}".product_variants
-      ADD COLUMN IF NOT EXISTS low_stock_threshold INT,
-      ADD COLUMN IF NOT EXISTS backorders_allowed BOOLEAN,
-      ADD COLUMN IF NOT EXISTS last_low_stock_notified_at TIMESTAMPTZ;
-  `);
 
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".notification_subscriptions (
@@ -1345,9 +1215,6 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
   `);
 }
 
-/**
- * Creates isolated storefront & ecommerce tables for a company schema
- */
 export async function createEcomSchema(
   client: PoolClient,
   schema: string,
@@ -1390,17 +1257,7 @@ export async function createEcomSchema(
     );
   `);
 
-  await client.query(`
-    ALTER TABLE "${schema}".ecom_settings
-      ADD COLUMN IF NOT EXISTS gateway_webhook_secret_enc TEXT,
-      ADD COLUMN IF NOT EXISTS delivery_partner VARCHAR(30),
-      ADD COLUMN IF NOT EXISTS delivery_api_key_enc TEXT,
-      ADD COLUMN IF NOT EXISTS delivery_api_secret_enc TEXT,
-      ADD COLUMN IF NOT EXISTS delivery_webhook_secret_enc TEXT,
-      ADD COLUMN IF NOT EXISTS pickup_location_code VARCHAR(100),
-      ADD COLUMN IF NOT EXISTS shipping_free_threshold NUMERIC(12,2) NOT NULL DEFAULT 500.00,
-      ADD COLUMN IF NOT EXISTS shipping_fee NUMERIC(12,2) NOT NULL DEFAULT 49.00;
-  `);
+
 
   // 2. Create storefront_config table
   await client.query(`
@@ -1446,22 +1303,7 @@ export async function createEcomSchema(
     );
   `);
 
-  // 5. Add channel column to discounts table
-  await client.query(`
-    DO $$
-    BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_schema = '${schema}' AND table_name = 'discounts' AND column_name = 'channel'
-      ) THEN
-        ALTER TABLE "${schema}".discounts
-          ADD COLUMN channel VARCHAR(10) NOT NULL DEFAULT 'both'
-            CHECK (channel IN ('pos','ecom','both'));
-      END IF;
-    END $$;
-  `);
-
-  // 6. Create inventory_reservations table
+  // 5. Create inventory_reservations table
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".inventory_reservations (
       id BIGSERIAL PRIMARY KEY,
@@ -1476,13 +1318,13 @@ export async function createEcomSchema(
     );
   `);
 
-  // 7. Create inventory reservation index
+  // 6. Create inventory reservation index
   await client.query(`
     CREATE INDEX IF NOT EXISTS idx_inventory_reservations_variant
       ON "${schema}".inventory_reservations(variant_id) WHERE status = 'held';
   `);
 
-  // 8. Create ecom_available_stock view
+  // 7. Create ecom_available_stock view
   await client.query(`
     CREATE OR REPLACE VIEW "${schema}".ecom_available_stock AS
     SELECT
@@ -1498,7 +1340,7 @@ export async function createEcomSchema(
     WHERE cs.current_stock > 0;
   `);
 
-  // 9. Create customer_ecom_auth table
+  // 8. Create customer_ecom_auth table
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".customer_ecom_auth (
       id SERIAL PRIMARY KEY,
@@ -1513,7 +1355,7 @@ export async function createEcomSchema(
     );
   `);
 
-  // 10. Create store_theme_assets table
+  // 9. Create store_theme_assets table
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".store_theme_assets (
       id SERIAL PRIMARY KEY,
@@ -1524,7 +1366,7 @@ export async function createEcomSchema(
     );
   `);
 
-  // 11. Create cart_items and wishlist_items tables for storefront customers
+  // 10. Create cart_items and wishlist_items tables for storefront customers
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".cart_items (
       id BIGSERIAL PRIMARY KEY,

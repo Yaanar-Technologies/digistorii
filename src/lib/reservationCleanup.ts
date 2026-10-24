@@ -1,89 +1,244 @@
 import { PoolClient } from "pg";
-import { transitionOrderStatus } from "@/lib/orderStateMachine";
+import { pool } from "@/lib/db";
 
-export const RESERVATION_TTL_MINUTES = 20;
-export const RESERVATION_TTL_MS = RESERVATION_TTL_MINUTES * 60 * 1000;
+export function getReservationTimeoutMinutes(): number {
+  const envVal = Number(process.env.RESERVATION_TIMEOUT_MINUTES);
+  return Number.isFinite(envVal) && envVal > 0 ? envVal : 30;
+}
+
+export const RESERVATION_TTL_MINUTES = getReservationTimeoutMinutes();
 
 /**
- * Finds inventory_reservations with status='held' AND expires_at < NOW(),
- * sets them to 'released', updates online_order_items fulfillment_status, and
- * transitions affected orders that are still 'placed' / 'pending' to 'cancelled'.
- *
- * @param client Open pg PoolClient within an active transaction or session.
- * @param schema Tenant schema name.
- * @returns Total count of expired reservations released.
+ * Expire unpaid stock reservations older than RESERVATION_TIMEOUT_MINUTES (default 30).
+ * Overload 1: single schema (returns number of released reservations).
+ * Overload 2: all schemas (returns summary object).
  */
 export async function releaseExpiredReservations(
   client: PoolClient,
   schema: string
-): Promise<number> {
-  // 1. Fetch expired held reservations
-  const expiredRes = await client.query(
-    `SELECT id, variant_id, qty_reserved, order_ref_id
-     FROM "${schema}".inventory_reservations
-     WHERE status = 'held' AND expires_at < NOW()`
-  );
+): Promise<number>;
+export async function releaseExpiredReservations(): Promise<{
+  releasedReservations: number;
+  cancelledOrders: number;
+}>;
+export async function releaseExpiredReservations(
+  clientParam?: PoolClient,
+  schemaParam?: string
+): Promise<number | { releasedReservations: number; cancelledOrders: number }> {
+  const timeoutMinutes = getReservationTimeoutMinutes();
 
-  if (expiredRes.rowCount === 0) {
-    return 0;
-  }
-
-  const expiredReservations = expiredRes.rows;
-  const expiredIds = expiredReservations.map((r) => r.id);
-  const orderRefIds = Array.from(
-    new Set(
-      expiredReservations
-        .map((r) => r.order_ref_id)
-        .filter((id): id is number => typeof id === "number" || (typeof id === "string" && !isNaN(Number(id))))
-        .map((id) => Number(id))
-    )
-  );
-
-  // 2. Transition affected orders still in placed / pending to cancelled
-  for (const orderId of orderRefIds) {
-    const orderCheck = await client.query(
-      `SELECT id, order_status, payment_status
-       FROM "${schema}".online_orders
-       WHERE id = $1`,
-      [orderId]
+  // Handle single schema call
+  if (clientParam && schemaParam) {
+    let releasedCount = 0;
+    const expiredOrdersRes = await clientParam.query(
+      `SELECT id
+       FROM "${schemaParam}".online_orders
+       WHERE (payment_method IN ('online', 'prepaid', 'razorpay') OR payment_method <> 'cod')
+         AND payment_status = 'pending'
+         AND order_status = 'placed'
+         AND created_at < NOW() - INTERVAL '${timeoutMinutes} minutes'`
     );
 
-    if (
-      orderCheck.rowCount &&
-      orderCheck.rows[0].order_status === "placed" &&
-      orderCheck.rows[0].payment_status === "pending"
-    ) {
+    for (const row of expiredOrdersRes.rows) {
+      const orderId = Number(row.id);
       try {
-        await transitionOrderStatus(client, schema, orderId, "cancelled", {
-          changedBy: "system",
-          note: "reservation expired",
-        });
-      } catch (err) {
-        console.error(
-          `[ReservationCleanup] Failed to transition order #${orderId} to cancelled:`,
-          err
+        const resUpdate = await clientParam.query(
+          `UPDATE "${schemaParam}".inventory_reservations
+           SET status = 'released'
+           WHERE order_ref_id = $1 AND status = 'held'`,
+          [orderId]
         );
+
+        await clientParam.query(
+          `UPDATE "${schemaParam}".online_orders
+           SET order_status = 'cancelled',
+               payment_status = 'failed',
+               updated_by = 'system:auto_cancel',
+               updated_at = NOW()
+           WHERE id = $1`,
+          [orderId]
+        );
+
+        await clientParam.query(
+          `INSERT INTO "${schemaParam}".online_order_status_history (
+             order_id, status_type, from_status, to_status, changed_by, note, created_at
+           )
+           VALUES (
+             $1, 'order', 'placed', 'cancelled', 'system:auto_cancel',
+             $2, NOW()
+           )`,
+          [orderId, `Auto-cancelled: payment not completed within ${timeoutMinutes} minutes`]
+        );
+
+        await clientParam.query(
+          `UPDATE "${schemaParam}".online_order_items
+           SET fulfillment_status = 'cancelled'
+           WHERE order_id = $1 AND fulfillment_status = 'reserved'`,
+          [orderId]
+        );
+
+        releasedCount += resUpdate.rowCount || 0;
+      } catch (err) {
+        console.error(`[ReservationCleanup] Error cancelling order #${orderId}:`, err);
       }
     }
+    return releasedCount;
   }
 
-  // 3. Mark remaining expired held reservations as released
-  const updateRes = await client.query(
-    `UPDATE "${schema}".inventory_reservations
-     SET status = 'released'
-     WHERE status = 'held' AND expires_at < NOW()`
-  );
+  // Handle all-schema call
+  let totalReleasedReservations = 0;
+  let totalCancelledOrders = 0;
 
-  // 4. Update online_order_items fulfillment_status to cancelled if they pointed to these reservations
-  if (expiredIds.length > 0) {
-    await client.query(
-      `UPDATE "${schema}".online_order_items
-       SET fulfillment_status = 'cancelled'
-       WHERE reservation_id = ANY($1::bigint[])
-         AND fulfillment_status = 'reserved'`,
-      [expiredIds]
+  const mainClient = await pool.connect();
+  try {
+    const companiesRes = await mainClient.query(
+      `SELECT schema_name FROM public.companies WHERE schema_name IS NOT NULL`
     );
+    const schemas = companiesRes.rows.map((r) => r.schema_name).filter(Boolean);
+
+    for (const schema of schemas) {
+      const expiredOrdersRes = await mainClient.query(
+        `SELECT id
+         FROM "${schema}".online_orders
+         WHERE (payment_method IN ('online', 'prepaid', 'razorpay') OR payment_method <> 'cod')
+           AND payment_status = 'pending'
+           AND order_status = 'placed'
+           AND created_at < NOW() - INTERVAL '${timeoutMinutes} minutes'`
+      );
+
+      if (!expiredOrdersRes.rowCount) continue;
+
+      for (const row of expiredOrdersRes.rows) {
+        const orderId = Number(row.id);
+        const orderClient = await pool.connect();
+        try {
+          await orderClient.query("BEGIN");
+
+          const lockRes = await orderClient.query(
+            `SELECT id, order_status, payment_status
+             FROM "${schema}".online_orders
+             WHERE id = $1
+               AND (payment_method IN ('online', 'prepaid', 'razorpay') OR payment_method <> 'cod')
+               AND payment_status = 'pending'
+               AND order_status = 'placed'
+               AND created_at < NOW() - INTERVAL '${timeoutMinutes} minutes'
+             FOR UPDATE SKIP LOCKED`,
+            [orderId]
+          );
+
+          if (lockRes.rowCount === 0) {
+            await orderClient.query("ROLLBACK");
+            continue;
+          }
+
+          const resUpdate = await orderClient.query(
+            `UPDATE "${schema}".inventory_reservations
+             SET status = 'released'
+             WHERE order_ref_id = $1 AND status = 'held'`,
+            [orderId]
+          );
+
+          await orderClient.query(
+            `UPDATE "${schema}".online_orders
+             SET order_status = 'cancelled',
+                 payment_status = 'failed',
+                 updated_by = 'system:auto_cancel',
+                 updated_at = NOW()
+             WHERE id = $1`,
+            [orderId]
+          );
+
+          await orderClient.query(
+            `INSERT INTO "${schema}".online_order_status_history (
+               order_id, status_type, from_status, to_status, changed_by, note, created_at
+             )
+             VALUES (
+               $1, 'order', 'placed', 'cancelled', 'system:auto_cancel',
+               $2, NOW()
+             )`,
+            [orderId, `Auto-cancelled: payment not completed within ${timeoutMinutes} minutes`]
+          );
+
+          await orderClient.query(
+            `UPDATE "${schema}".online_order_items
+             SET fulfillment_status = 'cancelled'
+             WHERE order_id = $1 AND fulfillment_status = 'reserved'`,
+            [orderId]
+          );
+
+          await orderClient.query("COMMIT");
+
+          totalCancelledOrders += 1;
+          totalReleasedReservations += resUpdate.rowCount || 0;
+        } catch (err) {
+          await orderClient.query("ROLLBACK");
+          console.error(
+            `[ReservationCleanup] Error processing auto-cancellation for order #${orderId} in schema ${schema}:`,
+            err
+          );
+        } finally {
+          orderClient.release();
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[ReservationCleanup] Failed to execute releaseExpiredReservations:", err);
+  } finally {
+    mainClient.release();
   }
 
-  return updateRes.rowCount || expiredIds.length;
+  return {
+    releasedReservations: totalReleasedReservations,
+    cancelledOrders: totalCancelledOrders,
+  };
+}
+
+/**
+ * Abandoned cart cleanup: Delete cart_items not updated for 30 days across all tenant schemas.
+ */
+export async function abandonedCartCleanup(): Promise<number> {
+  let totalDeletedItems = 0;
+  const client = await pool.connect();
+  try {
+    const companiesRes = await client.query(
+      `SELECT schema_name FROM public.companies WHERE schema_name IS NOT NULL`
+    );
+    const schemas = companiesRes.rows.map((r) => r.schema_name).filter(Boolean);
+
+    for (const schema of schemas) {
+      try {
+        const delRes = await client.query(
+          `DELETE FROM "${schema}".cart_items
+           WHERE COALESCE(updated_at, created_at) < NOW() - INTERVAL '30 days'`
+        );
+        totalDeletedItems += delRes.rowCount || 0;
+      } catch (err) {
+        console.error(`[CartCleanup] Error cleaning cart_items for schema ${schema}:`, err);
+      }
+    }
+  } catch (err) {
+    console.error("[CartCleanup] Failed to execute abandonedCartCleanup:", err);
+  } finally {
+    client.release();
+  }
+
+  return totalDeletedItems;
+}
+
+/**
+ * Helper to run all cleanup tasks and return aggregated results.
+ */
+export async function runAllCleanupTasks(): Promise<{
+  releasedReservations: number;
+  cancelledOrders: number;
+  cleanedCartItems: number;
+}> {
+  const reservationResult = await releaseExpiredReservations();
+  const cleanedCartItems = await abandonedCartCleanup();
+
+  return {
+    releasedReservations: reservationResult.releasedReservations,
+    cancelledOrders: reservationResult.cancelledOrders,
+    cleanedCartItems,
+  };
 }

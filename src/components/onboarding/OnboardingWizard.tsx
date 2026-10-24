@@ -137,8 +137,6 @@ type StatusResponse = {
     slug: string;
     setup_stage: SetupStage;
     next_step: number;
-    owner_phone?: string | null;
-    phone_verified?: boolean;
   };
   subscription?: {
     plan_code: string;
@@ -361,13 +359,6 @@ export default function OnboardingWizard({
   const [selectedBillingInterval, setSelectedBillingInterval] =
     useState<BillingInterval>(initialBillingInterval);
   const [companyId, setCompanyId] = useState<number | null>(null);
-  const [ownerPhone, setOwnerPhone] = useState("");
-  const [phoneVerified, setPhoneVerified] = useState(false);
-  const [otpSent, setOtpSent] = useState(false);
-  const [otp, setOtp] = useState("");
-  const [otpMessage, setOtpMessage] = useState("");
-  const [otpError, setOtpError] = useState("");
-  const [otpCooldown, setOtpCooldown] = useState(0);
   const [locationOptions, setLocationOptions] = useState<LocationOption[]>([]);
   const [warehouseOptions, setWarehouseOptions] = useState<WarehouseOption[]>([]);
   const [currencyOptions, setCurrencyOptions] = useState<CurrencyOption[]>([]);
@@ -545,8 +536,6 @@ export default function OnboardingWizard({
 
       setCompanyName(data.company.name || company);
       setCompanyId(data.company.id);
-      setOwnerPhone(data.company.owner_phone || "");
-      setPhoneVerified(Boolean(data.company.phone_verified));
       setStage(data.company.setup_stage);
       setCurrentStep(data.company.next_step || getNextStepNumber(data.company.setup_stage));
       setSubscription(data.subscription || null);
@@ -705,14 +694,6 @@ export default function OnboardingWizard({
       setWarehouse((prev) => ({ ...prev, location_id: String(locationOptions[0].id) }));
     }
   }, [locationOptions, warehouse.location_id]);
-
-  useEffect(() => {
-    if (otpCooldown <= 0) return;
-    const timer = window.setTimeout(() => {
-      setOtpCooldown((prev) => Math.max(0, prev - 1));
-    }, 1000);
-    return () => window.clearTimeout(timer);
-  }, [otpCooldown]);
 
 
   useEffect(() => {
@@ -899,71 +880,6 @@ export default function OnboardingWizard({
     await saveStep("BUSINESS_SETUP", payload);
   };
 
-
-  const handleSendOtp = async () => {
-    if (!companyId) {
-      setOtpError("Unable to send OTP. Please refresh and try again.");
-      return;
-    }
-    setSaving(true);
-    setOtpError("");
-    setOtpMessage("");
-    try {
-      const res = await fetch("/api/send-otp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ company_id: companyId }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data?.success) {
-        setOtpError(data?.message || "Unable to send OTP.");
-        return;
-      }
-      setOtpSent(true);
-      setOtpCooldown(Number(data.cooldown_seconds || 45));
-      setOtpMessage(data.sample_text || "OTP sent to the stored phone number.");
-    } catch {
-      setOtpError("Unable to send OTP.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleVerifyOtp = async () => {
-    if (!companyId) {
-      setOtpError("Unable to verify OTP. Please refresh and try again.");
-      return;
-    }
-    setSaving(true);
-    setOtpError("");
-    setOtpMessage("");
-    try {
-      const res = await fetch("/api/verify-otp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ company_id: companyId, otp }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data?.success) {
-        setOtpError(data?.message || "Invalid OTP.");
-        return;
-      }
-      setPhoneVerified(true);
-      setOtpMessage("Phone number verified successfully.");
-    } catch {
-      setOtpError("Unable to verify OTP.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handlePhoneVerifiedStep = async () => {
-    if (!phoneVerified) {
-      setOtpError("Verify the phone number before proceeding.");
-      return;
-    }
-    await saveStep("PHONE_VERIFIED");
-  };
 
 
   useEffect(() => {
@@ -1345,15 +1261,6 @@ export default function OnboardingWizard({
                 {viewingStepSummary === 1 && (
                   <div className="space-y-4">
                     <div>
-                      <p className="text-sm text-gray-500 font-medium">Owner Phone</p>
-                      <p className="text-lg font-semibold text-gray-900">{ownerPhone || "Verified"}</p>
-                    </div>
-                  </div>
-                )}
-
-                {viewingStepSummary === 2 && (
-                  <div className="space-y-4">
-                    <div>
                       <p className="text-sm text-gray-500 font-medium">Selected Plan</p>
                       <p className="text-lg font-semibold text-gray-900">{subscription?.plan_name || subscription?.plan_code || "Unknown"}</p>
                     </div>
@@ -1364,7 +1271,7 @@ export default function OnboardingWizard({
                   </div>
                 )}
 
-                {viewingStepSummary === 3 && (
+                {viewingStepSummary === 2 && (
                   <div className="grid md:grid-cols-2 gap-6">
                     <div>
                       <p className="text-sm text-gray-500 font-medium">Country</p>
@@ -1397,86 +1304,6 @@ export default function OnboardingWizard({
           ) : (
             <>
               {currentStep === 1 && (
-                <div className="space-y-5 rounded-2xl border border-gray-200 bg-white p-8 shadow-sm animate-fade-in">
-                  <h2 className="text-3xl font-bold text-gray-900">Step 1: Phone Verification</h2>
-                  <div className="rounded-xl border border-blue-100 bg-blue-50 p-6 space-y-5 text-sm">
-                    <div>
-                      <p className="font-semibold text-gray-900">Get OTP to your Phone Number</p>
-                      <p className="mt-1 text-gray-700">
-                        Phone Number: <span className="font-semibold">+91 {ownerPhone || "-"}</span>
-                      </p>
-                    </div>
-                    {phoneVerified ? (
-                      <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-green-700">
-                        Phone number verified successfully.
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        <div className="flex flex-wrap gap-3">
-                          <button
-                            type="button"
-                            onClick={handleSendOtp}
-                            disabled={saving || otpCooldown > 0}
-                            className="rounded-lg bg-blue-600 px-4 py-2 text-white font-semibold hover:bg-blue-700 disabled:opacity-70"
-                          >
-                            {otpSent ? "Resend OTP" : "Send OTP"}
-                          </button>
-                          {/* <button
-                      type="button"
-                      disabled
-                      className="rounded-lg border border-gray-200 bg-white px-4 py-2 font-semibold text-gray-400"
-                    >
-                      Change Number
-                    </button> */}
-                          {otpCooldown > 0 && (
-                            <span className="self-center text-gray-600">Resend available in {otpCooldown}s</span>
-                          )}
-                        </div>
-                        {otpSent && (
-                          <div className="grid gap-3 md:grid-cols-[1fr_auto]">
-                            <input
-                              value={otp}
-                              onChange={(e) => setOtp(e.target.value)}
-                              inputMode="numeric"
-                              maxLength={6}
-                              placeholder="Enter OTP"
-                              className={formFieldClass}
-                            />
-                            <button
-                              type="button"
-                              onClick={handleVerifyOtp}
-                              disabled={saving || otp.trim().length < 4}
-                              className="rounded-lg bg-green-600 px-5 py-3 text-white font-semibold hover:bg-green-700 disabled:opacity-70"
-                            >
-                              Verify OTP
-                            </button>
-                          </div>
-                        )}
-                        {otpMessage && (
-                          <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-green-700">
-                            {otpMessage}
-                          </div>
-                        )}
-                        {otpError && (
-                          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-red-600">
-                            {otpError}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handlePhoneVerifiedStep}
-                    disabled={saving || !phoneVerified}
-                    className="rounded-lg bg-blue-600 px-5 py-3 text-white font-semibold hover:bg-blue-700 disabled:opacity-70"
-                  >
-                    {saving ? "Saving..." : "Continue to Payment →"}
-                  </button>
-                </div>
-              )}
-
-              {currentStep === 2 && (
                 <Pricing
                   mode="onboarding"
                   selectedPlanId={selectedPlan?.plan_id || initialPlanId || null}
@@ -1491,9 +1318,9 @@ export default function OnboardingWizard({
                   loading={saving}
                 />
               )}
-              {currentStep === 3 && (
+              {currentStep === 2 && (
                 <form onSubmit={handleBusinessSubmit} className="space-y-6 bg-white p-6 rounded-xl shadow">
-                  {/* Context Card for Step 3 */}
+                  {/* Context Card for Step 2 */}
                   {subscription && (
                     <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-4 mb-4 flex justify-between items-center shadow-sm">
                       <div>
@@ -1506,7 +1333,7 @@ export default function OnboardingWizard({
                       </div>
                     </div>
                   )}
-                  <h2 className="text-2xl font-bold text-gray-900">Step 3: Business Setup</h2>
+                  <h2 className="text-2xl font-bold text-gray-900">Step 2: Business Setup</h2>
                   <div className="grid md:grid-cols-3 gap-6">
                     <div>
                       <label className={formLabelClass}>Country <span className="text-red-500">*</span></label>
@@ -1733,7 +1560,7 @@ export default function OnboardingWizard({
                 </form>
               )}
 
-              {currentStep === 4 && (
+              {currentStep === 3 && (
                 <div className="max-w-xl mx-auto space-y-6 py-4 animate-fade-in">
                   {subscription && (
                     <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-4 mb-4 flex justify-between items-center shadow-sm">

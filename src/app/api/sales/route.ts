@@ -52,37 +52,33 @@ async function resolveVariantId(
   throw new Error("Variant not found");
 }
 
+import { verifySession, STAFF_COOKIE_NAME, StaffSessionPayload } from "@/lib/session";
+
 const toPositiveInt = (value: unknown) => {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed <= 0) return null;
   return parsed;
 };
 
-const getWarehouseFromCookie = (req: NextRequest) => {
-  const userCookie = req.cookies.get("user")?.value;
+const getWarehouseFromCookie = async (req: NextRequest): Promise<number | null> => {
+  const userCookie = req.cookies.get(STAFF_COOKIE_NAME)?.value;
   if (!userCookie) return null;
 
-  try {
-    const parsed = JSON.parse(userCookie);
-    // warehouse_id is from company_user_map, not user_settings
-    return toPositiveInt(parsed?.warehouse_id);
-  } catch {
-    return null;
-  }
+  const parsed = await verifySession<StaffSessionPayload>(userCookie, "staff");
+  if (!parsed) return null;
+  return toPositiveInt(parsed?.warehouse_id);
 };
 
-function getUserIdFromCookie(req: NextRequest): number | null {
-  const userCookie = req.cookies.get("user")?.value;
-  if (!userCookie) return null;
+async function getUserIdFromCookie(req: NextRequest): Promise<{ userId: number | null; session: StaffSessionPayload | null }> {
+  const userCookie = req.cookies.get(STAFF_COOKIE_NAME)?.value;
+  if (!userCookie) return { userId: null, session: null };
 
-  try {
-    const parsed = JSON.parse(userCookie);
-    const maybeUserId = Number(parsed?.user_id ?? parsed?.id);
-    if (!Number.isInteger(maybeUserId) || maybeUserId <= 0) return null;
-    return maybeUserId;
-  } catch {
-    return null;
-  }
+  const parsed = await verifySession<StaffSessionPayload>(userCookie, "staff");
+  if (!parsed) return { userId: null, session: null };
+
+  const maybeUserId = Number(parsed?.user_id ?? parsed?.id);
+  if (!Number.isInteger(maybeUserId) || maybeUserId <= 0) return { userId: null, session: null };
+  return { userId: maybeUserId, session: parsed };
 }
 
 const roundMoney = (value: unknown) => Number(Number(value || 0).toFixed(2));
@@ -282,16 +278,23 @@ export async function POST(req: NextRequest) {
   const client = await pool.connect();
   try {
     const { company, schema } = await getTenantSchema(req);
-    const userId = getUserIdFromCookie(req);
-    if (!userId) {
+    const { userId, session } = await getUserIdFromCookie(req);
+    if (!userId || !session) {
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
         { status: 401 }
       );
     }
 
+    if (session.company_name && session.company_name.trim().toLowerCase() !== company.trim().toLowerCase()) {
+      return NextResponse.json(
+        { success: false, error: "Forbidden: Company mismatch" },
+        { status: 403 }
+      );
+    }
+
     // Get warehouse_id from user context (company_user_map), not from user_settings
-    const warehouseId = getWarehouseFromCookie(req);
+    const warehouseId = await getWarehouseFromCookie(req);
     if (!warehouseId) {
       return NextResponse.json(
         { success: false, error: "Warehouse not assigned for this user. Contact administrator." },

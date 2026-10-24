@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { getTenantSchema } from "@/lib/tenant";
+import { verifySession, STAFF_COOKIE_NAME, StaffSessionPayload } from "@/lib/session";
 import { insertStockLedgerEntry } from "@/lib/stockLedger";
 
 // Helper to ensure the adjustment tables exist in the tenant schema
@@ -141,13 +142,13 @@ export async function POST(req: NextRequest) {
     }
 
     // Get user details if available from cookies
-    const userCookie = req.cookies.get("user")?.value;
+    const userCookie = req.cookies.get(STAFF_COOKIE_NAME)?.value;
     let createdBy = "system";
     if (userCookie) {
-      try {
-        const user = JSON.parse(userCookie);
+      const user = await verifySession<StaffSessionPayload>(userCookie, "staff");
+      if (user) {
         createdBy = user.name || user.username || "system";
-      } catch (e) { }
+      }
     }
 
     // Start transaction

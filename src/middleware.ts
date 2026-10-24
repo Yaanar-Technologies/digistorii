@@ -1,15 +1,131 @@
 import { NextRequest, NextResponse } from "next/server";
 import { canAccess, getFirstAccessiblePath, getRequiredPermissionForPath } from "./lib/accessControl";
+import {
+  verifySession,
+  STAFF_COOKIE_NAME,
+  ONBOARDING_COOKIE_NAME,
+  StaffSessionPayload,
+  OnboardingSessionPayload,
+} from "./lib/session";
+
+// API paths that need no staff sign-in. Each of these either has its own guard
+// (onboarding session, customer session, webhook signature, cron secret) or is public by design.
+const PUBLIC_API_PREFIXES = [
+  "/api/setup",
+  "/api/onboarding",
+  "/api/create-order",
+  "/api/plans",
+  "/api/verify-company",
+  "/api/auth/login",
+  "/api/auth/logout",
+  "/api/auth/current-user",
+  "/api/auth/forgot-password",
+  "/api/auth/reset-password",
+  "/api/admin/login",
+  "/api/admin/current-user",
+  "/api/ecom/",
+  "/api/storefront/",
+  "/api/tenant/",
+];
+// Exact paths only (sub-paths stay protected). /api/company returns just the display name for login pages.
+const PUBLIC_API_EXACT = ["/api/company"];
+const PUBLIC_COMPANY_API = /^\/api\/[^/]+\/ecom\/(checkout|payment|webhooks)(\/|$)/;
+const COMPANY_SCOPED_API = /^\/api\/([^/]+)\/(ecom|admin|upload)(\/|$)/;
+// Lookups the onboarding wizard needs before the owner has a staff session.
+const ONBOARDING_API_PREFIXES = ["/api/currencies", "/api/user-responsibilities", "/api/locations", "/api/warehouses"];
+const TRUSTED_TENANT_HEADERS = ["x-tenant", "x-schema-name", "x-company-id", "x-user-name"];
+
+async function resolveTenantBySlug(req: NextRequest, slug: string) {
+  try {
+    const res = await fetch(new URL(`/api/resolve-tenant?subdomain=${encodeURIComponent(slug)}`, req.url));
+    if (!res.ok) return null;
+    const body = await res.json();
+    return body.success
+      ? { companyId: String(body.company_id), schemaName: String(body.schema_name), tenant: String(body.subdomain_url) }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function jsonError(status: number, error: string) {
+  return NextResponse.json({ success: false, error, message: error }, { status });
+}
+
+/**
+ * Tenant and identity headers are set here, from the signed session or the database.
+ * Whatever the browser sent for them is discarded first.
+ */
+async function handleApi(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+  const headers = new Headers(req.headers);
+  const clientTenant = (req.headers.get("x-tenant") || "").trim().toLowerCase();
+  for (const name of TRUSTED_TENANT_HEADERS) headers.delete(name);
+
+  const applyTenant = (tenant: { companyId: string; schemaName: string; tenant: string }) => {
+    headers.set("x-tenant", tenant.tenant);
+    headers.set("x-schema-name", tenant.schemaName);
+    headers.set("x-company-id", tenant.companyId);
+  };
+
+  const isPublic =
+    PUBLIC_API_EXACT.includes(pathname) ||
+    PUBLIC_API_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`)) ||
+    PUBLIC_COMPANY_API.test(pathname);
+
+  if (isPublic) {
+    const scoped = pathname.match(/^\/api\/(?:tenant|storefront)\/([^/]+)/) || pathname.match(/^\/api\/([^/]+)\/ecom\//);
+    const scopedSlug = scoped?.[1] && scoped[1] !== "auth" ? scoped[1] : "";
+    const slug = (scopedSlug || clientTenant).toLowerCase();
+    if (slug) {
+      const tenant = await resolveTenantBySlug(req, slug);
+      if (tenant) applyTenant(tenant);
+    }
+    return NextResponse.next({ request: { headers } });
+  }
+
+  const staff =
+    (await verifySession<StaffSessionPayload>(req.cookies.get(STAFF_COOKIE_NAME)?.value, "staff")) ||
+    (await verifySession<StaffSessionPayload>(req.cookies.get("admin_user")?.value, "staff"));
+
+  let company = staff?.company_name ? String(staff.company_name).toLowerCase() : "";
+  if (!staff && ONBOARDING_API_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) {
+    const onboarding = await verifySession<OnboardingSessionPayload>(
+      req.cookies.get(ONBOARDING_COOKIE_NAME)?.value,
+      "onboarding"
+    );
+    company = onboarding?.company ? String(onboarding.company).toLowerCase() : "";
+  }
+  if (!company) return jsonError(401, "Unauthorized: sign in required.");
+
+  // /api/<company>/(ecom|admin|upload)/... must be for the signed-in company.
+  const scopedCompany = pathname.match(COMPANY_SCOPED_API)?.[1]?.toLowerCase();
+  if (scopedCompany && scopedCompany !== company) return jsonError(403, "Forbidden: company mismatch.");
+
+  const tenant = await resolveTenantBySlug(req, company);
+  if (!tenant) return jsonError(403, "Forbidden: unknown company.");
+  applyTenant(tenant);
+  if (staff?.username) headers.set("x-user-name", String(staff.username));
+  return NextResponse.next({ request: { headers } });
+}
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const host = req.headers.get("host") || "";
 
-  // Skip Next.js internal files, static assets, setup
+  if (pathname.startsWith("/api/resolve-tenant") || pathname.startsWith("/api/internal/")) {
+    return NextResponse.next();
+  }
+  if (pathname.startsWith("/api")) {
+    return handleApi(req);
+  }
+
+  // Skip Next.js internal files, static assets, setup, cron routes
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/setup") ||
     pathname.startsWith("/get-service") ||
+    pathname.startsWith("/api/internal/") ||
     pathname.startsWith("/favicon.ico") ||
     pathname.includes(".")
   ) {
@@ -131,9 +247,9 @@ export async function middleware(req: NextRequest) {
     });
   }
 
-  // Check user and admin cookies
-  const user = req.cookies.get("user")?.value;
-  const admin = req.cookies.get("admin_user")?.value;
+  // Check user and admin cookies using verifySession
+  const userCookie = req.cookies.get(STAFF_COOKIE_NAME)?.value;
+  const adminCookie = req.cookies.get("admin_user")?.value;
 
   // Storefront pages (e.g. /mycompany/store/...) do NOT require admin or workspace user authentication!
   const isStorefrontRoute = effectivePathname.includes(`/${company}/store`);
@@ -150,47 +266,33 @@ export async function middleware(req: NextRequest) {
 
   // ADMIN ROUTES
   if (effectivePathname.startsWith(`/${company}/admin`)) {
-    if (!admin) {
+    const adminUser = await verifySession<StaffSessionPayload>(adminCookie, "staff");
+    if (!adminUser || adminUser?.company_name !== company) {
       return NextResponse.redirect(new URL(`/${company}/admin/login`, req.url));
     }
-    try {
-      const adminUser = JSON.parse(admin);
-      if (adminUser?.company_name !== company) {
-        return NextResponse.redirect(new URL(`/${company}/admin/login`, req.url));
-      }
-      const adminPath = effectivePathname.slice(`/${company}`.length);
-      const requiredPermission = getRequiredPermissionForPath(adminPath);
-      if (requiredPermission && !canAccess(adminUser?.permissions, requiredPermission)) {
-        const fallbackPath = getFirstAccessiblePath(adminUser?.permissions);
-        return NextResponse.redirect(
-          new URL(fallbackPath ? `/${company}${fallbackPath}` : `/${company}/admin/login`, req.url)
-        );
-      }
-    } catch {
-      return NextResponse.redirect(new URL(`/${company}/admin/login`, req.url));
+    const adminPath = effectivePathname.slice(`/${company}`.length);
+    const requiredPermission = getRequiredPermissionForPath(adminPath);
+    if (requiredPermission && !canAccess(adminUser?.permissions, requiredPermission)) {
+      const fallbackPath = getFirstAccessiblePath(adminUser?.permissions);
+      return NextResponse.redirect(
+        new URL(fallbackPath ? `/${company}${fallbackPath}` : `/${company}/admin/login`, req.url)
+      );
     }
   }
 
   // USER ROUTES
   if (effectivePathname.startsWith(`/${company}/workspace`)) {
-    if (!user) {
+    const currentUser = await verifySession<StaffSessionPayload>(userCookie, "staff");
+    if (!currentUser || currentUser?.company_name !== company) {
       return NextResponse.redirect(new URL(`/${company}/workspace/login`, req.url));
     }
-    try {
-      const currentUser = JSON.parse(user);
-      if (currentUser?.company_name !== company) {
-        return NextResponse.redirect(new URL(`/${company}/workspace/login`, req.url));
-      }
-      const userPath = effectivePathname.slice(`/${company}`.length);
-      const requiredPermission = getRequiredPermissionForPath(userPath);
-      if (requiredPermission && !canAccess(currentUser?.permissions, requiredPermission)) {
-        const fallbackPath = getFirstAccessiblePath(currentUser?.permissions);
-        return NextResponse.redirect(
-          new URL(fallbackPath ? `/${company}${fallbackPath}` : `/${company}/workspace/login`, req.url)
-        );
-      }
-    } catch {
-      return NextResponse.redirect(new URL(`/${company}/workspace/login`, req.url));
+    const userPath = effectivePathname.slice(`/${company}`.length);
+    const requiredPermission = getRequiredPermissionForPath(userPath);
+    if (requiredPermission && !canAccess(currentUser?.permissions, requiredPermission)) {
+      const fallbackPath = getFirstAccessiblePath(currentUser?.permissions);
+      return NextResponse.redirect(
+        new URL(fallbackPath ? `/${company}${fallbackPath}` : `/${company}/workspace/login`, req.url)
+      );
     }
   }
 
@@ -206,5 +308,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next|api|favicon.ico).*)"],
+  matcher: ["/((?!_next|favicon.ico).*)"],
 };

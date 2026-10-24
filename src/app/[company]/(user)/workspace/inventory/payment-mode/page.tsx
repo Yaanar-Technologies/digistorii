@@ -76,7 +76,7 @@ export default function PaymentModeMasterPage() {
     const next: Record<string, string> = {};
     if (!form.payment_mode_name.trim()) next.payment_mode_name = "Payment Mode Name is required";
     else {
-      const nameMessage = getRuleValidationError("no-symbols", form.payment_mode_name);
+      const nameMessage = getRuleValidationError("alphanumeric-spaces-hyphens", form.payment_mode_name);
       if (nameMessage) next.payment_mode_name = nameMessage;
     }
     setErrors(next);
@@ -179,22 +179,22 @@ export default function PaymentModeMasterPage() {
         </div>
         {!showForm && (
           <div className="flex items-center gap-3">
-          <Link className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors" href={`/${company}/workspace/administration/masters`}>
-            <ArrowLeftIcon className="w-4 h-4 text-gray-500"/>
-            Back to Masters
-          </Link>
-          <button
-            onClick={() => {
-              setForm(getInitialForm());
-              setErrors({});
-              setShowForm(true);
-            }}
-            className="bg-[var(--color-blue-500)] flex items-center gap-2 text-white px-4 py-2 rounded-lg"
-          >
-            <PlusIcon className="w-4 h-4" />
-            Add Payment Mode
-          </button>
-        </div>
+            <Link className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors" href={`/${company}/workspace/administration/masters`}>
+              <ArrowLeftIcon className="w-4 h-4 text-gray-500" />
+              Back to Masters
+            </Link>
+            <button
+              onClick={() => {
+                setForm(getInitialForm());
+                setErrors({});
+                setShowForm(true);
+              }}
+              className="bg-[var(--color-blue-500)] flex items-center gap-2 text-white px-4 py-2 rounded-lg"
+            >
+              <PlusIcon className="w-4 h-4" />
+              Add Payment Mode
+            </button>
+          </div>
         )}
       </div>
 
@@ -333,7 +333,7 @@ export default function PaymentModeMasterPage() {
                           onClick={() => goToPage(page)}
                           aria-current={currentPage === page ? "page" : undefined}
                           className={`ui-pagination-btn ${currentPage === page
-                              ? "ui-pagination-btn-active" : "ui-pagination-btn-inactive"
+                            ? "ui-pagination-btn-active" : "ui-pagination-btn-inactive"
                             }`}
                         >
                           {page}
@@ -375,7 +375,7 @@ export default function PaymentModeMasterPage() {
                 Payment Mode Name <span className="text-red-500">*</span>
               </label>
               <input
-                data-rules="no-symbols"
+                data-rules="alphanumeric-spaces-hyphens"
                 data-field="payment_mode_name"
                 value={form.payment_mode_name ?? ""}
                 onChange={(e) => setForm({ ...form, payment_mode_name: e.target.value })}

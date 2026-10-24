@@ -1,6 +1,5 @@
 export const SETUP_STAGES = [
   "ACCOUNT_CREATED",
-  "PHONE_VERIFIED",
   "PLAN_SELECTED",
   "BUSINESS_SETUP",
   "LIVE",
@@ -25,19 +24,11 @@ export const PLAN_CONFIG = {
     max_users: 10,
     max_locations: 2,
     max_warehouses: 2,
-  },
-  GROWTH: {
-    code: "GROWTH",
-    title: "GROWTH",
-    ecommerce_access: true,
-    max_users: 20,
-    max_locations: 10,
-    max_warehouses: 10,
-  },
+  }
 } as const;
 
 export type PlanCode = keyof typeof PLAN_CONFIG;
-export const PAID_PLAN_CODES = ["BASIC", "STARTER", "GROWTH"] as const;
+export const PAID_PLAN_CODES = ["BASIC", "STARTER"] as const;
 export type PaidPlanCode = (typeof PAID_PLAN_CODES)[number];
 
 export const BILLING_INTERVALS = ["monthly", "yearly"] as const;
@@ -58,12 +49,7 @@ export const PLAN_PRICING: Record<
     monthly: 999,
     yearly: yearlyFromMonthly(999),
     yearly_savings_label: "Save 20%",
-  },
-  GROWTH: {
-    monthly: 1999,
-    yearly: yearlyFromMonthly(1999),
-    yearly_savings_label: "Save 20%",
-  },
+  }
 };
 
 export function isBillingInterval(value: unknown): value is BillingInterval {
@@ -95,28 +81,25 @@ export function getPlanAmountInPaise(planCode: PaidPlanCode, billingInterval: Bi
 }
 
 export const ONBOARDING_STEPS = [
-  { id: 1, key: "PHONE_VERIFIED", label: "Phone Verification" },
-  { id: 2, key: "PLAN_SELECTED", label: "Subscription & Payment" },
-  { id: 3, key: "BUSINESS_SETUP", label: "Business Details" },
-  { id: 4, key: "LIVE", label: "Email Activation" },
+  { id: 1, key: "PLAN_SELECTED", label: "Subscription & Payment" },
+  { id: 2, key: "BUSINESS_SETUP", label: "Business Details" },
+  { id: 3, key: "LIVE", label: "Email Verification" },
 ] as const;
 
 export function isValidSetupStage(value: string): value is SetupStage {
   return SETUP_STAGES.includes(value as SetupStage);
 }
 
+// Step shown next in the wizard: 1 pay, 2 business details, 3 email verification.
 export function getNextStepNumber(stage: SetupStage): number {
   switch (stage) {
     case "ACCOUNT_CREATED":
       return 1;
-    case "PHONE_VERIFIED":
-      return 2;
     case "PLAN_SELECTED":
-      return 3;
+      return 2;
     case "BUSINESS_SETUP":
-      return 4;
     case "LIVE":
-      return 4;
+      return 3;
     default:
       return 1;
   }

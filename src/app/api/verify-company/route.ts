@@ -2,6 +2,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const token = searchParams.get("token");
@@ -41,6 +49,19 @@ export async function GET(req: NextRequest) {
       `, { headers: { "Content-Type": "text/html" } });
     }
 
+    // Only a paid workspace that finished business details may go live.
+    const paid = await client.query(
+      `SELECT 1 FROM public.company_subscriptions
+       WHERE company_id = $1 AND LOWER(payment_status) = 'paid' LIMIT 1`,
+      [company.id]
+    );
+    if (company.setup_stage !== "BUSINESS_SETUP" || !paid.rowCount) {
+      return new NextResponse("<h1>Complete payment and business details before activating.</h1>", {
+        status: 400,
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+
     // 2. Mark company as LIVE only after matching the true token key
     await client.query(
       `UPDATE public.companies
@@ -65,7 +86,7 @@ export async function GET(req: NextRequest) {
         <body>
           <div class="card">
             <h1> Workspace Activated!</h1>
-            <p>Your workspace <strong>${company.company_name}</strong> is now live.</p>
+            <p>Your workspace <strong>${escapeHtml(String(company.company_name))}</strong> is now live.</p>
             <p>You can safely close this page tab now and return to your onboarding wizard.</p>
           </div>
         </body>

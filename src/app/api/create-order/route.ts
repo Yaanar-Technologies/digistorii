@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Razorpay from "razorpay";
 import { pool } from "@/lib/db";
+import { canAccessOnboarding } from "@/lib/onboardingAuth";
 //import { ensureDB } from "@/lib/ensure-db";
 import {
   normalizeBillingInterval,
@@ -39,6 +40,17 @@ export async function POST(req: NextRequest) {
           message: "Missing required fields",
         },
         { status: 400 }
+      );
+    }
+
+    const companyRow = await client.query(
+      `SELECT subdomain_url FROM public.companies WHERE id = $1`,
+      [companyId]
+    );
+    if (!companyRow.rowCount || !(await canAccessOnboarding(req, companyRow.rows[0].subdomain_url))) {
+      return NextResponse.json(
+        { success: false, error: "UNAUTHORIZED", message: "Unauthorized" },
+        { status: 401 }
       );
     }
 

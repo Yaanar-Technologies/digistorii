@@ -1,3 +1,4 @@
+import { verifySession, STAFF_COOKIE_NAME, StaffSessionPayload } from "@/lib/session";
 // import type { Metadata } from "next";
 // import { Geist, Geist_Mono } from "next/font/google";
 // import "./globals.css";
@@ -68,16 +69,12 @@ export default async function RootLayout({
   await initializeDatabase();
  
   const cookieStore = await cookies();
-  const userCookie = cookieStore.get("user");
- 
-  let user = null;
- 
+  const userCookie = cookieStore.get(STAFF_COOKIE_NAME);
+
+  let user: StaffSessionPayload | null = null;
+
   if (userCookie?.value) {
-    try {
-      user = JSON.parse(userCookie.value);
-    } catch (err) {
-      console.error("Invalid user cookie", err);
-    }
+    user = await verifySession<StaffSessionPayload>(userCookie.value, "staff");
   }
  
  
@@ -92,7 +89,7 @@ export default async function RootLayout({
           text-gray-900
         `}
       >
-        <CurrentUserProvider initialUser={user}>
+        <CurrentUserProvider initialUser={user as any}>
           <ConfirmProvider>
             <SnackbarProvider>{children}</SnackbarProvider>
           </ConfirmProvider>

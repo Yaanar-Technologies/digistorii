@@ -4,6 +4,7 @@ import { getTenantSchema } from "@/lib/tenant";
 import { generatePurchaseReturnNo } from "@/lib/document-number-generator";
 import { insertStockLedgerEntry } from "@/lib/stockLedger";
 import { cookies } from "next/headers";
+import { verifySession, STAFF_COOKIE_NAME, StaffSessionPayload } from "@/lib/session";
 
 async function ensurePurchaseReturnTables(client: any, schema: string) {
   await client.query(`
@@ -97,13 +98,15 @@ export async function POST(req: NextRequest) {
     let username = "system";
     try {
       const cookieStore = await cookies();
-      const userCookie = cookieStore.get("user");
-      if (userCookie) {
-        const parsed = JSON.parse(userCookie.value);
-        username = parsed.username || parsed.email || parsed.name || "system";
+      const userCookie = cookieStore.get(STAFF_COOKIE_NAME);
+      if (userCookie?.value) {
+        const parsed = await verifySession<StaffSessionPayload>(userCookie.value, "staff");
+        if (parsed) {
+          username = parsed.username || parsed.email || parsed.name || "system";
+        }
       }
     } catch (e) {
-      // Ignore cookie parsing error and fallback
+      // Ignore cookie verification error and fallback
     }
 
     await client.query("BEGIN");

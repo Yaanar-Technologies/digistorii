@@ -7,22 +7,23 @@ import {
   validateIndianPhone,
   validateIndianPincode,
 } from "@/lib/customerAuth";
+import { verifySession, CUSTOMER_COOKIE_NAME, CustomerSessionPayload } from "@/lib/session";
 
-function getSessionCustomer(req: NextRequest) {
-  const cookieVal = req.cookies.get("customer_session")?.value;
+async function getSessionCustomer(req: NextRequest): Promise<CustomerSessionPayload | null> {
+  const cookieVal = req.cookies.get(CUSTOMER_COOKIE_NAME)?.value;
   if (!cookieVal) return null;
-  try {
-    const session = JSON.parse(cookieVal);
-    if (!session.customerId || !session.company) return null;
-    return session;
-  } catch (err) {
-    return null;
-  }
+  const session = await verifySession<CustomerSessionPayload>(cookieVal, "customer");
+  if (!session || !session.customerId || !session.company) return null;
+  return session;
 }
 
 export async function GET(req: NextRequest) {
-  const session = getSessionCustomer(req);
+  const session = await getSessionCustomer(req);
   const companySlug = await resolveCompanySlug(req);
+
+  if (session && companySlug && session.company.trim().toLowerCase() !== companySlug.trim().toLowerCase()) {
+    return NextResponse.json({ success: false, message: "Forbidden: Company mismatch" }, { status: 403 });
+  }
 
   if (!session && !companySlug) {
     return NextResponse.json({ success: false, message: "Unauthorized customer session" }, { status: 401 });
@@ -70,7 +71,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const session = getSessionCustomer(req);
+  const session = await getSessionCustomer(req);
   const body = await req.json().catch(() => ({}));
   const companySlug = await resolveCompanySlug(req, body);
 

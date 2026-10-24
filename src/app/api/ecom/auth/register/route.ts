@@ -8,6 +8,12 @@ import {
   validateEmail,
   validateIndianPhone,
 } from "@/lib/customerAuth";
+import {
+  signSession,
+  CUSTOMER_COOKIE_NAME,
+  CUSTOMER_SESSION_EXPIRY_SECONDS,
+  getCookieOptions,
+} from "@/lib/session";
 
 export async function POST(req: NextRequest) {
   const client = await pool.connect();
@@ -123,18 +129,19 @@ export async function POST(req: NextRequest) {
       company: companySlug,
     };
 
+    const token = await signSession(sessionData, CUSTOMER_SESSION_EXPIRY_SECONDS, "customer");
+
     const response = NextResponse.json({
       success: true,
       message: "Customer account registered successfully",
       customer: sessionData,
     });
 
-    response.cookies.set("customer_session", JSON.stringify(sessionData), {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 30, // 30 days
-    });
+    response.cookies.set(
+      CUSTOMER_COOKIE_NAME,
+      token,
+      getCookieOptions(CUSTOMER_SESSION_EXPIRY_SECONDS)
+    );
 
     return response;
   } catch (err: any) {

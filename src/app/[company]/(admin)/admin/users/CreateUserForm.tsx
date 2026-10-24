@@ -310,7 +310,7 @@ export default function CreateUserForm({ company, userId }: Props) {
     users.forEach((user, index) => {
       let err: any = {};
 
-      const explicitSymbolsRegex = /^[a-zA-Z0-9\s,.'\-]*$/;
+      const explicitSymbolsRegex = /^[a-zA-Z\s,.'_\-]*$/;
 
       if (!user.full_name) {
         err.full_name = "Required";
@@ -591,6 +591,7 @@ export default function CreateUserForm({ company, userId }: Props) {
               <FormField
                 label={userId ? "Change Password" : "Account Password"}
                 type="password"
+                placeholder="Leave blank to keep current"
                 value={user.password}
                 required={!userId}
                 error={errors[index]?.password}

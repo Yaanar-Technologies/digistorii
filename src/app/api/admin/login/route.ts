@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { signSession, STAFF_SESSION_EXPIRY_SECONDS, getCookieOptions } from "@/lib/session";
 import { pool } from "@/lib/db";
 import { verifyPassword } from "@/lib/hash";
 import { ensureCompanyResponsibilities } from "@/lib/userResponsibilities";
@@ -120,7 +121,7 @@ export async function POST(req: NextRequest) {
       }
     });
 
-    res.cookies.set("admin_user", JSON.stringify({
+    const adminPayload = {
       id: user.id,
       name: user.name,
       email: user.email,
@@ -138,12 +139,11 @@ export async function POST(req: NextRequest) {
         settings_access: Boolean(user.settings_access),
         ecommerce_access: Boolean(user.ecommerce_access),
       },
-    }), {
-      httpOnly: true,
-      path: "/",
-      maxAge: 60 * 60 * 24,
-      sameSite: "lax",
-    });
+    };
+
+    const adminToken = await signSession(adminPayload, STAFF_SESSION_EXPIRY_SECONDS, "staff");
+
+    res.cookies.set("admin_user", adminToken, getCookieOptions(STAFF_SESSION_EXPIRY_SECONDS));
 
 
     res.cookies.set("tenant", tenant, {

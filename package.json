@@ -34,6 +34,7 @@
     "file-type": "^22.0.1",
     "flatpickr": "^4.6.13",
     "i18n-iso-countries": "^7.14.0",
+    "jose": "^6.2.12",
     "jsonwebtoken": "^9.0.3",
     "next": "^16.0.10",
     "node-cron": "^4.6.0",

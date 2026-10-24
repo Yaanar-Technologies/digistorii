@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { pool } from "@/lib/db";
+import { verifySession, CUSTOMER_COOKIE_NAME, CustomerSessionPayload } from "@/lib/session";
 
 export type StorefrontCustomerSession = {
   customerId: number;
@@ -11,12 +12,17 @@ export async function getStorefrontCustomerSession(
   req: NextRequest,
   companyParam?: string
 ): Promise<StorefrontCustomerSession | null> {
-  const sessionCookie = req.cookies.get("customer_session")?.value;
+  const sessionCookie = req.cookies.get(CUSTOMER_COOKIE_NAME)?.value;
   if (!sessionCookie) return null;
 
   try {
-    const session = JSON.parse(sessionCookie);
+    const session = await verifySession<CustomerSessionPayload>(sessionCookie, "customer");
+    if (!session) return null;
+
     const companySlug = (companyParam || session.company || "").trim().toLowerCase();
+    if (companyParam && session.company && session.company.trim().toLowerCase() !== companyParam.trim().toLowerCase()) {
+      return null;
+    }
     const customerId = Number(session.customerId || 0);
 
     if (!companySlug || !customerId) return null;

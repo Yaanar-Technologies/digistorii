@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { CUSTOMER_COOKIE_NAME, getCookieOptions } from "@/lib/session";
 
 export async function POST(req: NextRequest) {
   const response = NextResponse.json({
@@ -6,12 +7,7 @@ export async function POST(req: NextRequest) {
     message: "Logged out successfully",
   });
 
-  response.cookies.set("customer_session", "", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 0,
-  });
+  response.cookies.set(CUSTOMER_COOKIE_NAME, "", getCookieOptions(0));
 
   return response;
 }

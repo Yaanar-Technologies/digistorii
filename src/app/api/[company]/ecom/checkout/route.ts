@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import Razorpay from "razorpay";
 import { pool } from "@/lib/db";
-import { getTenantSchema, getTenantSchemaByCompany } from "@/lib/tenant";
+import { getTenantSchemaByCompany } from "@/lib/tenant";
+import { getStorefrontCustomerSession } from "@/lib/storefrontAuth";
 import { decryptSecret } from "@/lib/cryptoHelper";
 import { applySalesRowCalculation, calculateSalesTotals } from "@/lib/pricing/salesCalculations";
 import { transitionOrderStatus } from "@/lib/orderStateMachine";
@@ -15,7 +16,6 @@ interface CheckoutItemInput {
 }
 
 interface CheckoutRequestBody {
-  customerId: number | string;
   shippingAddressId?: number | string;
   billingAddressId?: number | string;
   paymentMethod: PaymentMethod;
@@ -46,15 +46,25 @@ export async function POST(
     let schema = "";
     let companyId: number | null = null;
 
+    // Tenant comes from the company in the URL, resolved in the database; client headers are ignored.
     try {
-      const tenantInfo = await getTenantSchema(req);
-      companyName = tenantInfo.company || paramCompany;
-      schema = tenantInfo.schema;
-      companyId = tenantInfo.companyId;
-    } catch {
       const tenantInfo = await getTenantSchemaByCompany(paramCompany);
       schema = tenantInfo.schema;
       companyName = tenantInfo.company;
+    } catch {
+      return NextResponse.json(
+        { success: false, error: `Company '${paramCompany}' not found.` },
+        { status: 404 }
+      );
+    }
+
+    // The buyer is the signed-in customer of this store, never a value from the request body.
+    const customerSession = await getStorefrontCustomerSession(req, paramCompany);
+    if (!customerSession) {
+      return NextResponse.json(
+        { success: false, error: "Please sign in to place an order." },
+        { status: 401 }
+      );
     }
 
     if (!companyId) {
@@ -74,7 +84,7 @@ export async function POST(
     }
 
     const body: CheckoutRequestBody = await req.json();
-    const { customerId, shippingAddressId, billingAddressId, paymentMethod, items } = body;
+    const { shippingAddressId, billingAddressId, paymentMethod, items } = body;
 
     const validPaymentMethods: PaymentMethod[] = ["upi", "card", "netbanking", "wallet", "cod"];
     if (!paymentMethod || !validPaymentMethods.includes(paymentMethod)) {
@@ -94,12 +104,20 @@ export async function POST(
       );
     }
 
-    const parsedCustomerId = Number(customerId);
-    if (!parsedCustomerId || isNaN(parsedCustomerId)) {
-      return NextResponse.json(
-        { success: false, error: "A valid customerId is required for checkout." },
-        { status: 400 }
+    const parsedCustomerId = customerSession.customerId;
+
+    for (const addressId of [shippingAddressId, billingAddressId]) {
+      if (!addressId) continue;
+      const owned = await client.query(
+        `SELECT 1 FROM "${schema}".customer_addresses WHERE id = $1 AND customer_id = $2 LIMIT 1`,
+        [Number(addressId), parsedCustomerId]
       );
+      if (!owned.rowCount) {
+        return NextResponse.json(
+          { success: false, error: "Selected address was not found for your account." },
+          { status: 400 }
+        );
+      }
     }
 
     // Step 2: Load payment settings and tenant gateway configuration
@@ -686,6 +704,18 @@ export async function POST(
 
     // Step 9: Branch on paymentMethod
     if (paymentMethod === "cod") {
+      // Clear ordered items from customer's cart_items inside the same transaction
+      if (parsedCustomerId) {
+        const orderedVariantIds = preparedItems.map((item) => item.variantId);
+        if (orderedVariantIds.length > 0) {
+          await client.query(
+            `DELETE FROM "${schema}".cart_items
+             WHERE customer_id = $1 AND variant_id = ANY($2::bigint[])`,
+            [parsedCustomerId, orderedVariantIds]
+          );
+        }
+      }
+
       await client.query("COMMIT");
       inTransaction = false;
 

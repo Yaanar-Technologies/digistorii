@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
+import { verifySession, CUSTOMER_COOKIE_NAME, CustomerSessionPayload } from "@/lib/session";
 
 export async function GET(req: NextRequest) {
-  const sessionCookie = req.cookies.get("customer_session")?.value;
+  const sessionCookie = req.cookies.get(CUSTOMER_COOKIE_NAME)?.value;
   if (!sessionCookie) {
     return NextResponse.json({ success: false, authenticated: false }, { status: 200 });
   }
 
   try {
-    const session = JSON.parse(sessionCookie);
+    const session = await verifySession<CustomerSessionPayload>(sessionCookie, "customer");
+    if (!session) {
+      return NextResponse.json({ success: false, authenticated: false }, { status: 200 });
+    }
     const companySlug = session.company;
     const customerId = session.customerId;
 

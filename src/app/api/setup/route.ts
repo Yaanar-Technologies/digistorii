@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { hashPassword } from "@/lib/hash";
 import { createCompanySchema } from "@/lib/schema";
+import { createOnboardingCookie } from "@/lib/onboardingAuth";
 //import { ensureDB } from "@/lib/ensure-db";
 import { ensureCompanyResponsibilities, getResponsibilitiesForCompany } from "@/lib/userResponsibilities";
 
@@ -140,7 +141,7 @@ export async function POST(req: Request) {
 
     await client.query("COMMIT");
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
       message: "Company and Admin User created successfully",
       companyId,
@@ -148,6 +149,10 @@ export async function POST(req: Request) {
       setup_stage: "ACCOUNT_CREATED",
       onboardingUrl: `/setup?company=${encodeURIComponent(input.slug)}`,
     });
+    // Signed session that lets this browser continue onboarding for this company only.
+    const onboardingCookie = await createOnboardingCookie(companyId, input.slug);
+    response.cookies.set(onboardingCookie.name, onboardingCookie.value, onboardingCookie.options);
+    return response;
   } catch (err: any) {
     await client.query("ROLLBACK");
 

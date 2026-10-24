@@ -269,6 +269,33 @@ class OrderStateMachine {
       return;
     }
 
+    // Edge case: Late payment arrived for an auto-cancelled/failed order
+    if (targetStatus === "paid" && (order.order_status === "cancelled" || order.order_status === "payment_failed")) {
+      console.warn(
+        `[LatePayment] Payment confirmation arrived for auto-cancelled/failed Order #${orderId} (current order_status: '${order.order_status}')`
+      );
+      await client.query(
+        `UPDATE "${schema}".online_orders
+         SET payment_status = 'paid',
+             updated_by = $1,
+             updated_at = NOW()
+         WHERE id = $2`,
+        [opts.changedBy, orderId]
+      );
+      await client.query(
+        `INSERT INTO "${schema}".online_order_status_history
+           (order_id, status_type, from_status, to_status, changed_by, note, created_at)
+         VALUES ($1, 'payment', $2, 'paid', $3, $4, NOW())`,
+        [
+          orderId,
+          fromStatus,
+          opts.changedBy,
+          `FLAGGED FOR MANUAL REVIEW: Late payment captured after order was auto-cancelled/failed (${opts.note || ""})`,
+        ]
+      );
+      return;
+    }
+
     // 3. Adjacency map validation
     const allowedTargets = PAYMENT_STATUS_TRANSITIONS[fromStatus] || [];
     if (!allowedTargets.includes(targetStatus)) {

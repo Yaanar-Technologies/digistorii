@@ -80,7 +80,7 @@ export async function initializeDatabase() {
     await client.query(`
   CREATE TABLE IF NOT EXISTS plans (
   id             SERIAL PRIMARY KEY,
-  name           VARCHAR(50) NOT NULL UNIQUE,  -- 'STARTER', 'GROWTH', 'ENTERPRISE'
+  name           VARCHAR(50) NOT NULL UNIQUE,  -- 'STARTER',  'ENTERPRISE'
   price_monthly  INTEGER NOT NULL DEFAULT 0,   -- in paise (INR smallest unit)
   price_yearly   INTEGER NOT NULL DEFAULT 0,
   billing_period  VARCHAR(50) DEFAULT 'Monthly / Yearly',
@@ -141,19 +141,6 @@ export async function initializeDatabase() {
 
 
 
-    await client.query(`
-  CREATE TABLE IF NOT EXISTS onboarding_otps (
-    id SERIAL PRIMARY KEY,
-    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    otp_hash TEXT NOT NULL,
-    expires_at TIMESTAMP NOT NULL,
-    attempts INTEGER NOT NULL DEFAULT 0,
-    resend_count INTEGER NOT NULL DEFAULT 0,
-    verified_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT NOW()
-  );
-`);
     await client.query(`
   CREATE TABLE IF NOT EXISTS plan_features (
   id           SERIAL PRIMARY KEY,
@@ -231,19 +218,6 @@ VALUES
     TRUE
 ),
 (
-    'GROWTH',6000,56000,'Monthly / Yearly',
-    '[
-        "E-Commerce Website + In-Store POS",
-        "Up to 5 Warehouses + 5 Store Locations",
-        "Up to 10 User Accounts",
-        "Inventory, Purchase, Sales & Reports Included",
-        "Multi-Location Business Management",
-        "Designed for Growing Businesses"
-    ]'::jsonb,
-    4,
-    TRUE
-),
-(
     'ENTERPRISE', 22500,247500,'Monthly / Yearly',
     '[
         "E-Commerce Website + In-Store POS",
@@ -284,10 +258,6 @@ JOIN (
         ('BASIC', 'max_locations', 1, NULL::BOOLEAN),
         ('BASIC', 'max_warehouses', 1, NULL::BOOLEAN),
         ('BASIC', 'ecommerce_access', NULL::INTEGER, TRUE),
-        ('GROWTH', 'max_users', 10, NULL::BOOLEAN),
-        ('GROWTH', 'max_locations', 5, NULL::BOOLEAN),
-        ('GROWTH', 'max_warehouses', 5, NULL::BOOLEAN),
-        ('GROWTH', 'ecommerce_access', NULL::INTEGER, TRUE),
         ('ENTERPRISE', 'max_users', 20, NULL::BOOLEAN),
         ('ENTERPRISE', 'max_locations', 5, NULL::BOOLEAN),
         ('ENTERPRISE', 'max_warehouses', 5, NULL::BOOLEAN),
@@ -302,32 +272,6 @@ SET
 
 
     await ensureResponsibilitySchema(client);
-
-    // 1. Ensure custom domain columns exist on public.companies table
-    await client.query(`
-      ALTER TABLE public.companies
-        ADD COLUMN IF NOT EXISTS custom_domain VARCHAR(255) UNIQUE,
-        ADD COLUMN IF NOT EXISTS custom_domain_status VARCHAR(20) NOT NULL DEFAULT 'not_configured',
-        ADD COLUMN IF NOT EXISTS custom_domain_verified_at TIMESTAMP;
-    `);
-
-    await client.query(`
-      ALTER TABLE public.payments 
-      ADD COLUMN IF NOT EXISTS payment_type VARCHAR(50) DEFAULT 'SUBSCRIPTION_NEW',
-      ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb;
-    `);
-
-    await client.query(`
-      ALTER TABLE public.companies
-      ADD COLUMN IF NOT EXISTS has_completed_guided_setup BOOLEAN DEFAULT FALSE;
-    `);
-
-    await client.query(`
-      ALTER TABLE public.companies
-      ADD COLUMN IF NOT EXISTS year_type VARCHAR(20) DEFAULT 'fiscal';
-    `);
-
-    await ensureResponsibilitySchema(client);
     await client.query("COMMIT");
     console.log("DB initialized successfully");
     global.dbInitialized = true;
@@ -340,71 +284,5 @@ SET
   }
 }
 
-async function upgradeTenantSchemas(client: any) {
-  const companiesRes = await client.query("SELECT schema_name FROM public.companies");
-  for (const row of companiesRes.rows) {
-    const schema = row.schema_name;
-    console.log(`Upgrading schema: ${schema}`);
 
-    await client.query(`
-      ALTER TABLE "${schema}".company_settings
-        ADD COLUMN IF NOT EXISTS sales_target NUMERIC DEFAULT 0;
-    `);
-
-    await client.query(`
-      ALTER TABLE "${schema}".business_settings
-        ADD COLUMN IF NOT EXISTS default_low_stock_threshold INT NOT NULL DEFAULT 5,
-        ADD COLUMN IF NOT EXISTS default_backorders_allowed BOOLEAN NOT NULL DEFAULT FALSE,
-        ADD COLUMN IF NOT EXISTS low_stock_notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-        ADD COLUMN IF NOT EXISTS low_stock_email_notifications_enabled BOOLEAN NOT NULL DEFAULT FALSE;
-    `);
-
-    await client.query(`
-      ALTER TABLE "${schema}".product_variants
-        ADD COLUMN IF NOT EXISTS low_stock_threshold INT,
-        ADD COLUMN IF NOT EXISTS backorders_allowed BOOLEAN,
-        ADD COLUMN IF NOT EXISTS last_low_stock_notified_at TIMESTAMPTZ;
-    `);
-
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS "${schema}".notification_subscriptions (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        event_type VARCHAR(50) NOT NULL,
-        user_id INTEGER NOT NULL,
-        enabled BOOLEAN NOT NULL DEFAULT TRUE,
-        created_at TIMESTAMPTZ DEFAULT now(),
-        UNIQUE (event_type, user_id)
-      );
-    `);
-
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS "${schema}".notifications (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        type VARCHAR(50) NOT NULL,
-        title VARCHAR(255) NOT NULL,
-        message TEXT NOT NULL,
-        metadata JSONB,
-        created_at TIMESTAMPTZ DEFAULT now()
-      );
-    `);
-
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS "${schema}".notification_recipients (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        notification_id UUID NOT NULL REFERENCES "${schema}".notifications(id) ON DELETE CASCADE,
-        user_id INTEGER NOT NULL,
-        is_read BOOLEAN NOT NULL DEFAULT FALSE,
-        read_at TIMESTAMPTZ,
-        delivered_at TIMESTAMPTZ,
-        created_at TIMESTAMPTZ DEFAULT now(),
-        UNIQUE (notification_id, user_id)
-      );
-    `);
-
-    await client.query(`
-      CREATE INDEX IF NOT EXISTS idx_notif_recipients_user_unread 
-      ON "${schema}".notification_recipients (user_id, is_read);
-    `);
-  }
-}
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
+import { canAccessOnboarding } from "@/lib/onboardingAuth";
 //import { ensureDB } from "@/lib/ensure-db";
 import nodemailer from "nodemailer";
 import { randomBytes } from "crypto";
@@ -43,9 +44,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (!(await canAccessOnboarding(req, company))) {
+      return NextResponse.json(
+        { success: false, message: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
     // Fetch company details
     const companyResult = await client.query(
-      `SELECT id, company_name, subdomain_url, schema_name
+      `SELECT id, company_name, subdomain_url, schema_name, setup_stage, updated_at
        FROM public.companies
        WHERE subdomain_url = $1
        LIMIT 1`,
@@ -60,6 +68,24 @@ export async function POST(req: NextRequest) {
 
     const companyRow = companyResult.rows[0];
     const companyId = Number(companyRow.id);
+
+    if (companyRow.setup_stage !== "BUSINESS_SETUP") {
+      return NextResponse.json(
+        { success: false, message: "Complete payment and business details first" },
+        { status: 400 }
+      );
+    }
+    const paid = await client.query(
+      `SELECT 1 FROM public.company_subscriptions
+       WHERE company_id = $1 AND LOWER(payment_status) = 'paid' LIMIT 1`,
+      [companyId]
+    );
+    if (!paid.rowCount) {
+      return NextResponse.json(
+        { success: false, message: "Payment must be completed first" },
+        { status: 400 }
+      );
+    }
 
     // Fetch owner user
     const ownerResult = await client.query(

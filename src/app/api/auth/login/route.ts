@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { loginUser } from "../../../../lib/pages/login";
 import { pool } from "@/lib/db"; // Import your database pool
+import {
+  signSession,
+  STAFF_COOKIE_NAME,
+  STAFF_SESSION_EXPIRY_SECONDS,
+  getCookieOptions,
+} from "@/lib/session";
 
 export async function POST(req: NextRequest) {
   try {
@@ -57,13 +63,16 @@ export async function POST(req: NextRequest) {
       }
 
       // 2. Attach real_company_name and company_name to user payload
+      const { password: _p, password_hash: _ph, ...userWithoutSecrets } = (result.user || {}) as Record<string, any>;
       const updatedUser = {
-        ...result.user,
+        ...userWithoutSecrets,
         company_name: company,            // Subdomain string (e.g., "dkdesigns")
         real_company_name: realCompanyName, // Real name (e.g., "DK Designs")
       };
 
       console.log("Login successful for user:", email, "in company:", realCompanyName);
+
+      const token = await signSession(updatedUser, STAFF_SESSION_EXPIRY_SECONDS, "staff");
 
       // 3. Construct response with enriched user object
       const response = NextResponse.json({
@@ -72,17 +81,13 @@ export async function POST(req: NextRequest) {
       });
 
       // 4. Set updated cookies
-      response.cookies.set("user", JSON.stringify(updatedUser), {
-        httpOnly: true,
-        path: "/",
-        maxAge: 60 * 60 * 24,
-      });
+      response.cookies.set(
+        STAFF_COOKIE_NAME,
+        token,
+        getCookieOptions(STAFF_SESSION_EXPIRY_SECONDS)
+      );
 
-      response.cookies.set("tenant", company, {
-        httpOnly: true,
-        path: "/",
-        maxAge: 60 * 60 * 24,
-      });
+      response.cookies.set("tenant", company, getCookieOptions(STAFF_SESSION_EXPIRY_SECONDS));
 
       return response;
     }

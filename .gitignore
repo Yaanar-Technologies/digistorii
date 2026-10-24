@@ -1,5 +1,6 @@
 node_modules/
 .env
+.env.*
 dist/
 build/
 .DS_Store
@@ -10,3 +11,4 @@ node_modules
 *.tsbuildinfo
 src/components/sampletemplate/
 prompts/
+!.env.example

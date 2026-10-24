@@ -33,7 +33,7 @@ export const ruleDefinitions: Record<string, RuleDefinition> = {
   },
   "alphanumeric-spaces-hyphens": {
     key: "alphanumeric-spaces-hyphens",
-    regex: /[^a-zA-Z0-9\s.,'-]/,
+    regex: /[^a-zA-Z0-9\s.,'/-]/,
     message: "Only letters, numbers, spaces, hyphens and commas are allowed.",
   },
   "numeric-string": {

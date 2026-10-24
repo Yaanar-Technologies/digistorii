@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomBytes } from "crypto";
+import { createHmac, timingSafeEqual } from "crypto";
 import { pool } from "@/lib/db";
 import { hashPassword } from "@/lib/hash";
-import { ensureDB } from "@/lib/ensure-db";
+import { canAccessOnboarding } from "@/lib/onboardingAuth";
 import { createEcomSchema } from "@/lib/schema";
 import { ensureLocationTableShape } from "@/lib/locationSchema";
 import { normalizeBillingInterval, PLAN_CONFIG, SetupStage, getNextStepNumber, isValidSetupStage, } from "@/lib/onboarding";
@@ -32,6 +32,8 @@ type CompanyContext = {
 
 function toSetupStage(value: string | null | undefined): SetupStage {
   if (value && isValidSetupStage(value)) return value;
+  // Rows created while phone verification existed still carry the old stage.
+  if (value === "PHONE_VERIFIED") return "ACCOUNT_CREATED";
   return "ACCOUNT_CREATED";
 }
 
@@ -63,7 +65,7 @@ async function getCompanyContext(client: any, company: string): Promise<CompanyC
 
 async function getOwnerForCompany(client: any, companyId: number) {
   const owner = await client.query(
-    `SELECT id, phone, phone_verified
+    `SELECT id, phone
      FROM public.users
      WHERE company_id = $1
      ORDER BY id ASC
@@ -174,6 +176,9 @@ export async function GET(req: NextRequest) {
   const client = await pool.connect();
   try {
     const company = parseCompany(req);
+    if (!(await canAccessOnboarding(req, company))) {
+      return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
+    }
     const context = await getCompanyContext(client, company);
     await ensureCompanyResponsibilities(client, context.id);
 
@@ -236,8 +241,6 @@ export async function GET(req: NextRequest) {
        WHERE company_id = $1 AND is_active = TRUE`,
       [context.id]
     );
-    const owner = await getOwnerForCompany(client, context.id);
-
     return NextResponse.json({
       success: true,
       company: {
@@ -247,8 +250,6 @@ export async function GET(req: NextRequest) {
         schema: context.schema_name,
         setup_stage: context.setup_stage,
         next_step: getNextStepNumber(context.setup_stage),
-        owner_phone: owner?.phone || null,
-        phone_verified: Boolean(owner?.phone_verified),
       },
       subscription: subscription
         ? {
@@ -303,6 +304,9 @@ export async function POST(req: NextRequest) {
     if (!company) {
       throw new Error("Company is required");
     }
+    if (!(await canAccessOnboarding(req, company))) {
+      return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
+    }
 
     const context = await getCompanyContext(client, company);
     await ensureCompanyResponsibilities(client, context.id);
@@ -310,27 +314,47 @@ export async function POST(req: NextRequest) {
     await client.query("BEGIN");
     transactionStarted = true;
 
-    if (step === "PHONE_VERIFIED") {
-      // Mark phone as verified and advance stage
-      const owner = await getOwnerForCompany(client, context.id);
-      if (!owner?.phone_verified) {
-        throw new Error("Phone number must be verified via OTP before proceeding");
-      }
-      await client.query(
-        `UPDATE public.companies
-         SET setup_stage = 'PHONE_VERIFIED', updated_at = NOW()
-         WHERE id = $1`,
-        [context.id]
-      );
-    } else if (step === "PLAN_SELECTED") {
+    if (step === "PLAN_SELECTED") {
       const requestedPlanId = Number(data?.plan_id || 0);
       const billingInterval = normalizeBillingInterval(data?.billing_interval);
       const plan = await getPlanDetails(client, requestedPlanId, billingInterval);
-      const paymentStatusInput = String(data?.payment_status || "").trim().toUpperCase();
-      const paymentStatus = paymentStatusInput === "SUCCESS" ? "paid" : "created";
-      const razorpayOrderId = String(data?.razorpay_order_id || "").trim() || null;
-      const razorpayPaymentId = String(data?.payment_id || "").trim() || null;
-      const razorpaySignature = String(data?.razorpay_signature || "").trim() || null;
+      const razorpayOrderId = String(data?.razorpay_order_id || "").trim();
+      const razorpayPaymentId = String(data?.payment_id || "").trim();
+      const razorpaySignature = String(data?.razorpay_signature || "").trim();
+
+      // The browser's word is not proof of payment: check Razorpay's signature and that
+      // the order was created by us for this company, plan and billing cycle.
+      const keySecret = process.env.RAZORPAY_KEY_SECRET;
+      if (!keySecret) {
+        throw new Error("Payment gateway is not configured");
+      }
+      if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
+        throw new Error("Payment details are missing");
+      }
+      const expectedSignature = createHmac("sha256", keySecret)
+        .update(`${razorpayOrderId}|${razorpayPaymentId}`)
+        .digest();
+      const givenSignature = Buffer.from(razorpaySignature, "hex");
+      if (
+        givenSignature.length !== expectedSignature.length ||
+        !timingSafeEqual(givenSignature, expectedSignature)
+      ) {
+        throw new Error("Payment verification failed");
+      }
+      const orderOwned = await client.query(
+        `SELECT id
+         FROM public.payments
+         WHERE razorpay_order_id = $1
+           AND company_id = $2
+           AND UPPER(plan_name) = $3
+           AND COALESCE(LOWER(billing_interval), 'monthly') = $4
+         LIMIT 1`,
+        [razorpayOrderId, context.id, plan.code, billingInterval]
+      );
+      if (!orderOwned.rowCount) {
+        throw new Error("Payment does not match this company and plan");
+      }
+      const paymentStatus = "paid";
       const periodStart = new Date();
       const periodEnd = new Date(periodStart);
       if (billingInterval === "yearly") {
@@ -448,6 +472,10 @@ export async function POST(req: NextRequest) {
         [context.id, plan.code]
       );
     } else if (step === "BUSINESS_SETUP") {
+      const paidSubscription = await getPlanForCompany(client, context.id);
+      if (String(paidSubscription?.payment_status || "").toLowerCase() !== "paid") {
+        throw new Error("Complete payment before entering business details");
+      }
       const gstAvailable = Boolean(data?.gst_available);
       const state = String(data?.state || "").trim();
       const currency =
@@ -1058,16 +1086,8 @@ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW())`,
         [context.id]
       );
     } else if (step === "LIVE") {
-      const subscription = await getPlanForCompany(client, context.id);
-      if (!subscription || String(subscription.payment_status || "").toLowerCase() !== "paid") {
-        throw new Error("Payment must be completed before launch");
-      }
-      await client.query(
-        `UPDATE public.companies
-         SET setup_stage = 'LIVE', updated_at = NOW()
-         WHERE id = $1`,
-        [context.id]
-      );
+      // Only the emailed verification link may take a workspace live (/api/verify-company).
+      throw new Error("Verify your email to launch the workspace");
     } else {
       throw new Error("Unsupported onboarding step");
     }

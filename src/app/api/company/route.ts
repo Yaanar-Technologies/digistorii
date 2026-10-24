@@ -1,4 +1,4 @@
-// app/api/public/company/route.ts
+// Public: returns only the display name for a company slug (used by login pages).
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 

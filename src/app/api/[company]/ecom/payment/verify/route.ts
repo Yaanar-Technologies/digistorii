@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { pool } from "@/lib/db";
-import { getTenantSchema, getTenantSchemaByCompany } from "@/lib/tenant";
+import { getTenantSchemaByCompany } from "@/lib/tenant";
+import { getStorefrontCustomerSession } from "@/lib/storefrontAuth";
 import { decryptSecret } from "@/lib/cryptoHelper";
 import { transitionPaymentStatus, OrderTransitionError } from "@/lib/orderStateMachine";
 
@@ -25,15 +26,24 @@ export async function POST(
     let schema = "";
     let companyId: number | null = null;
 
+    // Tenant comes from the company in the URL; client headers are ignored.
     try {
-      const tenantInfo = await getTenantSchema(req);
-      companyName = tenantInfo.company || paramCompany;
-      schema = tenantInfo.schema;
-      companyId = tenantInfo.companyId;
-    } catch {
       const tenantInfo = await getTenantSchemaByCompany(paramCompany);
       schema = tenantInfo.schema;
       companyName = tenantInfo.company;
+    } catch {
+      return NextResponse.json(
+        { success: false, error: `Company '${paramCompany}' not found.` },
+        { status: 404 }
+      );
+    }
+
+    const customerSession = await getStorefrontCustomerSession(req, paramCompany);
+    if (!customerSession) {
+      return NextResponse.json(
+        { success: false, error: "Please sign in to verify this payment." },
+        { status: 401 }
+      );
     }
 
     if (!companyId) {
@@ -155,9 +165,9 @@ export async function POST(
     const orderRes = await client.query(
       `SELECT id, order_no, order_status, payment_status, total_amount
        FROM "${schema}".online_orders
-       WHERE id = $1
+       WHERE id = $1 AND customer_id = $2
        FOR UPDATE`,
-      [orderId]
+      [orderId, customerSession.customerId]
     );
 
     if (orderRes.rowCount === 0) {
@@ -238,6 +248,16 @@ export async function POST(
       `UPDATE "${schema}".inventory_reservations
        SET status = 'converted'
        WHERE order_ref_id = $1 AND status = 'held'`,
+      [orderId]
+    );
+
+    // 8. Idempotently clear ordered cart items for this customer
+    await client.query(
+      `DELETE FROM "${schema}".cart_items
+       WHERE customer_id = (SELECT customer_id FROM "${schema}".online_orders WHERE id = $1)
+         AND variant_id IN (
+           SELECT variant_id FROM "${schema}".online_order_items WHERE order_id = $1
+         )`,
       [orderId]
     );
 
