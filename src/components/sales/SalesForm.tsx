@@ -30,7 +30,7 @@ import {
 } from "@/components/sales/salesUtils";
 import { useResolvedWarehouseContext } from "@/components/sales/useResolvedWarehouseContext";
 import { useSalesCustomer } from "@/components/sales/useSalesCustomer";
-import { useProductLookup } from "@/hooks/useProductLookup";
+import { paginateLookupSelectedFirst, useProductLookup } from "@/hooks/useProductLookup";
 import ThermalInvoice from "@/components/ThermalInvoice";
 import {
     applySalesRowCalculation,
@@ -126,15 +126,13 @@ export default function SalesForm() {
     const [returnedItemsList, setReturnedItemsList] = useState<any[]>([]);
     const {
         items: lookupItems,
+        filteredItems: lookupFilteredItems,
         loading: lookupLoading,
         filters: lookupFilters,
         setFilters: setLookupFilters,
         page: lookupPage,
         setPage: setLookupPage,
-        totalPages: lookupTotalPages,
         itemsPerPage: lookupItemsPerPage,
-        paginatedItems: lookupPaginatedItems,
-        totalCount: lookupTotalCount,
         categoryOptions: lookupCategoryOptions,
         resetFilters: resetLookupFilters,
         refresh: refreshProductLookup,
@@ -635,6 +633,22 @@ export default function SalesForm() {
             prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
         );
     };
+
+    const {
+        paginatedItems: lookupPaginatedItems,
+        totalPages: lookupTotalPages,
+        totalCount: lookupTotalCount,
+        currentPage: lookupCurrentPage,
+    } = useMemo(
+        () =>
+            paginateLookupSelectedFirst(
+                lookupFilteredItems,
+                (item) => selectedProducts.includes(item.id),
+                lookupPage,
+                lookupItemsPerPage
+            ),
+        [lookupFilteredItems, selectedProducts, lookupPage, lookupItemsPerPage]
+    );
 
     const applyBillingCalculation = useCallback(
         (row: SalesDetail) => {
@@ -2521,6 +2535,7 @@ export default function SalesForm() {
                 onAddSelected={addSelectedProducts}
                 errorMessage={popupError}
                 items={lookupPaginatedItems}
+                allItems={lookupItems}
                 loading={lookupLoading}
                 filters={lookupFilters}
                 onFiltersChange={(next) => {
@@ -2528,11 +2543,12 @@ export default function SalesForm() {
                     setLookupPage(1);
                 }}
                 categoryOptions={lookupCategoryOptions}
-                page={lookupPage}
+                page={lookupCurrentPage}
                 totalPages={lookupTotalPages}
                 itemsPerPage={lookupItemsPerPage}
                 totalCount={lookupTotalCount}
                 onPageChange={setLookupPage}
+                selectedCount={selectedProducts.length}
                 isSelected={(item) => selectedProducts.includes(item.id)}
                 onToggle={(item) => toggleProduct(item.id)}
                 onToggleAll={(checked, pageItems) => {

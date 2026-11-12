@@ -77,6 +77,9 @@ const PRODUCT_IMPORT_FIELDS = [
   "low_stock_threshold",
   "backorders_allowed",
   "barcode",
+  "qty",
+  "warehouse",
+  "locator",
 ] as const;
 
 const REQUIRED_IMPORT_FIELDS = new Set<string>([
@@ -109,6 +112,9 @@ const IMPORT_FIELD_LABELS: Record<(typeof PRODUCT_IMPORT_FIELDS)[number], string
   low_stock_threshold: "Low Stock Threshold",
   backorders_allowed: "Backorders Allowed",
   barcode: "Barcode",
+  qty: "Quantity",
+  warehouse: "Warehouse",
+  locator: "Locator",
 };
 
 export default function ProductsPage() {
@@ -306,7 +312,12 @@ export default function ProductsPage() {
       const firstHeaders = data.sheets?.[0]?.headers || [];
       const nextMapping: Record<string, string> = {};
       PRODUCT_IMPORT_FIELDS.forEach((field) => {
-        const match = firstHeaders.find((header: string) => header.toLowerCase().replace(/[^a-z0-9]/g, "") === field.replace(/[^a-z0-9]/g, ""));
+        const normalizedField = field.replace(/[^a-z0-9]/g, "");
+        const normalizedLabel = IMPORT_FIELD_LABELS[field].toLowerCase().replace(/[^a-z0-9]/g, "");
+        const match = firstHeaders.find((header: string) => {
+          const normalizedHeader = header.toLowerCase().replace(/[^a-z0-9]/g, "");
+          return normalizedHeader === normalizedField || normalizedHeader === normalizedLabel;
+        });
         if (match) nextMapping[field] = match;
       });
       setFieldMapping(nextMapping);
@@ -691,7 +702,7 @@ export default function ProductsPage() {
                     onClick={downloadTemplate}
                     className="inline-flex text-xs text-gray-600 underline hover:text-gray-800"
                   >
-                    Download Example Template
+                    Download Template
                   </button>
                   <input
                     type="file"

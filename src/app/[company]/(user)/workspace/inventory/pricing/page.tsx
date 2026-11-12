@@ -6,7 +6,11 @@ import { apiFetch } from "@/lib/apiFetch";
 import ProductLookupModal from "@/components/product/ProductLookupModal";
 import { usePagination } from "@/hooks/usePagination";
 import { useNotify } from "@/hooks/useNotify";
-import { useProductLookup } from "@/hooks/useProductLookup";
+import {
+  findProductByBarcodeOrCode,
+  paginateLookupSelectedFirst,
+  useProductLookup,
+} from "@/hooks/useProductLookup";
 import type { ProductLookupItem } from "@/lib/product-lookup";
 import Link from "next/link";
 import {
@@ -175,15 +179,13 @@ export default function PricingPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const {
     items: lookupItems,
+    filteredItems: lookupFilteredItems,
     loading: lookupLoading,
     filters: lookupFilters,
     setFilters: setLookupFilters,
     page: lookupPage,
     setPage: setLookupPage,
-    totalPages: lookupTotalPages,
     itemsPerPage: lookupItemsPerPage,
-    paginatedItems: lookupPaginatedItems,
-    totalCount: lookupTotalCount,
     categoryOptions: lookupCategoryOptions,
     resetFilters: resetLookupFilters,
   } = useProductLookup({ enabled: Boolean(company) });
@@ -232,6 +234,9 @@ export default function PricingPage() {
   const [bulkTaxId, setBulkTaxId] = useState("");
   const entryHeaderCheckboxRef = useRef<HTMLInputElement>(null);
   const [useLastPurchasePrice, setUseLastPurchasePrice] = useState(false);
+  const [fetchingLastPurchasePrices, setFetchingLastPurchasePrices] = useState(false);
+  const [lookupBarcodeValue, setLookupBarcodeValue] = useState("");
+  const [scannedVariantOrder, setScannedVariantOrder] = useState<string[]>([]);
 
   async function loadPricing() {
     setLoading(true);
@@ -377,6 +382,7 @@ export default function PricingPage() {
   async function fetchLatestPurchasePricesForEntries(ids: number[]) {
     if (ids.length === 0) return {};
     try {
+      setFetchingLastPurchasePrices(true);
       const response = await apiFetch("/api/pricing/latest-purchase-price", company, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -388,27 +394,44 @@ export default function PricingPage() {
       }
     } catch (err) {
       console.error("Failed to fetch latest purchase prices", err);
+    } finally {
+      setFetchingLastPurchasePrices(false);
     }
     return {};
   }
 
-  useEffect(() => {
-    if (useLastPurchasePrice && entryRows.length > 0) {
-      const idsToFetch = entryRows.map((r) => Number(r.variant_id));
-      fetchLatestPurchasePricesForEntries(idsToFetch).then((prices) => {
-        if (!prices) return;
-        setEntryRows((prev) =>
-          prev.map((row) => {
-            const key = String(row.variant_id);
-            if (prices[key] !== undefined) {
-              return { ...row, base_cost: String(prices[key]) };
-            }
-            return row;
-          })
-        );
+  async function applyLatestPurchasePricesNow(rowsToFill: EntryRow[]) {
+    if (rowsToFill.length === 0) return;
+    const idsToFetch = rowsToFill.map((r) => Number(r.variant_id));
+    const prices = await fetchLatestPurchasePricesForEntries(idsToFetch);
+    if (!prices) return;
+    setEntryRows((prev) =>
+      prev.map((row) => {
+        const key = String(row.variant_id);
+        if (prices[key] !== undefined) {
+          return { ...row, base_cost: String(prices[key]) };
+        }
+        return row;
+      })
+    );
+  }
+
+  function handleUseLastPurchasePriceToggle(checked: boolean) {
+    setUseLastPurchasePrice(checked);
+    if (!checked) return;
+
+    if (entryRows.length > 0) {
+      void applyLatestPurchasePricesNow(entryRows);
+    }
+    if (editModalOpen && editingRow) {
+      void fetchLatestPurchasePricesForEntries([Number(editingRow.variant_id)]).then((prices) => {
+        const key = String(editingRow.variant_id);
+        if (prices && prices[key] !== undefined) {
+          setEditBaseCost(String(prices[key]));
+        }
       });
     }
-  }, [useLastPurchasePrice]);
+  }
 
   useEffect(() => {
     if (!company) return;
@@ -546,20 +569,36 @@ export default function PricingPage() {
 
   const bulkPricingVisible = selectedEntryIds.length > 0;
 
-  const allFilteredSelected =
-    lookupPaginatedItems.length > 0 &&
-    lookupPaginatedItems.every((row) => selectedVariantMap[String(row.variant_id)]);
+  const {
+    paginatedItems: lookupPaginatedItems,
+    totalPages: lookupTotalPages,
+    totalCount: lookupTotalCount,
+    currentPage: lookupCurrentPage,
+  } = useMemo(
+    () =>
+      paginateLookupSelectedFirst(
+        lookupFilteredItems,
+        (row) => Boolean(selectedVariantMap[String(row.variant_id)]),
+        lookupPage,
+        lookupItemsPerPage,
+        scannedVariantOrder
+      ),
+    [lookupFilteredItems, selectedVariantMap, lookupPage, lookupItemsPerPage, scannedVariantOrder]
+  );
 
   function toggleSelectAll(checked: boolean, rowsToToggle: ProductLookupItem[]) {
-    if (!checked) {
-      setSelectedVariantMap({});
-      return;
-    }
-    const map: Record<string, boolean> = {};
-    rowsToToggle.forEach((row) => {
-      map[String(row.variant_id)] = true;
+    setSelectedVariantMap((prev) => {
+      const next = { ...prev };
+      rowsToToggle.forEach((row) => {
+        const key = String(row.variant_id);
+        if (checked) {
+          next[key] = true;
+        } else {
+          delete next[key];
+        }
+      });
+      return next;
     });
-    setSelectedVariantMap(map);
   }
 
   function toggleVariantSelection(item: ProductLookupItem) {
@@ -574,11 +613,35 @@ export default function PricingPage() {
     });
   }
 
+  function handleLookupBarcodeSubmit(value?: string) {
+    const scanned = String(value ?? lookupBarcodeValue).trim();
+    setLookupBarcodeValue("");
+    if (!scanned) return;
+
+    const match = findProductByBarcodeOrCode(lookupItems, scanned);
+    if (!match) {
+      notify(`Product with barcode ${scanned} not found.`, { severity: "warning" });
+      return;
+    }
+
+    const key = String(match.variant_id);
+    setSelectedVariantMap((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
+    setScannedVariantOrder((prev) => [key, ...prev.filter((id) => id !== key)]);
+
+    const isInFiltered = lookupFilteredItems.some((item) => item.variant_id === match.variant_id);
+    if (!isInFiltered) {
+      resetLookupFilters();
+    }
+    setLookupPage(1);
+  }
+
   function openCreateModal() {
     setCreateModalOpen(true);
     setEffectiveDate(todayYyyyMmDd());
     setEntryRows([]);
     setSelectedVariantMap({});
+    setScannedVariantOrder([]);
+    setLookupBarcodeValue("");
     resetLookupFilters();
     setMarginType("percentage");
     setEntrySearch("");
@@ -801,33 +864,19 @@ export default function PricingPage() {
           <h1 className="text-2xl font-semibold text-gray-900">Product Pricing</h1>
           <p className="text-sm text-gray-500">Multi-product pricing in one form.</p>
         </div>
-        <div className="flex flex-col items-end gap-2">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={openCreateModal}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white"
-            >
-              + Add Pricing Form
-            </button>
-            <button
-              onClick={() => setBulkModalOpen(true)}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-800"
-            >
-              Bulk Import Excel
-            </button>
-          </div>
-          <div className="flex items-center gap-2">
-            <input
-              id="use-last-purchase-price"
-              type="checkbox"
-              checked={useLastPurchasePrice}
-              onChange={(e) => setUseLastPurchasePrice(e.target.checked)}
-              className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-            />
-            <label htmlFor="use-last-purchase-price" className="text-sm text-gray-600 select-none cursor-pointer">
-              Use Last Purchase Price
-            </label>
-          </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={openCreateModal}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white"
+          >
+            + Add Pricing Form
+          </button>
+          <button
+            onClick={() => setBulkModalOpen(true)}
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-800"
+          >
+            Bulk Import Excel
+          </button>
         </div>
       </div>
 
@@ -1062,6 +1111,22 @@ export default function PricingPage() {
               </div>
             </div>
 
+            <div className="mt-4 flex items-center gap-2">
+              <input
+                id="edit-use-last-purchase-price"
+                type="checkbox"
+                checked={useLastPurchasePrice}
+                onChange={(e) => handleUseLastPurchasePriceToggle(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <label
+                htmlFor="edit-use-last-purchase-price"
+                className="text-sm text-gray-700 select-none cursor-pointer"
+              >
+                Prefill Base Cost with Last Purchase Price
+              </label>
+            </div>
+
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               <div>
                 <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">
@@ -1168,7 +1233,23 @@ export default function PricingPage() {
               </select>
             </div>
 
-            <div className="mt-4 flex flex-wrap items-center gap-2">
+            <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 flex items-center justify-between gap-3">
+              <label
+                htmlFor="bulk-use-last-purchase-price"
+                className="text-sm font-medium text-gray-700 select-none cursor-pointer"
+              >
+                Prefill Base Cost with Last Purchase Price
+              </label>
+              <input
+                id="bulk-use-last-purchase-price"
+                type="checkbox"
+                checked={useLastPurchasePrice}
+                onChange={(e) => handleUseLastPurchasePriceToggle(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+              />
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
                 onClick={handleTemplateDownload}
                 disabled={downloading}
@@ -1285,8 +1366,10 @@ export default function PricingPage() {
               </div>
               <button
                 onClick={() => {
+                  setLookupBarcodeValue("");
                   setSelectProductsModalOpen(true);
                   resetLookupFilters();
+                  setLookupPage(1);
                 }}
                 className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white"
               >
@@ -1295,7 +1378,7 @@ export default function PricingPage() {
             </div>
 
             <div className="px-6 py-4 border-b">
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-3 md:grid-cols-3 items-end">
                 <div>
                   <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">
                     Effective Date
@@ -1324,6 +1407,24 @@ export default function PricingPage() {
                     <option value="percentage">Percentage</option>
                     <option value="amount">Amount</option>
                   </select>
+                </div>
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                  <label
+                    htmlFor="create-use-last-purchase-price"
+                    className="text-sm font-medium text-gray-700 select-none cursor-pointer"
+                  >
+                    Prefill Base Cost with Last Purchase Price
+                    {fetchingLastPurchasePrices ? (
+                      <span className="ml-2 text-xs text-blue-600">Fetching...</span>
+                    ) : null}
+                  </label>
+                  <input
+                    id="create-use-last-purchase-price"
+                    type="checkbox"
+                    checked={useLastPurchasePrice}
+                    onChange={(e) => handleUseLastPurchasePriceToggle(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                  />
                 </div>
               </div>
             </div>
@@ -1591,6 +1692,7 @@ export default function PricingPage() {
           onAddSelected={applySelectedProducts}
           errorMessage={statusMessage}
           items={lookupPaginatedItems}
+          allItems={lookupItems}
           loading={lookupLoading}
           filters={lookupFilters}
           onFiltersChange={(next) => {
@@ -1598,7 +1700,7 @@ export default function PricingPage() {
             setLookupPage(1);
           }}
           categoryOptions={lookupCategoryOptions}
-          page={lookupPage}
+          page={lookupCurrentPage}
           totalPages={lookupTotalPages}
           itemsPerPage={lookupItemsPerPage}
           totalCount={lookupTotalCount}
@@ -1606,6 +1708,10 @@ export default function PricingPage() {
           isSelected={(item) => Boolean(selectedVariantMap[String(item.variant_id)])}
           onToggle={toggleVariantSelection}
           onToggleAll={(checked, pageItems) => toggleSelectAll(checked, pageItems)}
+          selectedCount={Object.values(selectedVariantMap).filter(Boolean).length}
+          barcodeValue={lookupBarcodeValue}
+          onBarcodeChange={setLookupBarcodeValue}
+          onBarcodeSubmit={handleLookupBarcodeSubmit}
         />
       ) : null}
     </div>

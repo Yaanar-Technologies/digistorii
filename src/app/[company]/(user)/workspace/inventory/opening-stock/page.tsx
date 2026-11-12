@@ -6,7 +6,7 @@ import dynamic from "next/dynamic";
 import { ChevronLeftIcon, ChevronRightIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { useTenant } from "@/context/TenantContext";
 import { apiFetch } from "@/lib/apiFetch";
-import { useProductLookup } from "@/hooks/useProductLookup";
+import { findProductByBarcodeOrCode, useProductLookup } from "@/hooks/useProductLookup";
 import { usePagination } from "@/hooks/usePagination";
 import { attachRuleValidationListeners, getRuleValidationError } from "@/lib/formValidationRules";
 import type { ProductLookupItem } from "@/lib/product-lookup";
@@ -82,6 +82,7 @@ export default function OpeningStockPage() {
   const [productModalError, setProductModalError] = useState("");
   const [docLoading, setDocLoading] = useState(false);
   const [selectedVariantMap, setSelectedVariantMap] = useState<Record<string, boolean>>({});
+  const [scannedVariantOrder, setScannedVariantOrder] = useState<string[]>([]);
   const [barcodeValue, setBarcodeValue] = useState("");
   const [barcodeMessage, setBarcodeMessage] = useState("");
   const [openingStockSearch, setOpeningStockSearch] = useState("");
@@ -389,11 +390,23 @@ export default function OpeningStockPage() {
   }, [lookupFilters, lookupItems, selectedSkuSet]);
 
   const sortedLookupItems = useMemo(() => {
+    const rank = new Map<string, number>();
+    scannedVariantOrder.forEach((id, idx) => rank.set(String(id), idx));
     return [...filteredLookupItems].sort((a, b) => {
+      const aSelected = Boolean(selectedVariantMap[String(a.variant_id)]);
+      const bSelected = Boolean(selectedVariantMap[String(b.variant_id)]);
+      if (aSelected !== bSelected) return aSelected ? -1 : 1;
+      if (aSelected && bSelected) {
+        const ra = rank.get(String(a.variant_id));
+        const rb = rank.get(String(b.variant_id));
+        if (ra !== undefined && rb !== undefined) return ra - rb;
+        if (ra !== undefined) return -1;
+        if (rb !== undefined) return 1;
+      }
       if (b.product_id !== a.product_id) return b.product_id - a.product_id;
       return b.variant_id - a.variant_id;
     });
-  }, [filteredLookupItems]);
+  }, [filteredLookupItems, selectedVariantMap, scannedVariantOrder]);
 
   const lookupTotalCount = sortedLookupItems.length;
   const lookupTotalPages = Math.max(1, Math.ceil(lookupTotalCount / lookupItemsPerPage));
@@ -568,6 +581,7 @@ export default function OpeningStockPage() {
     setProductModalOpen(true);
     setProductModalError("");
     setSelectedVariantMap({});
+    setScannedVariantOrder([]);
     setBarcodeValue("");
     setBarcodeMessage("");
   }
@@ -576,6 +590,7 @@ export default function OpeningStockPage() {
     setProductModalOpen(false);
     setProductModalError("");
     setSelectedVariantMap({});
+    setScannedVariantOrder([]);
     setBarcodeValue("");
     setBarcodeMessage("");
   }
@@ -624,10 +639,12 @@ export default function OpeningStockPage() {
 
   const handleBarcodeSubmit = (value?: string) => {
     const barcode = String(value ?? barcodeValue).trim();
+    setBarcodeValue("");
     if (!barcode) return;
-    const match = lookupItems.find((item) => String(item.barcode || "") === barcode);
+    const match = findProductByBarcodeOrCode(lookupItems, barcode);
     if (!match) {
-      setBarcodeMessage(`Barcode "${barcode}" not found.`);
+      setBarcodeMessage("");
+      notify(`Product with barcode ${barcode} not found.`, { severity: "warning" });
       return;
     }
 
@@ -636,9 +653,10 @@ export default function OpeningStockPage() {
       return;
     }
 
-    // Select the product in the modal
-    setSelectedVariantMap((prev) => ({ ...prev, [String(match.variant_id)]: true }));
-    setBarcodeValue("");
+    // Select the product in the modal (never unselect if already selected)
+    const key = String(match.variant_id);
+    setSelectedVariantMap((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
+    setScannedVariantOrder((prev) => [key, ...prev.filter((id) => id !== key)]);
     setBarcodeMessage("");
     setProductModalError("");
 
@@ -651,14 +669,8 @@ export default function OpeningStockPage() {
         category: "",
         source: "",
       });
-      setLookupPage(1);
-    } else {
-      const index = sortedLookupItems.findIndex((item) => item.variant_id === match.variant_id);
-      if (index !== -1) {
-        const pageNum = Math.floor(index / lookupItemsPerPage) + 1;
-        setLookupPage(pageNum);
-      }
     }
+    setLookupPage(1);
 
     // Scroll the element into view
     setTimeout(() => {
@@ -1106,6 +1118,7 @@ export default function OpeningStockPage() {
         onAddSelected={addSelectedProducts}
         errorMessage={productModalError}
         items={lookupPaginatedItems}
+        allItems={lookupItems}
         loading={lookupLoading}
         filters={lookupFilters}
         onFiltersChange={(next) => {

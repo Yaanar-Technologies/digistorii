@@ -51,14 +51,20 @@ export default function UserResponsibilitiesPage() {
   const router = useRouter();
   const [items, setItems] = useState<Responsibility[]>([]);
   const [form, setForm] = useState<Responsibility>(getDefaultForm());
+  const [planAccess, setPlanAccess] = useState({ pos_access: true, ecommerce_access: true });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   const selectAllRef = useRef<HTMLInputElement>(null);
 
-  const allChecked = accessFields.every((field) => form[field.key]);
-  const someChecked = accessFields.some((field) => form[field.key]) && !allChecked;
+  const isFieldBlocked = (key: keyof Responsibility) =>
+    (key === "sales_billing_access" && !planAccess.pos_access) ||
+    (key === "ecommerce_access" && !planAccess.ecommerce_access);
+
+  const enabledFields = accessFields.filter((field) => !isFieldBlocked(field.key));
+  const allChecked = enabledFields.length > 0 && enabledFields.every((field) => form[field.key]);
+  const someChecked = enabledFields.some((field) => form[field.key]) && !allChecked;
 
   useEffect(() => {
     if (selectAllRef.current) {
@@ -69,7 +75,7 @@ export default function UserResponsibilitiesPage() {
   const handleSelectAll = () => {
     const nextValue = !allChecked;
     const updates: Partial<Responsibility> = {};
-    accessFields.forEach((field) => {
+    enabledFields.forEach((field) => {
       updates[field.key as keyof Responsibility] = nextValue as any;
     });
     setForm((prev) => ({ ...prev, ...updates }));
@@ -86,6 +92,12 @@ export default function UserResponsibilitiesPage() {
         throw new Error(data.message || "Failed to load responsibilities");
       }
       setItems(Array.isArray(data.data) ? data.data : []);
+      if (data.planAccess) {
+        setPlanAccess({
+          pos_access: data.planAccess.pos_access !== false,
+          ecommerce_access: Boolean(data.planAccess.ecommerce_access),
+        });
+      }
     } catch (err: any) {
       setError(err.message || "Failed to load responsibilities");
     } finally {
@@ -112,7 +124,7 @@ export default function UserResponsibilitiesPage() {
       return;
     }
 
-    const hasAtLeastOnePermission = accessFields.some((field) => form[field.key]);
+    const hasAtLeastOnePermission = enabledFields.some((field) => form[field.key]);
     if (!hasAtLeastOnePermission) {
       setError("At least one permission must be selected.");
       return;
@@ -197,19 +209,34 @@ export default function UserResponsibilitiesPage() {
             </label>
 
             <div className="grid grid-cols-2 gap-y-3 gap-x-4">
-              {accessFields.map((field) => (
-                <label key={String(field.key)} className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(form[field.key])}
-                    onChange={(e) =>
-                      setForm((prev) => ({ ...prev, [field.key]: e.target.checked }))
-                    }
-                    className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                  />
-                  {field.label}
-                </label>
-              ))}
+              {accessFields.map((field) => {
+                const blocked = isFieldBlocked(field.key);
+                return (
+                  <label
+                    key={String(field.key)}
+                    title={blocked ? "Not included in current subscription plan" : undefined}
+                    className={`inline-flex items-center gap-2 text-sm ${
+                      blocked ? "text-gray-400 cursor-not-allowed" : "text-gray-700 cursor-pointer"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      disabled={blocked}
+                      checked={!blocked && Boolean(form[field.key])}
+                      onChange={(e) =>
+                        setForm((prev) => ({ ...prev, [field.key]: e.target.checked }))
+                      }
+                      className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50"
+                    />
+                    <span>{field.label}</span>
+                    {blocked && (
+                      <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500">
+                        Plan locked
+                      </span>
+                    )}
+                  </label>
+                );
+              })}
             </div>
           </div>
 
@@ -240,7 +267,7 @@ export default function UserResponsibilitiesPage() {
                 <thead>
                   <tr className="border-b border-gray-200 text-left text-gray-600">
                     <th className="px-3 py-3 font-semibold">Profile Name</th>
-                    {accessFields.map((field) => (
+                    {enabledFields.map((field) => (
                       <th key={field.label} className="px-2 py-3 font-semibold text-center whitespace-nowrap">
                         {field.label}
                       </th>
@@ -252,7 +279,7 @@ export default function UserResponsibilitiesPage() {
                   {items.map((item) => (
                     <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50/50 transition-colors">
                       <td className="px-3 py-3 font-medium text-gray-900 whitespace-nowrap">{item.responsibility_name}</td>
-                      {accessFields.map((field) => (
+                      {enabledFields.map((field) => (
                         <td key={`${item.id}-${field.label}`} className="px-2 py-3 text-center">
                           {item[field.key] ? (
                             <svg className="h-5 w-5 text-green-500 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -278,7 +305,7 @@ export default function UserResponsibilitiesPage() {
                   ))}
                   {!items.length && (
                     <tr>
-                      <td colSpan={accessFields.length + 2} className="px-3 py-8 text-center text-gray-500">
+                      <td colSpan={enabledFields.length + 2} className="px-3 py-8 text-center text-gray-500">
                         No responsibilities found.
                       </td>
                     </tr>

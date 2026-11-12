@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { generateSalesNo } from "@/lib/document-number-generator";
 import { getTenantSchema } from "@/lib/tenant";
+import { requireStaff } from "@/lib/apiGuard";
 import { isFinalStatus, insertStockLedgerEntry } from "@/lib/stockLedger";
 import { allocateSalesStockFIFO } from "@/lib/stockAllocation";
 
@@ -215,6 +216,13 @@ export async function GET(req: NextRequest) {
   try {
 
     const { company, schema } = await getTenantSchema(req);
+    const guard = await requireStaff(req, company, {
+      permission: "sales_billing_access",
+      requirePos: true,
+    });
+    if (!guard.ok) {
+      return guard.response;
+    }
 
     const res = await pool.query(`
       SELECT
@@ -278,20 +286,15 @@ export async function POST(req: NextRequest) {
   const client = await pool.connect();
   try {
     const { company, schema } = await getTenantSchema(req);
-    const { userId, session } = await getUserIdFromCookie(req);
-    if (!userId || !session) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized" },
-        { status: 401 }
-      );
+    const guard = await requireStaff(req, company, {
+      permission: "sales_billing_access",
+      requirePos: true,
+    });
+    if (!guard.ok) {
+      return guard.response;
     }
 
-    if (session.company_name && session.company_name.trim().toLowerCase() !== company.trim().toLowerCase()) {
-      return NextResponse.json(
-        { success: false, error: "Forbidden: Company mismatch" },
-        { status: 403 }
-      );
-    }
+    const userId = Number(guard.staff.user_id ?? guard.staff.id);
 
     // Get warehouse_id from user context (company_user_map), not from user_settings
     const warehouseId = await getWarehouseFromCookie(req);

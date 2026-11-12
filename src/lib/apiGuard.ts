@@ -20,7 +20,7 @@ function deny(status: 401 | 403 | 404, error: string): StaffGuardResult {
 export async function requireStaff(
   req: NextRequest,
   company: string,
-  options: { permission?: ResponsibilityAccessKey; requireEcom?: boolean } = {}
+  options: { permission?: ResponsibilityAccessKey; requireEcom?: boolean; requirePos?: boolean } = {}
 ): Promise<StaffGuardResult> {
   const slug = String(company || "").trim().toLowerCase();
   const staff = await verifySession<StaffSessionPayload>(
@@ -45,14 +45,18 @@ export async function requireStaff(
     return deny(403, "Forbidden: company mismatch.");
   }
 
-  if (options.requireEcom) {
+  if (options.requireEcom || options.requirePos) {
     const sub = await pool.query(
-      `SELECT ecommerce_access FROM public.company_subscriptions
+      `SELECT ecommerce_access, COALESCE(pos_access, TRUE) AS pos_access
+       FROM public.company_subscriptions
        WHERE company_id = $1 ORDER BY updated_at DESC, id DESC LIMIT 1`,
       [companyId]
     );
-    if (!sub.rows[0]?.ecommerce_access) {
+    if (options.requireEcom && !sub.rows[0]?.ecommerce_access) {
       return deny(403, "Forbidden: your plan does not include e-commerce.");
+    }
+    if (options.requirePos && sub.rows[0]?.pos_access === false) {
+      return deny(403, "Forbidden: your plan does not include POS.");
     }
   }
 

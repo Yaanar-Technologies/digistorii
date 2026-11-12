@@ -7,6 +7,9 @@ import { useTenant } from "@/context/TenantContext";
 import { apiFetch } from "@/lib/apiFetch";
 import { usePagination } from "@/hooks/usePagination";
 import { useNotify } from "@/hooks/useNotify";
+import { useProductLookup } from "@/hooks/useProductLookup";
+import ProductLookupModal from "@/components/product/ProductLookupModal";
+import type { ProductLookupItem } from "@/lib/product-lookup";
 import { CategoryNode, flattenCategories } from "../products/components/category-utils";
 
 type MaterialOption = {
@@ -33,7 +36,21 @@ type ImageRow = {
   material_label: string | null;
   uom_label: string | null;
   status: "linked" | "unlinked" | "untagged";
+  is_linked?: boolean;
   linked_sku: string | null;
+};
+
+type AutoMatchItem = {
+  image_id: number;
+  filename: string;
+  file_path: string;
+  product_id: number;
+  variant_id: number;
+  sku: string;
+  barcode: string | null;
+  product_name: string;
+  match_type: string;
+  match_value: string;
 };
 
 type Summary = {
@@ -112,7 +129,8 @@ export default function ImageMasterV2Page() {
   const [uoms, setUoms] = useState<UomOption[]>([]);
 
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [stageFilter, setStageFilter] = useState<"all" | "tagged" | "untagged">("all");
+  const [stateFilter, setStateFilter] = useState<"all" | "linked" | "unlinked">("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [materialFilter, setMaterialFilter] = useState("all");
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -120,8 +138,26 @@ export default function ImageMasterV2Page() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [templateReviewOpen, setTemplateReviewOpen] = useState(false);
+  const [templateMode, setTemplateMode] = useState<"link" | "create">("link");
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importLoading, setImportLoading] = useState(false);
+
+  const [linkModalOpen, setLinkModalOpen] = useState(false);
+  const [linkTargetImageIds, setLinkTargetImageIds] = useState<number[]>([]);
+  const [selectedProductItem, setSelectedProductItem] = useState<ProductLookupItem | null>(null);
+  const [linking, setLinking] = useState(false);
+
+  const [autoMatchOpen, setAutoMatchOpen] = useState(false);
+  const [autoMatchLoading, setAutoMatchLoading] = useState(false);
+  const [autoMatchConfirming, setAutoMatchConfirming] = useState(false);
+  const [autoMatches, setAutoMatches] = useState<AutoMatchItem[]>([]);
+  const [autoMatchUnmatched, setAutoMatchUnmatched] = useState(0);
+  const [selectedAutoMatchIds, setSelectedAutoMatchIds] = useState<Set<number>>(new Set());
+
+  const productLookup = useProductLookup({
+    enabled: linkModalOpen,
+    itemsPerPage: 10,
+  });
 
   const [bulkCategory, setBulkCategory] = useState("");
   const [bulkMaterial, setBulkMaterial] = useState("");
@@ -173,12 +209,18 @@ export default function ImageMasterV2Page() {
 
       if (!matchesSearch) return false;
 
-      if (statusFilter !== "all") {
-      if (statusFilter === "tagged" && row.status === "untagged") return false;
-      if (statusFilter === "untagged" && row.status !== "untagged") return false;
-      if (statusFilter === "linked" && row.status !== "linked") return false;
-      if (statusFilter === "unlinked" && row.status !== "unlinked") return false;
-    }
+      const isTagged =
+        row.category_id != null &&
+        row.material_id != null &&
+        row.uom_id != null &&
+        row.source != null;
+      const isLinked = Boolean(row.is_linked ?? row.status === "linked");
+
+      if (stageFilter === "tagged" && !isTagged) return false;
+      if (stageFilter === "untagged" && isTagged) return false;
+
+      if (stateFilter === "linked" && !isLinked) return false;
+      if (stateFilter === "unlinked" && isLinked) return false;
 
     // Category filter
     if (categoryFilter !== "all") {
@@ -192,7 +234,7 @@ export default function ImageMasterV2Page() {
     }
       return true;
     });
-  }, [rows, search, statusFilter, categoryFilter, materialFilter, selectedCategoryLabel, selectedMaterialLabel]);
+  }, [rows, search, stageFilter, stateFilter, categoryFilter, materialFilter, selectedCategoryLabel, selectedMaterialLabel]);
 
   const sortedRows = useMemo(() => filteredRows, [filteredRows]);
 
@@ -212,7 +254,7 @@ export default function ImageMasterV2Page() {
   } = usePagination({
     data: sortedRows,
     initialItemsPerPage: 10,
-    resetDeps: [search, statusFilter],
+    resetDeps: [search, stageFilter, stateFilter, categoryFilter, materialFilter],
   });
 
   useEffect(() => {
@@ -388,7 +430,119 @@ export default function ImageMasterV2Page() {
     }
   }
 
-  async function downloadTemplate(scope: "all" | "tagged" | "selected") {
+  function openLinkModal(imageIds: number[]) {
+    if (!imageIds.length) {
+      notify("Select at least one image to link.", { severity: "warning" });
+      return;
+    }
+    setLinkTargetImageIds(imageIds);
+    setSelectedProductItem(null);
+    productLookup.resetFilters();
+    setLinkModalOpen(true);
+  }
+
+  async function handleConfirmLink() {
+    if (!company || !selectedProductItem || linkTargetImageIds.length === 0) {
+      notify("Select a product variant to link.", { severity: "warning" });
+      return;
+    }
+    setLinking(true);
+    try {
+      const res = await apiFetch("/api/image-master-v2/link", company, {
+        method: "POST",
+        body: JSON.stringify({
+          image_ids: linkTargetImageIds,
+          product_id: selectedProductItem.product_id,
+          variant_id: selectedProductItem.variant_id,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.message || "Failed to link images");
+      }
+      setLinkModalOpen(false);
+      setSelectedProductItem(null);
+      setLinkTargetImageIds([]);
+      setSelectedIds(new Set());
+      await refreshImageMaster();
+      notify(
+        `Linked ${data.linked_count ?? linkTargetImageIds.length} image(s) to ${selectedProductItem.sku}.`,
+        { severity: "success" }
+      );
+    } catch (error: any) {
+      notify(error.message || "Failed to link images.", { severity: "error" });
+    } finally {
+      setLinking(false);
+    }
+  }
+
+  async function handlePreviewAutoMatch() {
+    if (!company) return;
+    setAutoMatchLoading(true);
+    try {
+      const query =
+        selectedIds.size > 0
+          ? `?action=auto-match&image_ids=${Array.from(selectedIds).join(",")}`
+          : "?action=auto-match";
+      const res = await apiFetch(`/api/image-master-v2/link${query}`, company);
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.message || "Failed to preview auto-matches");
+      }
+      const matches: AutoMatchItem[] = Array.isArray(data.matches) ? data.matches : [];
+      setAutoMatches(matches);
+      setAutoMatchUnmatched(Number(data.unmatched_count || 0));
+      setSelectedAutoMatchIds(new Set(matches.map((m) => m.image_id)));
+      setAutoMatchOpen(true);
+    } catch (error: any) {
+      notify(error.message || "Failed to auto-match images.", { severity: "error" });
+    } finally {
+      setAutoMatchLoading(false);
+    }
+  }
+
+  async function handleConfirmAutoMatch() {
+    if (!company) return;
+    const chosen = autoMatches.filter((m) => selectedAutoMatchIds.has(m.image_id));
+    if (!chosen.length) {
+      notify("Select at least one match to link.", { severity: "warning" });
+      return;
+    }
+    setAutoMatchConfirming(true);
+    try {
+      const res = await apiFetch("/api/image-master-v2/link", company, {
+        method: "POST",
+        body: JSON.stringify({
+          matches: chosen.map((m) => ({
+            image_id: m.image_id,
+            product_id: m.product_id,
+            variant_id: m.variant_id,
+          })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.message || "Failed to link auto-matched images");
+      }
+      setAutoMatchOpen(false);
+      setAutoMatches([]);
+      setSelectedAutoMatchIds(new Set());
+      setSelectedIds(new Set());
+      await refreshImageMaster();
+      notify(`Linked ${data.linked_count ?? chosen.length} image(s) to existing products.`, {
+        severity: "success",
+      });
+    } catch (error: any) {
+      notify(error.message || "Failed to link auto-matched images.", { severity: "error" });
+    } finally {
+      setAutoMatchConfirming(false);
+    }
+  }
+
+  async function downloadTemplate(
+    scope: "all" | "tagged" | "selected",
+    mode: "create" | "link" = "create"
+  ) {
     if (!company) return;
     setMessage("");
     try {
@@ -402,10 +556,14 @@ export default function ImageMasterV2Page() {
           ? await apiFetch("/api/image-master-v2/template", company, {
               method: "POST",
               body: JSON.stringify({
+                mode,
                 image_ids: Array.from(selectedIds),
               }),
             })
-          : await apiFetch(`/api/image-master-v2/template?scope=${scope}`, company);
+          : await apiFetch(
+              `/api/image-master-v2/template?scope=${scope}&mode=${mode}`,
+              company
+            );
 
       if (!res.ok) {
         const data = await res.json().catch(() => null);
@@ -416,7 +574,10 @@ export default function ImageMasterV2Page() {
       const objectUrl = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = objectUrl;
-      link.download = "image-master-template.xlsx";
+      link.download =
+        mode === "link"
+          ? "image-master-link-template.xlsx"
+          : "image-master-template.xlsx";
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -450,8 +611,10 @@ export default function ImageMasterV2Page() {
       return;
     }
       const warningCount = Array.isArray(data?.warnings) ? data.warnings.length : 0;
+      const linkedCount = Number(data?.linked_images || 0);
+      const createdCount = Number(data?.inserted_products || 0);
 
-      const message = `Imported ${data.inserted_products} products and ${data.inserted_variants} variants`;
+      const message = `Linked ${linkedCount} image${linkedCount === 1 ? "" : "s"} to existing products and created ${createdCount} new product${createdCount === 1 ? "" : "s"}`;
 
       if (warningCount > 0) {
         notify(`${message} with ${warningCount} warning${warningCount > 1 ? "s" : ""}`, {
@@ -495,6 +658,21 @@ export default function ImageMasterV2Page() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {selectedCount > 0 ? (
+            <button
+              onClick={() => openLinkModal(Array.from(selectedIds))}
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+            >
+              Link to Existing Product ({selectedCount})
+            </button>
+          ) : null}
+          <button
+            onClick={handlePreviewAutoMatch}
+            disabled={autoMatchLoading}
+            className="rounded-lg border border-indigo-300 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+          >
+            {autoMatchLoading ? "Matching..." : "Auto-Match by SKU"}
+          </button>
           <button
             onClick={() => setUploadOpen(true)}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
@@ -564,7 +742,7 @@ export default function ImageMasterV2Page() {
       ) : null}
 
       <div className="rounded-xl border border-gray-200 bg-white p-5">
-  <div className="grid gap-3 md:grid-cols-4">
+  <div className="grid gap-3 md:grid-cols-5">
     
     {/* Search */}
     <div className="relative">
@@ -577,19 +755,21 @@ export default function ImageMasterV2Page() {
       />
     </div>
 
-    {/* Status */}
+    {/* Stage */}
     <select
-      value={statusFilter}
-      onChange={(e) => setStatusFilter(e.target.value)}
+      value={stageFilter}
+      onChange={(e) => setStageFilter(e.target.value as "all" | "tagged" | "untagged")}
       className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
     >
       <option value="all">All Stage</option>
       <option value="tagged">Tagged</option>
       <option value="untagged">Untagged</option>
     </select>
+
+    {/* State */}
     <select
-      value={statusFilter}
-      onChange={(e) => setStatusFilter(e.target.value)}
+      value={stateFilter}
+      onChange={(e) => setStateFilter(e.target.value as "all" | "linked" | "unlinked")}
       className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
     >
       <option value="all">All State</option>
@@ -652,12 +832,13 @@ export default function ImageMasterV2Page() {
                   <th className="px-4 py-3 font-medium">Source</th>
                   <th className="px-4 py-3 font-medium">Status</th>
                   <th className="px-4 py-3 font-medium">Linked To (SKU)</th>
+                  <th className="px-4 py-3 font-medium text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {!loading && paginatedRows.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-4 py-6 text-gray-500">
+                    <td colSpan={10} className="px-4 py-6 text-gray-500">
                       No images found.
                     </td>
                   </tr>
@@ -705,6 +886,19 @@ export default function ImageMasterV2Page() {
                         </span>
                       </td>
                       <td className="px-4 py-3">{row.linked_sku || "-"}</td>
+                      <td className="px-4 py-3 text-right">
+                        {!(row.is_linked ?? row.status === "linked") ? (
+                          <button
+                            type="button"
+                            onClick={() => openLinkModal([row.id])}
+                            className="rounded-md border border-emerald-600 px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+                          >
+                            Link
+                          </button>
+                        ) : (
+                          <span className="text-xs text-gray-400">Linked</span>
+                        )}
+                      </td>
                     </tr>
                   ))
                 )}
@@ -986,7 +1180,7 @@ export default function ImageMasterV2Page() {
               <div>
                 <h3 className="text-lg font-semibold text-gray-900">Template Review</h3>
                 <p className="text-sm text-gray-500">
-                  Review tagging status before generating the template.
+                  Choose whether to link images to existing products or create new products.
                 </p>
               </div>
               <button
@@ -1000,33 +1194,234 @@ export default function ImageMasterV2Page() {
               <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
                 {summary.unlinked_tagged ?? 0} images tagged, {summary.unlinked_untagged ?? 0} untagged.
               </div>
-              <div className="grid gap-3">
+
+              <div className="grid grid-cols-2 gap-2 rounded-lg bg-gray-100 p-1">
                 <button
-                  onClick={async () => {
-                    await downloadTemplate("tagged");
-                    setTemplateReviewOpen(false);
-                  }}
-                  className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                  type="button"
+                  onClick={() => setTemplateMode("link")}
+                  className={`rounded-md px-3 py-2 text-xs font-semibold transition ${
+                    templateMode === "link"
+                      ? "bg-white text-emerald-700 shadow-sm"
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
                 >
-                  Generate template with tagged images only
+                  Option A: Link Existing
                 </button>
                 <button
-                  onClick={async () => {
-                    await downloadTemplate("all");
-                    setTemplateReviewOpen(false);
-                  }}
-                  className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                  type="button"
+                  onClick={() => setTemplateMode("create")}
+                  className={`rounded-md px-3 py-2 text-xs font-semibold transition ${
+                    templateMode === "create"
+                      ? "bg-white text-blue-700 shadow-sm"
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
                 >
-                  Generate template with all unlinked images
+                  Option B: Create New
+                </button>
+              </div>
+
+              {templateMode === "link" ? (
+                <div className="grid gap-3">
+                  <p className="text-xs text-gray-500">
+                    Generates an Excel sheet with unlinked images and a Target SKU dropdown (SKU - Product Name &amp; Barcode).
+                  </p>
+                  <button
+                    onClick={async () => {
+                      await downloadTemplate("all", "link");
+                      setTemplateReviewOpen(false);
+                    }}
+                    className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+                  >
+                    Download Link Template (All Unlinked)
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await downloadTemplate("tagged", "link");
+                      setTemplateReviewOpen(false);
+                    }}
+                    className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                  >
+                    Download Link Template (Tagged Only)
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await downloadTemplate("selected", "link");
+                      setTemplateReviewOpen(false);
+                    }}
+                    className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                  >
+                    Download Link Template (Selected Images)
+                  </button>
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  <button
+                    onClick={async () => {
+                      await downloadTemplate("tagged", "create");
+                      setTemplateReviewOpen(false);
+                    }}
+                    className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                  >
+                    Generate template with tagged images only
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await downloadTemplate("all", "create");
+                      setTemplateReviewOpen(false);
+                    }}
+                    className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                  >
+                    Generate template with all unlinked images
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await downloadTemplate("selected", "create");
+                      setTemplateReviewOpen(false);
+                    }}
+                    className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                  >
+                    Generate template with selected images
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <ProductLookupModal
+        open={linkModalOpen}
+        onClose={() => {
+          if (!linking) setLinkModalOpen(false);
+        }}
+        onAddSelected={handleConfirmLink}
+        items={productLookup.paginatedItems}
+        allItems={productLookup.items}
+        loading={productLookup.loading || linking}
+        filters={productLookup.filters}
+        onFiltersChange={productLookup.setFilters}
+        categoryOptions={productLookup.categoryOptions}
+        page={productLookup.page}
+        totalPages={productLookup.totalPages}
+        itemsPerPage={productLookup.itemsPerPage}
+        totalCount={productLookup.totalCount}
+        onPageChange={productLookup.setPage}
+        isSelected={(item) => selectedProductItem?.variant_id === item.variant_id}
+        onToggle={(item) => {
+          setSelectedProductItem((prev) =>
+            prev?.variant_id === item.variant_id ? null : item
+          );
+        }}
+        onToggleAll={() => {}}
+        selectedCount={selectedProductItem ? 1 : 0}
+        showBarcodeInput={true}
+        maxSelection={1}
+        title={`Link ${linkTargetImageIds.length} Image${linkTargetImageIds.length === 1 ? "" : "s"} to Existing Product`}
+      />
+
+      {autoMatchOpen ? (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-3xl rounded-xl bg-white shadow-xl flex flex-col max-h-[85vh]">
+            <div className="flex items-center justify-between border-b px-6 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Auto-Match by SKU / Barcode</h3>
+                <p className="text-sm text-gray-500">
+                  Found {autoMatches.length} match{autoMatches.length === 1 ? "" : "es"}
+                  {autoMatchUnmatched > 0 ? ` (${autoMatchUnmatched} unmatched)` : ""}.
+                </p>
+              </div>
+              <button
+                onClick={() => setAutoMatchOpen(false)}
+                disabled={autoMatchConfirming}
+                className="text-sm font-semibold text-gray-500 hover:text-gray-700"
+              >
+                Close
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              {autoMatches.length === 0 ? (
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-6 text-center text-sm text-gray-600">
+                  No unlinked image filenames matched any existing SKU or barcode.
+                </div>
+              ) : (
+                <table className="min-w-full text-left text-sm">
+                  <thead className="bg-gray-50 text-gray-600">
+                    <tr>
+                      <th className="px-3 py-2">
+                        <input
+                          type="checkbox"
+                          checked={
+                            autoMatches.length > 0 &&
+                            autoMatches.every((m) => selectedAutoMatchIds.has(m.image_id))
+                          }
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedAutoMatchIds(new Set(autoMatches.map((m) => m.image_id)));
+                            } else {
+                              setSelectedAutoMatchIds(new Set());
+                            }
+                          }}
+                        />
+                      </th>
+                      <th className="px-3 py-2 font-medium">Filename</th>
+                      <th className="px-3 py-2 font-medium">Matched SKU</th>
+                      <th className="px-3 py-2 font-medium">Product</th>
+                      <th className="px-3 py-2 font-medium">Match Type</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {autoMatches.map((match) => (
+                      <tr key={match.image_id} className="border-t border-gray-100">
+                        <td className="px-3 py-2">
+                          <input
+                            type="checkbox"
+                            checked={selectedAutoMatchIds.has(match.image_id)}
+                            onChange={(e) => {
+                              setSelectedAutoMatchIds((prev) => {
+                                const next = new Set(prev);
+                                if (e.target.checked) next.add(match.image_id);
+                                else next.delete(match.image_id);
+                                return next;
+                              });
+                            }}
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-gray-800">{match.filename}</td>
+                        <td className="px-3 py-2 font-mono text-xs text-gray-700">{match.sku}</td>
+                        <td className="px-3 py-2 text-gray-700">{match.product_name}</td>
+                        <td className="px-3 py-2">
+                          <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">
+                            {match.match_type}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div className="flex items-center justify-between border-t px-6 py-4">
+              <span className="text-sm text-gray-500">
+                Selected: {selectedAutoMatchIds.size} of {autoMatches.length}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAutoMatchOpen(false)}
+                  disabled={autoMatchConfirming}
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
                 </button>
                 <button
-                  onClick={async () => {
-                    await downloadTemplate("selected");
-                    setTemplateReviewOpen(false);
-                  }}
-                  className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                  type="button"
+                  onClick={handleConfirmAutoMatch}
+                  disabled={autoMatchConfirming || selectedAutoMatchIds.size === 0}
+                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-gray-300"
                 >
-                  Generate template with selected images
+                  {autoMatchConfirming
+                    ? "Linking..."
+                    : `Confirm & Link (${selectedAutoMatchIds.size})`}
                 </button>
               </div>
             </div>

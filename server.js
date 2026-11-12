@@ -26,7 +26,7 @@ app.prepare().then(async () => {
     if (process.env.ENABLE_CRON !== "false" && !global.cronInitialized) {
       global.cronInitialized = true;
       const cron = require("node-cron");
-      cron.schedule("*/5 * * * *", async () => {
+      cron.schedule("0 14 * * *", async () => {
         console.log("[NodeCron] Running scheduled cleanup tasks...");
         try {
           const { runAllCleanupTasks } = require("./src/lib/reservationCleanup");

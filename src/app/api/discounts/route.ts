@@ -10,6 +10,9 @@ type DiscountPayload = {
   coupon_code?: string | null;
   applies_to?: "specific_variants" | "entire_order";
   priority?: number | string;
+  min_order_value?: number | string;
+  total_usage_limit?: number | string | null;
+  per_customer_limit?: number | string | null;
   starts_at?: string | null;
   ends_at?: string | null;
   is_active?: boolean;
@@ -43,6 +46,10 @@ export async function GET(req: NextRequest) {
           d.coupon_code,
           d.applies_to,
           d.priority,
+          COALESCE(d.min_order_value, 0) AS min_order_value,
+          d.total_usage_limit,
+          d.per_customer_limit,
+          COALESCE(d.total_used_count, 0) AS total_used_count,
           d.starts_at,
           d.ends_at,
           d.is_active,
@@ -122,13 +129,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const minOrderValue = Math.max(0, toNumber(body.min_order_value, 0));
+    const totalUsageLimit = body.total_usage_limit != null && body.total_usage_limit !== "" ? Math.max(1, Math.floor(toNumber(body.total_usage_limit, 1))) : null;
+    const perCustomerLimit = body.per_customer_limit != null && body.per_customer_limit !== "" ? Math.max(1, Math.floor(toNumber(body.per_customer_limit, 1))) : null;
+
     await client.query("BEGIN");
     const insertRes = await client.query(
       `
         INSERT INTO "${schema}".discounts
-          (name, description, discount_type, value, coupon_code, applies_to, priority, starts_at, ends_at, is_active)
+          (name, description, discount_type, value, coupon_code, applies_to, priority, min_order_value, total_usage_limit, per_customer_limit, total_used_count, starts_at, ends_at, is_active)
         VALUES
-          ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, $11, $12, $13)
         RETURNING *
       `,
       [
@@ -139,6 +150,9 @@ export async function POST(req: NextRequest) {
         couponValue,
         resolvedAppliesTo,
         priority,
+        minOrderValue,
+        totalUsageLimit,
+        perCustomerLimit,
         startsAt,
         endsAt,
         body.is_active ?? true,

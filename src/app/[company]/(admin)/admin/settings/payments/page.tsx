@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
-import Link from "next/link";
 import {
   CreditCardIcon,
   CheckCircleIcon,
@@ -13,9 +12,12 @@ import {
   ShieldCheckIcon,
   InformationCircleIcon,
   ArrowPathIcon,
+  ClipboardDocumentIcon,
+  ClipboardDocumentCheckIcon,
+  GlobeAltIcon,
 } from "@heroicons/react/24/outline";
 
-export default function PaymentGatewaySettingsPage() {
+export default function AdminPaymentGatewaySettingsPage() {
   const params = useParams();
   const router = useRouter();
   const company = (params.company as string) || "";
@@ -24,8 +26,14 @@ export default function PaymentGatewaySettingsPage() {
   const [keySecret, setKeySecret] = useState("");
   const [webhookSecret, setWebhookSecret] = useState("");
   const [isActive, setIsActive] = useState(true);
+  const [isTestMode, setIsTestMode] = useState(true);
   const [hasExistingSecret, setHasExistingSecret] = useState(false);
+  const [hasExistingWebhook, setHasExistingWebhook] = useState(false);
   const [showSecret, setShowSecret] = useState(false);
+  const [showWebhookSecret, setShowWebhookSecret] = useState(false);
+
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [copiedUrl, setCopiedUrl] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -35,6 +43,10 @@ export default function PaymentGatewaySettingsPage() {
   } | null>(null);
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      setWebhookUrl(`${window.location.origin}/api/${company}/ecom/webhooks/razorpay`);
+    }
+
     const fetchConfig = async () => {
       if (!company) return;
       setLoading(true);
@@ -49,8 +61,14 @@ export default function PaymentGatewaySettingsPage() {
         if (res.ok && data.success && data.config) {
           setKeyId(data.config.key_id || "");
           setKeySecret(data.config.key_secret_masked || "");
-          setHasExistingSecret(data.config.has_secret);
+          setWebhookSecret(data.config.webhook_secret_masked || "");
+          setHasExistingSecret(Boolean(data.config.has_secret));
+          setHasExistingWebhook(Boolean(data.config.has_webhook_secret));
           setIsActive(data.config.is_active ?? true);
+          setIsTestMode(data.config.is_test_mode ?? true);
+          if (data.webhook_url) {
+            setWebhookUrl(data.webhook_url);
+          }
         }
       } catch (err: any) {
         console.error("Failed to load gateway config:", err);
@@ -65,6 +83,13 @@ export default function PaymentGatewaySettingsPage() {
 
     fetchConfig();
   }, [company]);
+
+  const handleCopyWebhookUrl = () => {
+    if (!webhookUrl) return;
+    navigator.clipboard.writeText(webhookUrl);
+    setCopiedUrl(true);
+    setTimeout(() => setCopiedUrl(false), 2500);
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -102,6 +127,7 @@ export default function PaymentGatewaySettingsPage() {
           key_secret: keySecret.trim(),
           webhook_secret: webhookSecret.trim() || undefined,
           is_active: isActive,
+          is_test_mode: isTestMode,
         }),
       });
 
@@ -110,9 +136,12 @@ export default function PaymentGatewaySettingsPage() {
       if (res.ok && data.success) {
         setFeedback({
           type: "success",
-          message: data.message || "Razorpay credentials saved successfully!",
+          message: data.message || "Razorpay credentials saved and encrypted successfully.",
         });
         setHasExistingSecret(true);
+        if (webhookSecret.trim()) {
+          setHasExistingWebhook(true);
+        }
       } else {
         setFeedback({
           type: "error",
@@ -138,7 +167,7 @@ export default function PaymentGatewaySettingsPage() {
           <div className="flex items-center gap-3">
             <button
               onClick={() => router.push(`/${company}/admin`)}
-              className="p-2 rounded-lg bg-white border border-gray-200 text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition shadow-xs"
+              className="p-2 rounded-xl bg-white border border-gray-200 text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition shadow-xs"
             >
               <ArrowLeftIcon className="w-5 h-5" />
             </button>
@@ -156,11 +185,17 @@ export default function PaymentGatewaySettingsPage() {
             <span
               className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${
                 isActive && hasExistingSecret
-                  ? "bg-green-100 text-green-800"
-                  : "bg-amber-100 text-amber-800"
+                  ? isTestMode
+                    ? "bg-amber-100 text-amber-800"
+                    : "bg-green-100 text-green-800"
+                  : "bg-gray-100 text-gray-700"
               }`}
             >
-              {isActive && hasExistingSecret ? "● Live / Active" : "○ Inactive / Incomplete"}
+              {isActive && hasExistingSecret
+                ? isTestMode
+                  ? "Test Mode (Sandbox)"
+                  : "Live Mode (Production)"
+                : "Inactive / Incomplete"}
             </span>
           </div>
         </div>
@@ -183,17 +218,58 @@ export default function PaymentGatewaySettingsPage() {
           </div>
         )}
 
+        {/* Webhook Endpoint Destination Box */}
+        <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-xs space-y-3">
+          <div className="flex items-center gap-2">
+            <GlobeAltIcon className="w-5 h-5 text-blue-600" />
+            <h2 className="text-sm font-bold text-gray-900 uppercase tracking-wider">
+              Webhook Destination URL
+            </h2>
+          </div>
+          <p className="text-xs text-gray-600 leading-relaxed">
+            Configure this destination URL in your{" "}
+            <span className="font-semibold text-gray-800">Razorpay Dashboard &gt; Settings &gt; Webhooks</span>.
+            Subscribe to <code className="bg-gray-100 px-1 py-0.5 rounded text-blue-600 font-mono text-2xs">payment.captured</code> and{" "}
+            <code className="bg-gray-100 px-1 py-0.5 rounded text-blue-600 font-mono text-2xs">payment.failed</code> to automatically advance orders to confirmed.
+          </p>
+
+          <div className="flex items-center gap-2 pt-1">
+            <input
+              type="text"
+              readOnly
+              value={webhookUrl}
+              className="flex-1 px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl font-mono text-xs text-gray-700 select-all"
+            />
+            <button
+              type="button"
+              onClick={handleCopyWebhookUrl}
+              className="px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition border border-blue-200"
+            >
+              {copiedUrl ? (
+                <>
+                  <ClipboardDocumentCheckIcon className="w-4 h-4 text-green-600" />
+                  Copied
+                </>
+              ) : (
+                <>
+                  <ClipboardDocumentIcon className="w-4 h-4" />
+                  Copy URL
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
         {/* Main Settings Card */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-          {/* Informational Guidance Box */}
           <div className="bg-blue-50/70 border-b border-blue-100 p-5 sm:p-6 flex items-start gap-4">
             <InformationCircleIcon className="w-6 h-6 text-blue-600 shrink-0 mt-0.5" />
             <div className="text-sm text-blue-900 space-y-1">
               <p className="font-semibold text-blue-950">Direct Merchant Account Settlement</p>
               <p className="text-blue-800/90 leading-relaxed">
                 Enter your Razorpay API Keys from your Razorpay Dashboard (
-                <span className="font-semibold text-blue-950">Settings ➔ API Keys</span>).
-                Customer payments for your store will be credited directly to your connected Razorpay bank account.
+                <span className="font-semibold text-blue-950">Settings &gt; API Keys</span>).
+                Customer payments will be settled directly into your connected Razorpay merchant bank account.
               </p>
             </div>
           </div>
@@ -205,6 +281,40 @@ export default function PaymentGatewaySettingsPage() {
             </div>
           ) : (
             <form onSubmit={handleSave} className="p-6 sm:p-8 space-y-6">
+              {/* Environment Toggle: Test vs Live */}
+              <div className="p-4 rounded-xl border border-gray-200 bg-gray-50 flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-900">Gateway Environment</h4>
+                  <p className="text-xs text-gray-500">
+                    Switch between Razorpay Test Sandbox and Live Production mode.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 bg-white p-1 rounded-xl border border-gray-200">
+                  <button
+                    type="button"
+                    onClick={() => setIsTestMode(true)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                      isTestMode
+                        ? "bg-amber-100 text-amber-900 shadow-xs"
+                        : "text-gray-600 hover:text-gray-900"
+                    }`}
+                  >
+                    Test Mode
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsTestMode(false)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                      !isTestMode
+                        ? "bg-green-100 text-green-900 shadow-xs"
+                        : "text-gray-600 hover:text-gray-900"
+                    }`}
+                  >
+                    Live Mode
+                  </button>
+                </div>
+              </div>
+
               {/* Razorpay Key ID */}
               <div>
                 <label
@@ -213,19 +323,17 @@ export default function PaymentGatewaySettingsPage() {
                 >
                   Razorpay Key ID <span className="text-red-500">*</span>
                 </label>
-                <div className="relative rounded-xl shadow-xs">
-                  <input
-                    type="text"
-                    id="key_id"
-                    value={keyId}
-                    onChange={(e) => setKeyId(e.target.value)}
-                    placeholder="rzp_live_xxxxxxxxxxxxxx or rzp_test_xxxxxxxxxxxxxx"
-                    className="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm font-mono text-gray-900 bg-white placeholder-gray-400 transition"
-                    required
-                  />
-                </div>
+                <input
+                  type="text"
+                  id="key_id"
+                  value={keyId}
+                  onChange={(e) => setKeyId(e.target.value)}
+                  placeholder="rzp_live_xxxxxxxxxxxxxx or rzp_test_xxxxxxxxxxxxxx"
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm font-mono text-gray-900 bg-white placeholder-gray-400 transition"
+                  required
+                />
                 <p className="mt-1.5 text-xs text-gray-500">
-                  Your public Key ID used on the storefront client to open the Razorpay payment modal.
+                  Public identifier passed to the storefront Razorpay Checkout modal.
                 </p>
               </div>
 
@@ -265,6 +373,40 @@ export default function PaymentGatewaySettingsPage() {
                     Your key secret is encrypted with AES-256-GCM at rest and never exposed to the frontend browser.
                   </span>
                 </div>
+              </div>
+
+              {/* Razorpay Webhook Secret */}
+              <div>
+                <label
+                  htmlFor="webhook_secret"
+                  className="block text-sm font-semibold text-gray-800 mb-1"
+                >
+                  Razorpay Webhook Secret
+                </label>
+                <div className="relative rounded-xl shadow-xs">
+                  <input
+                    type={showWebhookSecret ? "text" : "password"}
+                    id="webhook_secret"
+                    value={webhookSecret}
+                    onChange={(e) => setWebhookSecret(e.target.value)}
+                    placeholder={hasExistingWebhook ? "••••••••••••••••" : "Enter webhook secret entered in Razorpay"}
+                    className="w-full pl-4 pr-11 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm font-mono text-gray-900 bg-white placeholder-gray-400 transition"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowWebhookSecret(!showWebhookSecret)}
+                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-gray-400 hover:text-gray-600 focus:outline-none"
+                  >
+                    {showWebhookSecret ? (
+                      <EyeSlashIcon className="w-5 h-5" />
+                    ) : (
+                      <EyeIcon className="w-5 h-5" />
+                    )}
+                  </button>
+                </div>
+                <p className="mt-1.5 text-xs text-gray-500">
+                  Used by our server to verify the cryptographic HMAC signature of inbound webhooks.
+                </p>
               </div>
 
               {/* Active Gateway Toggle */}

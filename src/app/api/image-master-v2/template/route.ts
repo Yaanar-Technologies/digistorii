@@ -7,6 +7,7 @@ export const runtime = "nodejs";
 
 type TemplateRow = {
   id: number;
+  filename: string;
   file_path: string;
   category_label: string | null;
   material_label: string | null;
@@ -15,11 +16,13 @@ type TemplateRow = {
 };
 
 type TemplateMode = "all" | "tagged" | "selected";
+type TemplatePurpose = "create" | "link";
 
 async function generateTemplate(
   req: NextRequest,
   mode: TemplateMode,
-  imageIds: number[] = []
+  imageIds: number[] = [],
+  purpose: TemplatePurpose = "create"
 ) {
   const client = await pool.connect();
   try {
@@ -67,6 +70,7 @@ async function generateTemplate(
     `
       SELECT
         im.id,
+        im.filename,
         im.file_path,
         COALESCE(c.path_string, c.category_name) AS category_label,
         CASE
@@ -89,6 +93,112 @@ async function generateTemplate(
     `,
     params
   );
+
+    if (purpose === "link") {
+      const variantsRes = await client.query<{
+        sku: string;
+        barcode: string | null;
+        product_name: string;
+      }>(
+        `
+          SELECT
+            pv.sku,
+            pv.barcode,
+            p.name AS product_name
+          FROM "${schema}".product_variants pv
+          JOIN "${schema}".products p ON p.id = pv.product_id
+          ORDER BY pv.sku ASC
+        `
+      );
+
+      const targetSkuOptions = variantsRes.rows
+        .map((row) => {
+          const sku = String(row.sku || "").trim();
+          const name = String(row.product_name || "").trim();
+          const barcode = String(row.barcode || "").trim();
+          if (!sku) return "";
+          return barcode ? `${sku} - ${name} [${barcode}]` : `${sku} - ${name}`;
+        })
+        .filter(Boolean);
+
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet("Link Existing Products");
+      const listsSheet = workbook.addWorksheet("_lists", { state: "hidden" });
+
+      listsSheet.getCell(1, 1).value = "TargetSKUs";
+      targetSkuOptions.forEach((value, index) => {
+        listsSheet.getCell(index + 2, 1).value = value;
+      });
+
+      worksheet.columns = [
+        { header: "Image_id", key: "image_id", width: 12 },
+        { header: "Filename", key: "filename", width: 32 },
+        { header: "Image_url", key: "image_url", width: 45 },
+        { header: "Tag_info", key: "tag_info", width: 42 },
+        { header: "Target SKU", key: "target_sku", width: 48 },
+      ];
+
+      const headerRow = worksheet.getRow(1);
+      headerRow.font = { bold: true };
+      headerRow.alignment = { vertical: "middle", horizontal: "center" };
+      headerRow.eachCell((cell) => {
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFEFF6FF" },
+        };
+        cell.border = {
+          top: { style: "thin" },
+          left: { style: "thin" },
+          bottom: { style: "thin" },
+          right: { style: "thin" },
+        };
+      });
+
+      imagesRes.rows.forEach((row) => {
+        const tagInfo = [
+          row.category_label,
+          row.material_label,
+          row.uom_label,
+          row.source,
+        ]
+          .filter(Boolean)
+          .join(" | ");
+        worksheet.addRow({
+          image_id: row.id,
+          filename: row.filename,
+          image_url: row.file_path,
+          tag_info: tagInfo,
+          target_sku: "",
+        });
+      });
+
+      if (targetSkuOptions.length > 0) {
+        const dataRows = Math.max(worksheet.rowCount, 2);
+        const lastListRow = targetSkuOptions.length + 1;
+        const targetCol = worksheet.getColumn("target_sku");
+        const range = `${targetCol.letter}2:${targetCol.letter}${dataRows}`;
+        (worksheet as any).dataValidations.add(range, {
+          type: "list",
+          allowBlank: true,
+          formulae: [`'_lists'!$A$2:$A$${lastListRow}`],
+          showErrorMessage: true,
+          errorTitle: "Invalid Target SKU",
+          error: "Please select an existing SKU from the dropdown list.",
+        });
+      }
+
+      const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+      return new NextResponse(buffer, {
+        status: 200,
+        headers: {
+          "Content-Type":
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "Content-Disposition": 'attachment; filename="image-master-link-template.xlsx"',
+          "Cache-Control": "no-store",
+        },
+      });
+    }
 
     const [categoriesRes, materialsRes, uomsRes, colorsRes, fittingsRes] = await Promise.all([
       client.query(
@@ -303,13 +413,16 @@ async function generateTemplate(
 export async function GET(req: NextRequest) {
   const scope = String(req.nextUrl.searchParams.get("scope") || "all").toLowerCase();
   const mode: TemplateMode = scope === "tagged" ? "tagged" : "all";
-  console.log(`Generating template with scope: ${mode}`);
-  return generateTemplate(req, mode);
+  const purpose: TemplatePurpose =
+    req.nextUrl.searchParams.get("mode") === "link" ? "link" : "create";
+  console.log(`Generating template with scope: ${mode}, purpose: ${purpose}`);
+  return generateTemplate(req, mode, [], purpose);
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => null);
+    const purpose: TemplatePurpose = body?.mode === "link" ? "link" : "create";
     const rawIds = Array.isArray(body?.image_ids) ? body.image_ids : [];
     const imageIds: number[] = Array.from(
       new Set<number>(
@@ -327,7 +440,7 @@ export async function POST(req: NextRequest) {
     }
     console.log(`Received request to generate template for ${imageIds.length} image IDs`);
     console.log("Generating template for image IDs:", imageIds);
-    return generateTemplate(req, "selected", imageIds);
+    return generateTemplate(req, "selected", imageIds, purpose);
   } catch (error: any) {
     return NextResponse.json(
       { message: error.message || "Failed to generate template" },

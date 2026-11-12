@@ -237,10 +237,41 @@ export async function ensureResponsibilitySchema(client: PoolClient) {
   `);
 }
 
+export type PlanAccessFlags = {
+  pos_access: boolean;
+  ecommerce_access: boolean;
+};
+
+export async function getCompanyPlanAccess(
+  client: PoolClient,
+  companyId: number
+): Promise<PlanAccessFlags> {
+  const res = await client.query(
+    `SELECT ecommerce_access, COALESCE(pos_access, TRUE) AS pos_access
+     FROM public.company_subscriptions
+     WHERE company_id = $1
+     ORDER BY updated_at DESC, id DESC
+     LIMIT 1`,
+    [companyId]
+  );
+  return {
+    pos_access: res.rows[0]?.pos_access !== false,
+    ecommerce_access: Boolean(res.rows[0]?.ecommerce_access),
+  };
+}
+
 export async function seedDefaultResponsibilities(client: PoolClient, companyId: number) {
   await ensureResponsibilitySchema(client);
+  const planAccess = await getCompanyPlanAccess(client, companyId);
 
   for (const responsibility of DEFAULT_RESPONSIBILITIES) {
+    const salesBillingAccess = planAccess.pos_access
+      ? responsibility.sales_billing_access
+      : false;
+    const ecommerceAccess = planAccess.ecommerce_access
+      ? responsibility.ecommerce_access
+      : false;
+
     await client.query(
       `INSERT INTO public.user_responsibilities
        (
@@ -257,10 +288,10 @@ export async function seedDefaultResponsibilities(client: PoolClient, companyId:
         responsibility.purchase_access,
         responsibility.inventory_access,
         responsibility.sales_access,
-        responsibility.sales_billing_access,
+        salesBillingAccess,
         responsibility.reports_access,
         responsibility.settings_access,
-        responsibility.ecommerce_access,
+        ecommerceAccess,
         responsibility.is_system,
       ]
     );

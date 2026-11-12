@@ -44,10 +44,29 @@ type ParsedParent = {
   variants: ParsedVariant[];
 };
 
+type VariantTarget = {
+  variantId: number;
+  productId: number;
+  sku: string;
+  barcode: string | null;
+};
+
+type ParsedLinkRow = {
+  row: number;
+  targetSkuRaw: string;
+  productId: number;
+  variantId: number;
+  sku: string;
+  imageIds: number[];
+  imageUrls: string[];
+};
+
 type Lookups = {
   categoryByLabel: Map<string, string>;
   materialByLabel: Map<string, string>;
   uomByLabel: Map<string, string>;
+  variantBySku: Map<string, VariantTarget>;
+  variantByBarcode: Map<string, VariantTarget>;
 };
 
 function normalizeHeader(value: string): string {
@@ -166,7 +185,70 @@ async function loadLookups(client: PoolClient, schema: string): Promise<Lookups>
     uomByLabel.set(normalizeLookupKey(idText), idText);
   });
 
-  return { categoryByLabel, materialByLabel, uomByLabel };
+  const variantRows = await client.query<{
+    id: number;
+    product_id: number;
+    sku: string;
+    barcode: string | null;
+  }>(
+    `
+      SELECT id, product_id, sku, barcode
+      FROM "${schema}".product_variants
+    `
+  );
+  const variantBySku = new Map<string, VariantTarget>();
+  const variantByBarcode = new Map<string, VariantTarget>();
+  variantRows.rows.forEach((row) => {
+    const target: VariantTarget = {
+      variantId: Number(row.id),
+      productId: Number(row.product_id),
+      sku: String(row.sku || "").trim(),
+      barcode: row.barcode ? String(row.barcode).trim() : null,
+    };
+    if (target.sku) {
+      variantBySku.set(normalizeLookupKey(target.sku), target);
+    }
+    if (target.barcode) {
+      variantByBarcode.set(normalizeLookupKey(target.barcode), target);
+    }
+  });
+
+  return {
+    categoryByLabel,
+    materialByLabel,
+    uomByLabel,
+    variantBySku,
+    variantByBarcode,
+  };
+}
+
+function resolveTargetVariant(rawValue: string, lookups: Lookups): VariantTarget | null {
+  const trimmed = rawValue.trim();
+  if (!trimmed) return null;
+
+  const directSku = lookups.variantBySku.get(normalizeLookupKey(trimmed));
+  if (directSku) return directSku;
+
+  const directBarcode = lookups.variantByBarcode.get(normalizeLookupKey(trimmed));
+  if (directBarcode) return directBarcode;
+
+  if (trimmed.includes(" - ")) {
+    const skuPart = trimmed.split(" - ")[0]?.trim() || "";
+    if (skuPart) {
+      const byPrefixSku = lookups.variantBySku.get(normalizeLookupKey(skuPart));
+      if (byPrefixSku) return byPrefixSku;
+    }
+  }
+
+  const bracketMatch = trimmed.match(/\[([^\]]+)\]\s*$/);
+  if (bracketMatch?.[1]) {
+    const byBracketBarcode = lookups.variantByBarcode.get(
+      normalizeLookupKey(bracketMatch[1])
+    );
+    if (byBracketBarcode) return byBracketBarcode;
+  }
+
+  return null;
 }
 
 function resolveLookupStrict(
@@ -212,6 +294,7 @@ async function parseSheet(buffer: Buffer, lookups: Lookups) {
     return {
       parents: [],
       orphanVariants: [],
+      linkRows: [] as ParsedLinkRow[],
       errors: ["Template has no data rows."],
       warnings: [],
     };
@@ -243,26 +326,35 @@ async function parseSheet(buffer: Buffer, lookups: Lookups) {
   ];
   const actualHeaders = Object.keys(rows[0]).map(normalizeHeader);
 
-const expectedHeaders = requiredHeaders.map(normalizeHeader);
+  const expectedHeaders = requiredHeaders.map(normalizeHeader);
 
-const missingHeaders = expectedHeaders.filter(
-  (h) => !actualHeaders.includes(h)
-);
+  const missingHeaders = expectedHeaders.filter(
+    (h) => !actualHeaders.includes(h)
+  );
 
-if (missingHeaders.length > 0) {
-  return {
-    parents: [],
-    orphanVariants: [],
-    errors: [`Invalid template. Missing headers: ${missingHeaders.join(", ")}`],
-    warnings: [],
-  };
-}
+  const hasTargetSkuHeader =
+    actualHeaders.includes("targetsku") || actualHeaders.includes("target_sku");
+  const hasImageRefHeader =
+    actualHeaders.includes("imageid") || actualHeaders.includes("imageurl");
+  const isLinkTemplateOnly =
+    hasTargetSkuHeader && hasImageRefHeader && missingHeaders.length > 0;
+
+  if (missingHeaders.length > 0 && !isLinkTemplateOnly) {
+    return {
+      parents: [],
+      orphanVariants: [],
+      linkRows: [] as ParsedLinkRow[],
+      errors: [`Invalid template. Missing headers: ${missingHeaders.join(", ")}`],
+      warnings: [],
+    };
+  }
 
   const isRowEmpty = (row: Record<string, unknown>) =>
-    requiredHeaders.every((header) => !cell(row, header));
+    [...requiredHeaders, "target sku", "action"].every((header) => !cell(row, header));
 
   const parents = new Map<string, ParsedParent>();
   const orphanVariants: ParsedVariant[] = [];
+  const linkRows: ParsedLinkRow[] = [];
   const errors: string[] = [];
   const warnings: string[] = [];
   const strictErrors: string[] = [];
@@ -278,11 +370,51 @@ if (missingHeaders.length > 0) {
 
     const imageIdRaw = cell(row, "image_id");
     const imageUrlRaw = cell(row, "image_url");
+    const targetSkuRaw = cell(row, "target sku") || cell(row, "target_sku");
+    const actionRaw = cell(row, "action");
+    const skuRaw = cell(row, "sku");
+
+    const isLinkRow =
+      Boolean(targetSkuRaw) || actionRaw.trim().toUpperCase() === "LINK";
+
+    if (isLinkRow) {
+      const lookupRaw = targetSkuRaw || skuRaw;
+      if (!lookupRaw) {
+        errors.push(`Row ${rowNumber}: Target SKU is required for LINK rows.`);
+        return;
+      }
+      const target = resolveTargetVariant(lookupRaw, lookups);
+      if (!target) {
+        errors.push(`Row ${rowNumber}: Target SKU "${lookupRaw}" not found.`);
+        return;
+      }
+      const linkImageUrls = splitImageUrls(imageUrlRaw);
+      const linkImageIds = splitImageIds(imageIdRaw);
+      if (linkImageIds.length === 0 && linkImageUrls.length === 0) {
+        errors.push(`Row ${rowNumber}: Image ID or Image URL is required to link.`);
+        return;
+      }
+      linkRows.push({
+        row: rowNumber,
+        targetSkuRaw: lookupRaw,
+        productId: target.productId,
+        variantId: target.variantId,
+        sku: target.sku,
+        imageIds: linkImageIds,
+        imageUrls: linkImageUrls,
+      });
+      return;
+    }
+
+    if (isLinkTemplateOnly) {
+      warnings.push(`Row ${rowNumber}: Skipped (no Target SKU selected).`);
+      return;
+    }
+
     const categoryRaw = cell(row, "category");
     const materialRaw = cell(row, "material");
     const uomRaw = cell(row, "uom");
     const sourceRaw = cell(row, "source");
-    const skuRaw = cell(row, "sku");
     const nameRaw = cell(row, "product_name");
     const description = cell(row, "description");
     const hsn = cell(row, "hsn");
@@ -504,6 +636,7 @@ if (missingHeaders.length > 0) {
   return {
     parents: [...parents.values()],
     orphanVariants,
+    linkRows,
     errors: [...errors, ...strictErrors],
     warnings,
   };
@@ -533,7 +666,8 @@ export async function POST(req: NextRequest) {
 
     if (
         parsed.parents.length === 0 &&
-        parsed.orphanVariants.length === 0
+        parsed.orphanVariants.length === 0 &&
+        parsed.linkRows.length === 0
       ) {
         return NextResponse.json(
           {
@@ -670,6 +804,7 @@ export async function POST(req: NextRequest) {
     };
 
     const getNextCode = await nextProductCode();
+    let linkedImages = 0;
     let insertedProducts = 0;
     let insertedVariants = 0;
 
@@ -711,6 +846,103 @@ export async function POST(req: NextRequest) {
     }
 
     try {
+      if (parsed.linkRows.length > 0) {
+        const allLinkImageIds = Array.from(
+          new Set(parsed.linkRows.flatMap((lr) => lr.imageIds))
+        );
+        const imagePathMap = new Map<number, string>();
+        if (allLinkImageIds.length > 0) {
+          const imRes = await client.query<{ id: number; file_path: string }>(
+            `SELECT id, file_path FROM "${schema}".image_master WHERE id = ANY($1::int[])`,
+            [allLinkImageIds]
+          );
+          imRes.rows.forEach((r) => {
+            imagePathMap.set(Number(r.id), r.file_path);
+          });
+        }
+
+        for (const linkRow of parsed.linkRows) {
+          const pairCount = Math.max(linkRow.imageIds.length, linkRow.imageUrls.length);
+          for (let i = 0; i < pairCount; i += 1) {
+            const imageId = linkRow.imageIds[i] ?? null;
+            const imageUrl =
+              linkRow.imageUrls[i] || (imageId ? imagePathMap.get(imageId) || "" : "");
+            if (!imageUrl) continue;
+
+            const dupCheck = imageId
+              ? await client.query(
+                  `
+                    SELECT 1
+                    FROM "${schema}".product_images
+                    WHERE image_id = $1
+                      AND product_id = $2
+                      AND variant_id IS NOT DISTINCT FROM $3
+                    LIMIT 1
+                  `,
+                  [imageId, linkRow.productId, linkRow.variantId]
+                )
+              : await client.query(
+                  `
+                    SELECT 1
+                    FROM "${schema}".product_images
+                    WHERE product_id = $1
+                      AND variant_id IS NOT DISTINCT FROM $2
+                      AND image_url = $3
+                    LIMIT 1
+                  `,
+                  [linkRow.productId, linkRow.variantId, imageUrl]
+                );
+
+            if (dupCheck.rows.length > 0) {
+              parsed.warnings.push(
+                `Row ${linkRow.row}: Image is already linked to SKU "${linkRow.sku}".`
+              );
+              continue;
+            }
+
+            const primaryRes = await client.query<{ has_primary: boolean }>(
+              `
+                SELECT EXISTS (
+                  SELECT 1
+                  FROM "${schema}".product_images
+                  WHERE product_id = $1 AND is_primary = TRUE
+                ) AS has_primary
+              `,
+              [linkRow.productId]
+            );
+            const hasPrimary = Boolean(primaryRes.rows[0]?.has_primary);
+
+            const orderRes = await client.query<{ next_order: number }>(
+              `
+                SELECT COALESCE(MAX(sort_order), 0) + 1 AS next_order
+                FROM "${schema}".product_images
+                WHERE product_id = $1
+              `,
+              [linkRow.productId]
+            );
+            const nextOrder = Number(orderRes.rows[0]?.next_order || 1);
+
+            await client.query(
+              `
+                INSERT INTO "${schema}".product_images
+                  (product_id, variant_id, image_id, image_url, alt_text, is_primary, sort_order)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+              `,
+              [
+                linkRow.productId,
+                linkRow.variantId,
+                imageId,
+                imageUrl,
+                null,
+                !hasPrimary,
+                nextOrder,
+              ]
+            );
+            linkedImages += 1;
+          }
+        }
+      }
+
       for (const group of parsed.parents) {
         const productCode = getNextCode();
         const productInsert = await client.query(
@@ -856,6 +1088,7 @@ export async function POST(req: NextRequest) {
     await client.query("COMMIT");
     return NextResponse.json({
       success: true,
+      linked_images: linkedImages,
       inserted_products: insertedProducts,
       inserted_variants: insertedVariants,
       warnings: parsed.warnings,

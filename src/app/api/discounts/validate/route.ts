@@ -46,6 +46,10 @@ async function handleValidate(code: string, dateStr?: string | null, req?: NextR
           d.coupon_code,
           d.applies_to,
           d.priority,
+          COALESCE(d.min_order_value, 0) AS min_order_value,
+          d.total_usage_limit,
+          d.per_customer_limit,
+          COALESCE(d.total_used_count, 0) AS total_used_count,
           d.starts_at,
           d.ends_at,
           d.is_active,
@@ -70,11 +74,24 @@ async function handleValidate(code: string, dateStr?: string | null, req?: NextR
     }
 
     const row = result.rows[0];
+
+    // Check total usage limit
+    if (row.total_usage_limit != null && Number(row.total_used_count) >= Number(row.total_usage_limit)) {
+      return NextResponse.json(
+        { success: false, error: "This coupon has reached its maximum total usage limit" },
+        { status: 400 }
+      );
+    }
+
     return NextResponse.json({
       success: true,
       data: {
         ...row,
         value: Number(row.value || 0),
+        min_order_value: Number(row.min_order_value || 0),
+        total_usage_limit: row.total_usage_limit != null ? Number(row.total_usage_limit) : null,
+        per_customer_limit: row.per_customer_limit != null ? Number(row.per_customer_limit) : null,
+        total_used_count: Number(row.total_used_count || 0),
         allowed_variants: (row.allowed_variants || []).map((id: any) => Number(id)),
       },
     });

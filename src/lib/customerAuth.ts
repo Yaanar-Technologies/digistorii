@@ -84,7 +84,12 @@ export async function ensureCustomerSchema(client: PoolClient, schema: string): 
     ALTER TABLE "${schema}".customers
       ADD COLUMN IF NOT EXISTS channel VARCHAR(20) NOT NULL DEFAULT 'pos',
       ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255) NULL,
-      ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT FALSE;
+      ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS reset_password_token VARCHAR(255) NULL,
+      ADD COLUMN IF NOT EXISTS reset_password_expires_at TIMESTAMPTZ NULL,
+      ADD COLUMN IF NOT EXISTS notification_preferences JSONB DEFAULT '{"whatsapp": true, "sms": true, "email": true}'::jsonb,
+      ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ NULL;
 
     DO $$
     BEGIN
@@ -104,36 +109,60 @@ export async function ensureCustomerSchema(client: PoolClient, schema: string): 
   `);
 
   await client.query(`
-    CREATE TABLE IF NOT EXISTS "${schema}".customer_addresses (
-      id SERIAL PRIMARY KEY,
-      customer_id INTEGER NOT NULL REFERENCES "${schema}".customers(id) ON DELETE CASCADE,
-      recipient_name VARCHAR(100),
-      recipient_phone VARCHAR(20),
-      address_line1 VARCHAR(200),
-      address_line2 VARCHAR(200),
-      address_line3 VARCHAR(200),
-      city VARCHAR(100),
-      state VARCHAR(100),
-      pincode VARCHAR(20),
-      country VARCHAR(100) DEFAULT 'India',
-      is_default BOOLEAN NOT NULL DEFAULT FALSE,
-      created_at TIMESTAMP DEFAULT NOW(),
-      updated_at TIMESTAMP DEFAULT NOW()
+    CREATE TABLE IF NOT EXISTS "${schema}".customer_otps (
+      id BIGSERIAL PRIMARY KEY,
+      phone VARCHAR(20) NOT NULL,
+      otp_hash VARCHAR(255) NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      attempts INT DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS "${schema}".ecom_support_tickets (
+      id BIGSERIAL PRIMARY KEY,
+      ticket_no VARCHAR(30) UNIQUE NOT NULL,
+      customer_id INT REFERENCES "${schema}".customers(id) ON DELETE SET NULL,
+      order_id BIGINT REFERENCES "${schema}".online_orders(id) ON DELETE SET NULL,
+      category VARCHAR(50) NOT NULL,
+      subject VARCHAR(200) NOT NULL,
+      message TEXT NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'in_progress', 'resolved', 'closed')),
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "${schema}".customer_addresses (
+    id SERIAL PRIMARY KEY,
+    customer_id INTEGER NOT NULL REFERENCES "${schema}".customers(id) ON DELETE CASCADE,
+    recipient_name VARCHAR(100),
+    recipient_phone VARCHAR(20),
+    address_line1 VARCHAR(200),
+    address_line2 VARCHAR(200),
+    address_line3 VARCHAR(200),
+    city VARCHAR(100),
+    state VARCHAR(100),
+    pincode VARCHAR(20),
+    country VARCHAR(100) DEFAULT 'India',
+    is_default BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+  );
 
     ALTER TABLE "${schema}".customer_addresses
       ADD COLUMN IF NOT EXISTS recipient_name VARCHAR(100),
-      ADD COLUMN IF NOT EXISTS recipient_phone VARCHAR(20),
+    ADD COLUMN IF NOT EXISTS recipient_phone VARCHAR(20),
       ADD COLUMN IF NOT EXISTS address_type VARCHAR(20) DEFAULT 'Home';
 
     DO $$
-    BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM information_schema.table_constraints
+  BEGIN
+      IF NOT EXISTS(
+    SELECT 1 FROM information_schema.table_constraints
         WHERE table_schema = '${schema}' AND table_name = 'customer_addresses' AND constraint_name = 'chk_india_pincode'
-      ) THEN
+  ) THEN
         ALTER TABLE "${schema}".customer_addresses
-          ADD CONSTRAINT chk_india_pincode CHECK (pincode IS NULL OR pincode ~ '^[1-9][0-9]{5}$');
+          ADD CONSTRAINT chk_india_pincode CHECK(pincode IS NULL OR pincode ~ '^[1-9][0-9]{5}$');
       END IF;
     END $$;
   `);

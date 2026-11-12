@@ -4,6 +4,7 @@ import { getTenantSchema } from "@/lib/tenant";
 import {
   RESPONSIBILITY_ACCESS_FIELDS,
   ensureCompanyResponsibilities,
+  getCompanyPlanAccess,
   getResponsibilityById,
 } from "@/lib/userResponsibilities";
 
@@ -80,8 +81,13 @@ export async function PUT(
     await client.query("BEGIN");
     transactionStarted = true;
     await ensureCompanyResponsibilities(client, companyId);
+    const planAccess = await getCompanyPlanAccess(client, companyId);
 
-    const updateValues = RESPONSIBILITY_ACCESS_FIELDS.map((field) => normalizeBool(body?.[field]));
+    const updateValues = RESPONSIBILITY_ACCESS_FIELDS.map((field) => {
+      if (field === "sales_billing_access" && !planAccess.pos_access) return false;
+      if (field === "ecommerce_access" && !planAccess.ecommerce_access) return false;
+      return normalizeBool(body?.[field]);
+    });
     const updated = await client.query(
       `UPDATE public.user_responsibilities
        SET

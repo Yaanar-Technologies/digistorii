@@ -56,9 +56,18 @@ export default function CheckoutPage() {
 
   const theme = useStorefrontTheme();
   const [footerSettings] = useState(mockFooterSettings);
-  const [shippingSettings, setShippingSettings] = useState<{ freeThreshold: number; fee: number }>({
+  const [shippingSettings, setShippingSettings] = useState<{
+    freeThreshold: number;
+    fee: number;
+    serviceableCountries: string[];
+    serviceableStates: string[];
+    serviceablePincodes: string[];
+  }>({
     freeThreshold: 500,
     fee: 49,
+    serviceableCountries: ["India"],
+    serviceableStates: [],
+    serviceablePincodes: [],
   });
 
   const [customer, setCustomer] = useState<{
@@ -125,6 +134,9 @@ export default function CheckoutPage() {
             setShippingSettings({
               freeThreshold: data.settings.shipping_free_threshold != null ? Number(data.settings.shipping_free_threshold) : 500,
               fee: data.settings.shipping_fee != null ? Number(data.settings.shipping_fee) : 49,
+              serviceableCountries: data.settings.serviceable_countries || ["India"],
+              serviceableStates: data.settings.serviceable_states || [],
+              serviceablePincodes: data.settings.serviceable_pincodes || [],
             });
           }
         }
@@ -325,7 +337,7 @@ export default function CheckoutPage() {
           address_line2: (orderData.shippingAddress.addressLine2 || "").trim(),
           city: orderData.shippingAddress.city.trim(),
           state: orderData.shippingAddress.state.trim(),
-          pincode: orderData.shippingAddress.postalCode.trim(),
+          pincode: orderData.shippingAddress.postalCode.replace(/\D/g, "").trim(),
           country: orderData.shippingAddress.country || "India",
           is_default: orderData.shippingAddress.isDefault ?? true,
           email: orderData.shippingAddress.email?.trim() || customer?.email || "",
@@ -560,6 +572,9 @@ export default function CheckoutPage() {
                 shippingFreeThreshold={shippingSettings.freeThreshold}
                 shippingFee={shippingSettings.fee}
                 initialCouponCode={initialCoupon}
+                serviceableCountries={shippingSettings.serviceableCountries}
+                serviceableStates={shippingSettings.serviceableStates}
+                serviceablePincodes={shippingSettings.serviceablePincodes}
               />
             </>
           )}

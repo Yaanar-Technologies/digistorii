@@ -2,6 +2,9 @@ import { PoolClient } from "pg";
 import { createMasterTables } from "./lib";
 import { ensureCurrenciesSeeded } from "./currencySeed";
 import { ensureLocationTableShape } from "./locationSchema";
+import { ensureTenantLookupDataSeeded } from "./tenantLookupSeed";
+import { ensureLogisticsSchema } from "./logisticsSchema";
+import { ensurePaymentsSchema } from "./paymentsSchema";
 
 
 export async function createCompanySchema(
@@ -515,11 +518,20 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
       coupon_code VARCHAR(100) UNIQUE,
       applies_to VARCHAR(30) NOT NULL DEFAULT 'specific_variants' CHECK (applies_to IN ('entire_order', 'specific_variants')),
       priority INTEGER NOT NULL DEFAULT 1,
+      min_order_value NUMERIC(12,2) DEFAULT 0,
+      total_usage_limit INT DEFAULT NULL,
+      per_customer_limit INT DEFAULT NULL,
+      total_used_count INT DEFAULT 0,
       starts_at TIMESTAMP,
       ends_at TIMESTAMP,
       is_active BOOLEAN NOT NULL DEFAULT TRUE,
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     );
+
+    ALTER TABLE "${schema}".discounts ADD COLUMN IF NOT EXISTS min_order_value NUMERIC(12,2) DEFAULT 0;
+    ALTER TABLE "${schema}".discounts ADD COLUMN IF NOT EXISTS total_usage_limit INT DEFAULT NULL;
+    ALTER TABLE "${schema}".discounts ADD COLUMN IF NOT EXISTS per_customer_limit INT DEFAULT NULL;
+    ALTER TABLE "${schema}".discounts ADD COLUMN IF NOT EXISTS total_used_count INT DEFAULT 0;
   `);
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".discount_variants (
@@ -1213,6 +1225,8 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
     CREATE INDEX IF NOT EXISTS idx_notif_recipients_user_unread 
     ON "${schema}".notification_recipients (user_id, is_read);
   `);
+
+  await ensureTenantLookupDataSeeded(client, schema);
 }
 
 export async function createEcomSchema(
@@ -1244,6 +1258,7 @@ export async function createEcomSchema(
       terms_and_conditions TEXT,
       return_refund_policy TEXT,
       delivery_note TEXT,
+      privacy_policy TEXT,
       support_email VARCHAR(150),
       support_phone VARCHAR(20),
       shipping_free_threshold NUMERIC(12,2) NOT NULL DEFAULT 500.00,
@@ -1255,6 +1270,8 @@ export async function createEcomSchema(
       created_at TIMESTAMP DEFAULT NOW(),
       updated_at TIMESTAMP DEFAULT NOW()
     );
+
+    ALTER TABLE "${schema}".ecom_settings ADD COLUMN IF NOT EXISTS privacy_policy TEXT;
   `);
 
 
@@ -1312,10 +1329,13 @@ export async function createEcomSchema(
       qty_reserved NUMERIC(12,2) NOT NULL CHECK (qty_reserved > 0),
       order_ref_id BIGINT,
       status VARCHAR(20) NOT NULL DEFAULT 'held'
-        CHECK (status IN ('held','converted','released')),
+        CHECK (status IN ('held','converted','released','consumed')),
       expires_at TIMESTAMP NOT NULL,
       created_at TIMESTAMP DEFAULT NOW()
     );
+
+    ALTER TABLE "${schema}".inventory_reservations DROP CONSTRAINT IF EXISTS inventory_reservations_status_check;
+    ALTER TABLE "${schema}".inventory_reservations ADD CONSTRAINT inventory_reservations_status_check CHECK (status IN ('held','converted','released','consumed'));
   `);
 
   // 6. Create inventory reservation index
@@ -1398,6 +1418,8 @@ export async function createEcomSchema(
       warehouse_id INT REFERENCES "${schema}".warehouses(id) ON DELETE RESTRICT,
       shipping_address_id INT REFERENCES "${schema}".customer_addresses(id) ON DELETE RESTRICT,
       billing_address_id INT REFERENCES "${schema}".customer_addresses(id) ON DELETE RESTRICT,
+      coupon_id BIGINT REFERENCES "${schema}".discounts(id) ON DELETE SET NULL,
+      coupon_code VARCHAR(100),
       currency VARCHAR(10) NOT NULL DEFAULT 'INR',
       subtotal NUMERIC(12,2) NOT NULL DEFAULT 0,
       tax_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
@@ -1423,6 +1445,9 @@ export async function createEcomSchema(
       updated_by VARCHAR(100),
       updated_at TIMESTAMPTZ
     );
+
+    ALTER TABLE "${schema}".online_orders ADD COLUMN IF NOT EXISTS coupon_id BIGINT REFERENCES "${schema}".discounts(id) ON DELETE SET NULL;
+    ALTER TABLE "${schema}".online_orders ADD COLUMN IF NOT EXISTS coupon_code VARCHAR(100);
   `);
 
   await client.query(`
@@ -1439,11 +1464,14 @@ export async function createEcomSchema(
       tax_master_id INT REFERENCES "${schema}".tax_master(id) ON DELETE SET NULL,
       tax_amount NUMERIC(12,2) DEFAULT 0,
       line_total NUMERIC(12,2) DEFAULT 0,
+      cogs_amount NUMERIC(12,2) DEFAULT 0,
       reservation_id BIGINT REFERENCES "${schema}".inventory_reservations(id) ON DELETE SET NULL,
       fulfillment_status VARCHAR(20) NOT NULL DEFAULT 'pending'
         CHECK (fulfillment_status IN ('pending','reserved','allocated','fulfilled','cancelled')),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    ALTER TABLE "${schema}".online_order_items ADD COLUMN IF NOT EXISTS cogs_amount NUMERIC(12,2) DEFAULT 0;
   `);
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".online_order_payments (
@@ -1524,12 +1552,65 @@ export async function createEcomSchema(
       provider VARCHAR(50) NOT NULL DEFAULT 'razorpay',
       key_id VARCHAR(255) NOT NULL,
       key_secret VARCHAR(255) NOT NULL,
+      key_secret_enc VARCHAR(255),
       webhook_secret VARCHAR(255),
       is_active BOOLEAN DEFAULT TRUE,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
       UNIQUE (provider)
     );
+  `);
+
+  // 13. Create back_in_stock_subscriptions table
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "${schema}".back_in_stock_subscriptions (
+      id BIGSERIAL PRIMARY KEY,
+      variant_id BIGINT NOT NULL REFERENCES "${schema}".product_variants(id) ON DELETE CASCADE,
+      email VARCHAR(255),
+      phone VARCHAR(50),
+      status VARCHAR(50) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'notified', 'cancelled')),
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      notified_at TIMESTAMP WITH TIME ZONE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_back_in_stock_variant
+      ON "${schema}".back_in_stock_subscriptions(variant_id, status);
+  `);
+
+  // 14. Create product_reviews table
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "${schema}".product_reviews (
+      id BIGSERIAL PRIMARY KEY,
+      variant_id BIGINT NOT NULL REFERENCES "${schema}".product_variants(id) ON DELETE CASCADE,
+      customer_id INTEGER REFERENCES "${schema}".customers(id) ON DELETE SET NULL,
+      customer_name VARCHAR(150) NOT NULL,
+      rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+      title VARCHAR(200),
+      comment TEXT,
+      status VARCHAR(50) NOT NULL DEFAULT 'approved' CHECK (status IN ('pending', 'approved', 'rejected')),
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_product_reviews_variant
+      ON "${schema}".product_reviews(variant_id, status);
+  `);
+
+  // 15. Create order_notes table for internal staff comments and customer-visible notes
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "${schema}".order_notes (
+      id BIGSERIAL PRIMARY KEY,
+      company_id INT NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
+      order_id BIGINT NOT NULL REFERENCES "${schema}".online_orders(id) ON DELETE CASCADE,
+      author_name VARCHAR(100) NOT NULL,
+      author_type VARCHAR(20) NOT NULL DEFAULT 'staff' CHECK (author_type IN ('admin', 'staff', 'system', 'customer')),
+      content TEXT NOT NULL,
+      is_customer_visible BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_order_notes_order
+      ON "${schema}".order_notes(order_id, created_at);
   `);
 }
 

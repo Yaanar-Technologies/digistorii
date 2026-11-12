@@ -35,6 +35,7 @@ export default function StoreSettingsPage() {
   const [pincodesInput, setPincodesInput] = useState("");
   const [termsAndConditions, setTermsAndConditions] = useState("");
   const [returnRefundPolicy, setReturnRefundPolicy] = useState("");
+  const [privacyPolicy, setPrivacyPolicy] = useState("");
   const [deliveryNote, setDeliveryNote] = useState("");
   const [shippingFreeThreshold, setShippingFreeThreshold] = useState<number | string>(500);
   const [shippingFee, setShippingFee] = useState<number | string>(49);
@@ -43,6 +44,31 @@ export default function StoreSettingsPage() {
   const [useCustomPricing, setUseCustomPricing] = useState(false);
   const [useCustomDiscounts, setUseCustomDiscounts] = useState(false);
   const [setupStatus, setSetupStatus] = useState("incomplete");
+
+  // Logistics & Courier States
+  const [deliveryPartner, setDeliveryPartner] = useState("self");
+  const [deliveryApiKey, setDeliveryApiKey] = useState("");
+  const [deliveryApiSecret, setDeliveryApiSecret] = useState("");
+  const [deliveryWebhookSecret, setDeliveryWebhookSecret] = useState("");
+  const [pickupLocationCode, setPickupLocationCode] = useState("");
+  const [defaultLengthCm, setDefaultLengthCm] = useState<number | string>(10);
+  const [defaultWidthCm, setDefaultWidthCm] = useState<number | string>(10);
+  const [defaultHeightCm, setDefaultHeightCm] = useState<number | string>(10);
+  const [defaultWeightGrams, setDefaultWeightGrams] = useState<number | string>(500);
+
+  // Masked/Credential state flags from server
+  const [hasDeliveryApiKey, setHasDeliveryApiKey] = useState(false);
+  const [hasDeliveryApiSecret, setHasDeliveryApiSecret] = useState(false);
+  const [hasDeliveryWebhookSecret, setHasDeliveryWebhookSecret] = useState(false);
+
+  // UI password visibility toggles
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [showApiSecret, setShowApiSecret] = useState(false);
+  const [showWebhookSecret, setShowWebhookSecret] = useState(false);
+
+  // Test Connection States
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   useEffect(() => {
     if (!company) return;
@@ -65,6 +91,7 @@ export default function StoreSettingsPage() {
             setPincodesInput(s.serviceable_pincodes ? s.serviceable_pincodes.join(", ") : "");
             setTermsAndConditions(s.terms_and_conditions || "");
             setReturnRefundPolicy(s.return_refund_policy || "");
+            setPrivacyPolicy(s.privacy_policy || "");
             setDeliveryNote(s.delivery_note || "");
             setShippingFreeThreshold(s.shipping_free_threshold !== undefined && s.shipping_free_threshold !== null ? s.shipping_free_threshold : 500);
             setShippingFee(s.shipping_fee !== undefined && s.shipping_fee !== null ? s.shipping_fee : 49);
@@ -73,6 +100,18 @@ export default function StoreSettingsPage() {
             setUseCustomPricing(s.use_custom_pricing === true);
             setUseCustomDiscounts(s.use_custom_discounts === true);
             setSetupStatus(s.setup_status || "incomplete");
+
+            // Courier / Logistics settings
+            setDeliveryPartner(s.delivery_partner || "self");
+            setPickupLocationCode(s.pickup_location_code || "");
+            setDefaultLengthCm(s.default_length_cm != null ? s.default_length_cm : 10);
+            setDefaultWidthCm(s.default_width_cm != null ? s.default_width_cm : 10);
+            setDefaultHeightCm(s.default_height_cm != null ? s.default_height_cm : 10);
+            setDefaultWeightGrams(s.default_weight_grams != null ? s.default_weight_grams : 500);
+
+            setHasDeliveryApiKey(s.has_delivery_api_key === true);
+            setHasDeliveryApiSecret(s.has_delivery_api_secret === true);
+            setHasDeliveryWebhookSecret(s.has_delivery_webhook_secret === true);
           }
         }
       } catch (err) {
@@ -105,7 +144,6 @@ export default function StoreSettingsPage() {
     if (!customDomain) return;
     setSaving(true);
     try {
-      // Mock verification process: flips to verified after calling API
       const res = await apiFetch("/api/company/ecom-settings", company, {
         method: "POST",
         body: JSON.stringify({
@@ -126,6 +164,41 @@ export default function StoreSettingsPage() {
     }
   };
 
+  const handleTestConnection = async () => {
+    setTestingConnection(true);
+    setTestResult(null);
+    try {
+      const res = await apiFetch("/api/company/ecom-settings/test-connection", company, {
+        method: "POST",
+        body: JSON.stringify({
+          partner: deliveryPartner,
+          delivery_api_key: deliveryApiKey || undefined,
+          delivery_api_secret: deliveryApiSecret || undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setTestResult({
+          success: true,
+          message: data.message || "Connected to courier API successfully!",
+        });
+      } else {
+        setTestResult({
+          success: false,
+          message: data.message || "Failed to authenticate with courier service.",
+        });
+      }
+    } catch (err: any) {
+      setTestResult({
+        success: false,
+        message: err.message || "Network error while testing connection.",
+      });
+    } finally {
+      setTestingConnection(false);
+    }
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -138,6 +211,11 @@ export default function StoreSettingsPage() {
 
     const numThreshold = Math.max(0, parseFloat(String(shippingFreeThreshold)) || 0);
     const numFee = Math.max(0, parseFloat(String(shippingFee)) || 0);
+
+    const numLength = Math.max(0.1, parseFloat(String(defaultLengthCm)) || 10);
+    const numWidth = Math.max(0.1, parseFloat(String(defaultWidthCm)) || 10);
+    const numHeight = Math.max(0.1, parseFloat(String(defaultHeightCm)) || 10);
+    const numWeight = Math.max(1, parseFloat(String(defaultWeightGrams)) || 500);
 
     try {
       const res = await apiFetch("/api/company/ecom-settings", company, {
@@ -152,6 +230,7 @@ export default function StoreSettingsPage() {
           serviceable_pincodes: pincodes,
           terms_and_conditions: termsAndConditions,
           return_refund_policy: returnRefundPolicy,
+          privacy_policy: privacyPolicy,
           delivery_note: deliveryNote,
           shipping_free_threshold: numThreshold,
           shipping_fee: numFee,
@@ -160,13 +239,26 @@ export default function StoreSettingsPage() {
           use_custom_pricing: useCustomPricing,
           use_custom_discounts: useCustomDiscounts,
           custom_domain: customDomain,
+          // Logistics Fields
+          delivery_partner: deliveryPartner,
+          delivery_api_key: deliveryApiKey ? deliveryApiKey.trim() : undefined,
+          delivery_api_secret: deliveryApiSecret ? deliveryApiSecret.trim() : undefined,
+          delivery_webhook_secret: deliveryWebhookSecret ? deliveryWebhookSecret.trim() : undefined,
+          pickup_location_code: pickupLocationCode ? pickupLocationCode.trim() : null,
+          default_length_cm: numLength,
+          default_width_cm: numWidth,
+          default_height_cm: numHeight,
+          default_weight_grams: numWeight,
         })
       });
 
       if (res.ok) {
         const data = await res.json();
         setSetupStatus(data.setup_status);
-        setMessage({ type: "success", text: "Storefront settings saved successfully!" });
+        setMessage({ type: "success", text: "Storefront and shipping settings saved successfully!" });
+        if (deliveryApiKey) setHasDeliveryApiKey(true);
+        if (deliveryApiSecret) setHasDeliveryApiSecret(true);
+        if (deliveryWebhookSecret) setHasDeliveryWebhookSecret(true);
         window.scrollTo({ top: 0, behavior: "smooth" });
       } else {
         const errorData = await res.json();
@@ -195,7 +287,7 @@ export default function StoreSettingsPage() {
             Setup Status: {setupStatus.toUpperCase()}
           </Badge>
           <h1 className="text-3xl font-bold tracking-tight text-gray-900">E-Commerce Storefront Settings</h1>
-          <p className="text-sm text-gray-600">Configure domain, payments, regions, policies, and overrides for your storefront.</p>
+          <p className="text-sm text-gray-600">Configure domain, payments, regions, 3PL logistics, policies, and overrides for your storefront.</p>
         </div>
       </div>
 
@@ -206,20 +298,38 @@ export default function StoreSettingsPage() {
       )}
 
       <form onSubmit={handleSave} className="space-y-6">
-        {/* Custom Domain Configuration */}
+        {/* Storefront URL & Optional Custom Domain */}
         <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
-          <h2 className="text-lg font-bold text-gray-900 border-b pb-2">Custom Domain Routing</h2>
+          <h2 className="text-lg font-bold text-gray-900 border-b pb-2">Storefront URL &amp; Custom Domain</h2>
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Primary Storefront URL</p>
+              <p className="text-sm font-mono font-semibold text-gray-900">
+                {(process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "")}/{company}
+              </p>
+            </div>
+            <a
+              href={`/${company}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100"
+            >
+              Open Storefront ↗
+            </a>
+          </div>
           <div className="grid gap-4 sm:grid-cols-12">
             <div className="sm:col-span-8">
-              <label className="block text-sm font-semibold text-gray-700">Custom Domain Name</label>
+              <label className="block text-sm font-semibold text-gray-700">Custom Domain Name (Optional)</label>
               <input
                 type="text"
                 value={customDomain}
                 onChange={e => setCustomDomain(e.target.value)}
-                placeholder="e.g. store.mydomain.com"
+                placeholder="e.g. pothys.com"
                 className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
               />
-              <p className="mt-1 text-xs text-gray-500">Enter your custom domain. Keep it empty to fallback to your platform subdomain.</p>
+              <p className="mt-1 text-xs text-gray-500">
+                Optional custom domain (e.g. pothys.com). Leave empty to use your primary storefront URL.
+              </p>
             </div>
             <div className="sm:col-span-4 flex items-end">
               {customDomain && domainStatus === "pending_dns" && (
@@ -310,6 +420,243 @@ export default function StoreSettingsPage() {
               </div>
             </div>
           )}
+        </div>
+
+        {/* Logistics & Shipping Integration Section */}
+        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b pb-3 gap-2">
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">Logistics & Courier Integration</h2>
+              <p className="text-xs text-gray-500">Connect carrier API credentials to automatically generate AWBs, fetch labels, and receive real-time webhook updates.</p>
+            </div>
+            {deliveryPartner !== "self" && (
+              <button
+                type="button"
+                onClick={handleTestConnection}
+                disabled={testingConnection}
+                className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:opacity-50"
+              >
+                {testingConnection ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-gray-600" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                    </svg>
+                    Testing Connection...
+                  </>
+                ) : (
+                  "Test Connection"
+                )}
+              </button>
+            )}
+          </div>
+
+          {testResult && (
+            <div
+              className={`rounded-lg p-3 text-sm flex items-start gap-2 ${
+                testResult.success
+                  ? "bg-green-50 text-green-800 border border-green-200"
+                  : "bg-red-50 text-red-800 border border-red-200"
+              }`}
+            >
+              {testResult.success ? (
+                <svg className="h-5 w-5 text-green-600 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+              ) : (
+                <svg className="h-5 w-5 text-red-600 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                </svg>
+              )}
+              <span>{testResult.message}</span>
+            </div>
+          )}
+
+          {/* Provider Selection */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700">Fulfillment Partner</label>
+              <select
+                value={deliveryPartner}
+                onChange={e => {
+                  setDeliveryPartner(e.target.value);
+                  setTestResult(null);
+                }}
+                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none"
+              >
+                <option value="self">Self Delivery / In-House Fleet</option>
+                <option value="shiprocket">Shiprocket (Multi-Courier Aggregator)</option>
+                <option value="delhivery">Delhivery Direct Express API</option>
+              </select>
+              <p className="mt-1 text-xs text-gray-500">
+                {deliveryPartner === "self" && "Orders are fulfilled manually by store drivers without carrier API calls."}
+                {deliveryPartner === "shiprocket" && "Auto-books shipments, assigns AWBs, and generates shipping labels via Shiprocket external API."}
+                {deliveryPartner === "delhivery" && "Dispatches directly via Delhivery surface & express logistics network."}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-700">Pickup Location Code</label>
+              <input
+                type="text"
+                value={pickupLocationCode}
+                onChange={e => setPickupLocationCode(e.target.value)}
+                placeholder={deliveryPartner === "shiprocket" ? "e.g. Primary (Registered Warehouse Name)" : "e.g. Main Warehouse"}
+                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none"
+              />
+              <p className="mt-1 text-xs text-gray-500">Must match the registered pickup warehouse location code in your courier portal.</p>
+            </div>
+          </div>
+
+          {/* Courier Credentials (Only for Shiprocket / Delhivery) */}
+          {deliveryPartner !== "self" && (
+            <div className="space-y-4 rounded-lg bg-gray-50 p-4 border border-gray-200">
+              <h3 className="text-sm font-bold text-gray-800">
+                {deliveryPartner === "shiprocket" ? "Shiprocket Credentials" : "Delhivery Credentials"}
+              </h3>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700">
+                    {deliveryPartner === "shiprocket" ? "Shiprocket Account Email (API Key)" : "Delhivery API Token"}
+                    {hasDeliveryApiKey && !deliveryApiKey && (
+                      <span className="ml-2 text-xs font-normal text-green-600">✓ Stored Encrypted</span>
+                    )}
+                  </label>
+                  <div className="relative mt-1">
+                    <input
+                      type={showApiKey ? "text" : "password"}
+                      value={deliveryApiKey}
+                      onChange={e => setDeliveryApiKey(e.target.value)}
+                      placeholder={hasDeliveryApiKey ? "•••••••••••• (Leave blank to keep current)" : deliveryPartner === "shiprocket" ? "email@domain.com" : "Token string"}
+                      className="block w-full rounded-md border border-gray-300 px-3 py-2 pr-10 text-sm shadow-sm focus:border-brand-500 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-xs text-gray-500 hover:text-gray-700"
+                    >
+                      {showApiKey ? "Hide" : "Show"}
+                    </button>
+                  </div>
+                </div>
+
+                {deliveryPartner === "shiprocket" && (
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700">
+                      Shiprocket Password (API Secret)
+                      {hasDeliveryApiSecret && !deliveryApiSecret && (
+                        <span className="ml-2 text-xs font-normal text-green-600">✓ Stored Encrypted</span>
+                      )}
+                    </label>
+                    <div className="relative mt-1">
+                      <input
+                        type={showApiSecret ? "text" : "password"}
+                        value={deliveryApiSecret}
+                        onChange={e => setDeliveryApiSecret(e.target.value)}
+                        placeholder={hasDeliveryApiSecret ? "•••••••••••• (Leave blank to keep current)" : "Account Password"}
+                        className="block w-full rounded-md border border-gray-300 px-3 py-2 pr-10 text-sm shadow-sm focus:border-brand-500 focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowApiSecret(!showApiSecret)}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-xs text-gray-500 hover:text-gray-700"
+                      >
+                        {showApiSecret ? "Hide" : "Show"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700">
+                  Webhook Secret Token
+                  {hasDeliveryWebhookSecret && !deliveryWebhookSecret && (
+                    <span className="ml-2 text-xs font-normal text-green-600">✓ Stored Encrypted</span>
+                  )}
+                </label>
+                <div className="relative mt-1">
+                  <input
+                    type={showWebhookSecret ? "text" : "password"}
+                    value={deliveryWebhookSecret}
+                    onChange={e => setDeliveryWebhookSecret(e.target.value)}
+                    placeholder={hasDeliveryWebhookSecret ? "•••••••••••• (Leave blank to keep current)" : "Secret token for signature verification"}
+                    className="block w-full rounded-md border border-gray-300 px-3 py-2 pr-10 text-sm shadow-sm focus:border-brand-500 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowWebhookSecret(!showWebhookSecret)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-xs text-gray-500 hover:text-gray-700"
+                  >
+                    {showWebhookSecret ? "Hide" : "Show"}
+                  </button>
+                </div>
+                <p className="mt-1 text-xs text-gray-500">
+                  Configure this secret in your courier webhook settings alongside webhook URL: <code className="bg-gray-100 px-1 py-0.5 rounded font-mono">/api/{company}/ecom/webhooks/delivery</code>
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Default Package Dimensions & Weight */}
+          <div>
+            <h3 className="text-sm font-bold text-gray-800 mb-2">Default Package Dimensions & Dead Weight</h3>
+            <p className="text-xs text-gray-500 mb-3">Applied automatically as baseline fallback for items missing physical dimensions to compute volumetric shipping rates.</p>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600">Length (cm)</label>
+                <input
+                  type="number"
+                  min="0.1"
+                  step="0.1"
+                  value={defaultLengthCm}
+                  onChange={e => setDefaultLengthCm(e.target.value)}
+                  placeholder="10.0"
+                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm shadow-sm focus:border-brand-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600">Width (cm)</label>
+                <input
+                  type="number"
+                  min="0.1"
+                  step="0.1"
+                  value={defaultWidthCm}
+                  onChange={e => setDefaultWidthCm(e.target.value)}
+                  placeholder="10.0"
+                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm shadow-sm focus:border-brand-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600">Height (cm)</label>
+                <input
+                  type="number"
+                  min="0.1"
+                  step="0.1"
+                  value={defaultHeightCm}
+                  onChange={e => setDefaultHeightCm(e.target.value)}
+                  placeholder="10.0"
+                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm shadow-sm focus:border-brand-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600">Dead Weight (grams)</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={defaultWeightGrams}
+                  onChange={e => setDefaultWeightGrams(e.target.value)}
+                  placeholder="500"
+                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm shadow-sm focus:border-brand-500 focus:outline-none"
+                />
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Serviceable Regions */}
@@ -442,6 +789,17 @@ export default function StoreSettingsPage() {
               value={returnRefundPolicy}
               onChange={e => setReturnRefundPolicy(e.target.value)}
               placeholder="Provide refund policy details"
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-gray-700">Privacy Policy</label>
+            <textarea
+              rows={4}
+              value={privacyPolicy}
+              onChange={e => setPrivacyPolicy(e.target.value)}
+              placeholder="Provide privacy policy details"
               className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none"
             />
           </div>

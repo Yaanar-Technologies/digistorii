@@ -75,6 +75,7 @@ export async function POST(
     await transitionDeliveryStatus(client, schema, orderId, "delivered", {
       changedBy: staffUsername,
       note: "Marked delivered via staff override",
+      allowFastForward: true,
     });
 
     await client.query("COMMIT");

@@ -133,6 +133,7 @@ export async function loginUser(company: string, email: string, password: string
       `SELECT
        cs.plan_id,
        cs.ecommerce_access,
+       COALESCE(cs.pos_access, TRUE) AS pos_access,
        COALESCE(
          cs.max_warehouses,
          (
@@ -181,6 +182,7 @@ export async function loginUser(company: string, email: string, password: string
         warehouse_id: defaultWarehouseId,
         plan_id: subscription.plan_id ?? null,
         ecommerce_access: Boolean(subscription.ecommerce_access),
+        pos_access: subscription.pos_access !== false,
         max_warehouse: maxWarehouse,
         max_location: maxLocation,
         max_warehouses: maxWarehouse,

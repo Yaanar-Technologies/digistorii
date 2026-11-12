@@ -35,11 +35,17 @@ export async function canAccessOnboarding(req: NextRequest, company: string): Pr
     req.cookies.get(ONBOARDING_COOKIE_NAME)?.value,
     "onboarding"
   );
-  if (onboarding && onboarding.company === slug) return true;
+  if (onboarding && onboarding.company?.trim().toLowerCase() === slug) return true;
 
   const staff = await verifySession<StaffSessionPayload>(
     req.cookies.get(STAFF_COOKIE_NAME)?.value,
     "staff"
   );
-  return Boolean(staff && staff.company_name === slug);
+  if (staff && staff.company_name?.trim().toLowerCase() === slug) return true;
+
+  const admin = await verifySession<StaffSessionPayload>(
+    req.cookies.get("admin_user")?.value,
+    "staff"
+  );
+  return Boolean(admin && admin.company_name?.trim().toLowerCase() === slug);
 }

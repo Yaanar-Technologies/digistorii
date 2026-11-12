@@ -30,6 +30,7 @@ type User = {
   branch_name?: string | null;
   has_completed_guided_setup?: boolean;
   ecommerce_access?: boolean;
+  pos_access?: boolean;
 };
 
 

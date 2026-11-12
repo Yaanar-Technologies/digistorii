@@ -20,6 +20,17 @@ export interface ProductGridProps {
   initialSearch?: string;
   title?: string;
   subtitle?: string;
+  // Server-side pagination and controls
+  currentPage?: number;
+  totalPages?: number;
+  totalCount?: number;
+  onPageChange?: (page: number) => void;
+  sortBy?: "featured" | "price-asc" | "price-desc" | "newest";
+  onSortChange?: (sort: "featured" | "price-asc" | "price-desc" | "newest") => void;
+  inStockOnly?: boolean;
+  onToggleInStock?: (inStock: boolean) => void;
+  maxPriceFilter?: number;
+  onMaxPriceFilterChange?: (maxPrice: number | undefined) => void;
 }
 
 interface ProductCardProps {
@@ -157,6 +168,16 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
   initialSearch = "",
   title: propTitle,
   subtitle: propSubtitle,
+  currentPage = 1,
+  totalPages = 1,
+  totalCount,
+  onPageChange,
+  sortBy: propSortBy,
+  onSortChange,
+  inStockOnly: propInStockOnly,
+  onToggleInStock,
+  maxPriceFilter: propMaxPriceFilter,
+  onMaxPriceFilterChange,
 }) => {
   const [localSelectedCategory, setLocalSelectedCategory] = useState<string>("all");
   const [quickViewProduct, setQuickViewProduct] = useState<StorefrontProduct | null>(null);
@@ -201,9 +222,29 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
     setSearchQuery(initialSearch || "");
   }, [initialSearch]);
 
-  const [maxPriceFilter, setMaxPriceFilter] = useState<number | undefined>(undefined);
-  const [inStockOnlyFilter, setInStockOnlyFilter] = useState<boolean>(false);
-  const [sortBy, setSortBy] = useState<"featured" | "price-asc" | "price-desc">("featured");
+  const [localMaxPriceFilter, setLocalMaxPriceFilter] = useState<number | undefined>(undefined);
+  const [localInStockOnly, setLocalInStockOnly] = useState<boolean>(false);
+  const [localSortBy, setLocalSortBy] = useState<"featured" | "price-asc" | "price-desc" | "newest">("featured");
+
+  const maxPriceFilter = propMaxPriceFilter !== undefined ? propMaxPriceFilter : localMaxPriceFilter;
+  const handleMaxPriceChange = (val: number | undefined) => {
+    if (onMaxPriceFilterChange) onMaxPriceFilterChange(val);
+    else setLocalMaxPriceFilter(val);
+  };
+
+  const inStockOnly = propInStockOnly !== undefined ? propInStockOnly : localInStockOnly;
+  const handleToggleInStock = (checked: boolean) => {
+    if (onToggleInStock) onToggleInStock(checked);
+    else setLocalInStockOnly(checked);
+  };
+
+  const sortBy = propSortBy !== undefined ? propSortBy : localSortBy;
+  const handleSortChange = (newSort: "featured" | "price-asc" | "price-desc" | "newest") => {
+    if (onSortChange) onSortChange(newSort);
+    else setLocalSortBy(newSort);
+  };
+
+  const isServerDriven = Boolean(onPageChange);
 
   // Highest price calculation for slider
   const maxProductPrice = useMemo(() => {
@@ -213,6 +254,9 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
 
   // Derived filtered products
   const filteredProducts = useMemo(() => {
+    if (isServerDriven) {
+      return products;
+    }
     return products
       .filter((product) => {
         // Category filter
@@ -237,7 +281,7 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
           return false;
         }
         // In-stock toggle (user optional filter)
-        if (inStockOnlyFilter && !product.inStock) {
+        if (inStockOnly && !product.inStock) {
           return false;
         }
         return true;
@@ -247,7 +291,7 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
         if (sortBy === "price-desc") return b.effectivePrice - a.effectivePrice;
         return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
       });
-  }, [products, selectedCategory, searchQuery, maxPriceFilter, inStockOnlyFilter, sortBy]);
+  }, [products, isServerDriven, selectedCategory, searchQuery, maxPriceFilter, inStockOnly, sortBy]);
 
   return (
     <section className="py-10 bg-white" style={{ fontFamily: theme.fontFamily }}>
@@ -260,7 +304,7 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
               {propTitle || (selectedCategory !== "all" ? selectedCategory : "Featured Products")}
             </h2>
             <p className="mt-1 text-sm text-gray-500">
-              {propSubtitle || `Showing ${filteredProducts.length} of ${products.length} items`}
+              {propSubtitle || `Showing ${filteredProducts.length}${totalCount !== undefined ? ` of ${totalCount}` : ` of ${products.length}`} items`}
             </p>
           </div>
 
@@ -279,10 +323,11 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
 
             <select
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as "featured" | "price-asc" | "price-desc")}
+              onChange={(e) => handleSortChange(e.target.value as any)}
               className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm text-gray-700 focus:outline-none"
             >
               <option value="featured">Featured Sort</option>
+              <option value="newest">Newest Arrivals</option>
               <option value="price-asc">Price: Low to High</option>
               <option value="price-desc">Price: High to Low</option>
             </select>
@@ -333,7 +378,7 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
                   min={0}
                   max={Math.ceil(maxProductPrice)}
                   value={maxPriceFilter ?? Math.ceil(maxProductPrice)}
-                  onChange={(e) => setMaxPriceFilter(Number(e.target.value))}
+                  onChange={(e) => handleMaxPriceChange(Number(e.target.value))}
                   className="w-full accent-blue-600"
                   style={{ accentColor: theme.primaryColor }}
                 />
@@ -349,8 +394,8 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
               <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
                 <input
                   type="checkbox"
-                  checked={inStockOnlyFilter}
-                  onChange={(e) => setInStockOnlyFilter(e.target.checked)}
+                  checked={inStockOnly}
+                  onChange={(e) => handleToggleInStock(e.target.checked)}
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
                 In-Stock Only
@@ -367,8 +412,8 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
                   onClick={() => {
                     setSelectedCategory("all");
                     setSearchQuery("");
-                    setMaxPriceFilter(undefined);
-                    setInStockOnlyFilter(false);
+                    handleMaxPriceChange(undefined);
+                    handleToggleInStock(false);
                   }}
                   className="mt-4 text-sm font-semibold hover:underline"
                   style={{ color: theme.primaryColor }}
@@ -389,6 +434,56 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
                     onQuickView={setQuickViewProduct}
                   />
                 ))}
+              </div>
+            )}
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-gray-100 pt-6">
+                <div className="text-xs text-gray-500">
+                  Showing page <span className="font-semibold text-gray-900">{currentPage}</span> of{" "}
+                  <span className="font-semibold text-gray-900">{totalPages}</span>
+                  {totalCount !== undefined && ` (${totalCount} total items)`}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => onPageChange?.(Math.max(1, currentPage - 1))}
+                    disabled={currentPage <= 1}
+                    className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Previous
+                  </button>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1)
+                    .filter((p) => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
+                    .map((p, idx, arr) => (
+                      <React.Fragment key={p}>
+                        {idx > 0 && p > arr[idx - 1] + 1 && (
+                          <span className="text-xs text-gray-400 px-1">...</span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => onPageChange?.(p)}
+                          className={`h-8 w-8 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                            currentPage === p
+                              ? "bg-gray-900 text-white shadow-sm"
+                              : "border border-gray-200 text-gray-700 hover:bg-gray-50"
+                          }`}
+                          style={currentPage === p ? { backgroundColor: theme.primaryColor } : {}}
+                        >
+                          {p}
+                        </button>
+                      </React.Fragment>
+                    ))}
+                  <button
+                    type="button"
+                    onClick={() => onPageChange?.(Math.min(totalPages, currentPage + 1))}
+                    disabled={currentPage >= totalPages}
+                    className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Next
+                  </button>
+                </div>
               </div>
             )}
           </div>

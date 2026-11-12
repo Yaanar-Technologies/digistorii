@@ -217,6 +217,7 @@ export default function ProductDetailPage() {
 
       <main>
         <ProductDetail
+          company={company}
           theme={theme}
           product={product}
           footerSettings={footerSettings}

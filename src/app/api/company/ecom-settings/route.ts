@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { getTenantSchema } from "@/lib/tenant";
+import { encryptSecret } from "@/lib/cryptoHelper";
+import { ensureLogisticsSchema } from "@/lib/logisticsSchema";
 
 export async function GET(req: NextRequest) {
   const client = await pool.connect();
   try {
     const { schema, companyId } = await getTenantSchema(req);
+
+    // Ensure logistics columns exist on schema
+    await ensureLogisticsSchema(client, schema);
 
     // Fetch ecom settings
     const result = await client.query(
@@ -34,14 +39,31 @@ export async function GET(req: NextRequest) {
     );
     const domainInfo = domainRes.rows[0] || {};
 
+    // Sanitize credentials: NEVER return plaintext or encrypted ciphertext to the client
+    const sanitizedSettings = {
+      ...settings,
+      delivery_api_key_enc: undefined,
+      delivery_api_secret_enc: undefined,
+      delivery_webhook_secret_enc: undefined,
+      gateway_key_secret_enc: undefined,
+      has_delivery_api_key: Boolean(settings.delivery_api_key_enc),
+      has_delivery_api_secret: Boolean(settings.delivery_api_secret_enc),
+      has_delivery_webhook_secret: Boolean(settings.delivery_webhook_secret_enc),
+      delivery_api_key_masked: settings.delivery_api_key_enc ? "••••••••••••" : "",
+      delivery_partner: settings.delivery_partner || "self",
+      pickup_location_code: settings.pickup_location_code || "",
+      default_length_cm: settings.default_length_cm != null ? Number(settings.default_length_cm) : 10,
+      default_width_cm: settings.default_width_cm != null ? Number(settings.default_width_cm) : 10,
+      default_height_cm: settings.default_height_cm != null ? Number(settings.default_height_cm) : 10,
+      default_weight_grams: settings.default_weight_grams != null ? Number(settings.default_weight_grams) : 500,
+      custom_domain: domainInfo.custom_domain || "",
+      custom_domain_status: domainInfo.custom_domain_status || "not_configured",
+      custom_domain_verified_at: domainInfo.custom_domain_verified_at || null,
+    };
+
     return NextResponse.json({
       success: true,
-      settings: {
-        ...settings,
-        custom_domain: domainInfo.custom_domain || "",
-        custom_domain_status: domainInfo.custom_domain_status || "not_configured",
-        custom_domain_verified_at: domainInfo.custom_domain_verified_at || null,
-      },
+      settings: sanitizedSettings,
     });
   } catch (err: any) {
     console.error("GET ecom-settings error:", err);
@@ -57,6 +79,9 @@ export async function POST(req: NextRequest) {
     const { schema, companyId } = await getTenantSchema(req);
     const body = await req.json();
 
+    // Ensure logistics columns exist on schema
+    await ensureLogisticsSchema(client, schema);
+
     const {
       payment_mode,
       gateway_provider,
@@ -68,6 +93,7 @@ export async function POST(req: NextRequest) {
       terms_and_conditions,
       return_refund_policy,
       delivery_note,
+      privacy_policy,
       support_email,
       support_phone,
       shipping_free_threshold,
@@ -76,6 +102,16 @@ export async function POST(req: NextRequest) {
       use_custom_discounts,
       custom_domain,
       custom_domain_status,
+      // Logistics & Courier Fields
+      delivery_partner,
+      delivery_api_key,
+      delivery_api_secret,
+      delivery_webhook_secret,
+      pickup_location_code,
+      default_length_cm,
+      default_width_cm,
+      default_height_cm,
+      default_weight_grams,
     } = body;
 
     const parsedThreshold = shipping_free_threshold !== undefined && shipping_free_threshold !== null && !isNaN(Number(shipping_free_threshold))
@@ -86,17 +122,62 @@ export async function POST(req: NextRequest) {
       ? Math.max(0, Number(shipping_fee))
       : 49.00;
 
+    const parsedLength = default_length_cm !== undefined && default_length_cm !== null && !isNaN(Number(default_length_cm))
+      ? Math.max(0, Number(default_length_cm))
+      : 10.00;
+
+    const parsedWidth = default_width_cm !== undefined && default_width_cm !== null && !isNaN(Number(default_width_cm))
+      ? Math.max(0, Number(default_width_cm))
+      : 10.00;
+
+    const parsedHeight = default_height_cm !== undefined && default_height_cm !== null && !isNaN(Number(default_height_cm))
+      ? Math.max(0, Number(default_height_cm))
+      : 10.00;
+
+    const parsedWeight = default_weight_grams !== undefined && default_weight_grams !== null && !isNaN(Number(default_weight_grams))
+      ? Math.max(0, Number(default_weight_grams))
+      : 500.00;
+
     // Start transaction
     await client.query("BEGIN");
 
-    // 1. Update company settings
+    // 1. Fetch existing settings to preserve existing encrypted credentials if not updated
     const settingsExist = await client.query(
-      `SELECT id FROM "${schema}".ecom_settings WHERE company_id = $1 LIMIT 1`,
+      `SELECT id, delivery_api_key_enc, delivery_api_secret_enc, delivery_webhook_secret_enc
+       FROM "${schema}".ecom_settings WHERE company_id = $1 LIMIT 1`,
       [companyId]
     );
 
+    const existingSettings = settingsExist.rows[0] || {};
+
+    let finalDeliveryApiKeyEnc = existingSettings.delivery_api_key_enc || null;
+    if (delivery_api_key !== undefined) {
+      if (typeof delivery_api_key === "string" && delivery_api_key.trim().length > 0) {
+        finalDeliveryApiKeyEnc = encryptSecret(delivery_api_key.trim());
+      } else if (delivery_api_key === "" && delivery_partner === "self") {
+        finalDeliveryApiKeyEnc = null;
+      }
+    }
+
+    let finalDeliveryApiSecretEnc = existingSettings.delivery_api_secret_enc || null;
+    if (delivery_api_secret !== undefined) {
+      if (typeof delivery_api_secret === "string" && delivery_api_secret.trim().length > 0) {
+        finalDeliveryApiSecretEnc = encryptSecret(delivery_api_secret.trim());
+      } else if (delivery_api_secret === "" && delivery_partner === "self") {
+        finalDeliveryApiSecretEnc = null;
+      }
+    }
+
+    let finalDeliveryWebhookSecretEnc = existingSettings.delivery_webhook_secret_enc || null;
+    if (delivery_webhook_secret !== undefined) {
+      if (typeof delivery_webhook_secret === "string" && delivery_webhook_secret.trim().length > 0) {
+        finalDeliveryWebhookSecretEnc = encryptSecret(delivery_webhook_secret.trim());
+      } else if (delivery_webhook_secret === "" && delivery_partner === "self") {
+        finalDeliveryWebhookSecretEnc = null;
+      }
+    }
+
     // Determine setup status
-    // Flipps to complete once payment_mode + at least one serviceable region + T&C are filled
     const isServiceableFilled = (serviceable_countries && serviceable_countries.length > 0) ||
       (serviceable_states && serviceable_states.length > 0) ||
       (serviceable_pincodes && serviceable_pincodes.length > 0);
@@ -116,15 +197,25 @@ export async function POST(req: NextRequest) {
              terms_and_conditions = $8,
              return_refund_policy = $9,
              delivery_note = $10,
-             support_email = $11,
-             support_phone = $12,
-             shipping_free_threshold = $13,
-             shipping_fee = $14,
-             use_custom_pricing = $15,
-             use_custom_discounts = $16,
-             setup_status = $17,
+             privacy_policy = $11,
+             support_email = $12,
+             support_phone = $13,
+             shipping_free_threshold = $14,
+             shipping_fee = $15,
+             use_custom_pricing = $16,
+             use_custom_discounts = $17,
+             setup_status = $18,
+             delivery_partner = $19,
+             delivery_api_key_enc = $20,
+             delivery_api_secret_enc = $21,
+             delivery_webhook_secret_enc = $22,
+             pickup_location_code = $23,
+             default_length_cm = $24,
+             default_width_cm = $25,
+             default_height_cm = $26,
+             default_weight_grams = $27,
              updated_at = NOW()
-         WHERE company_id = $18`,
+         WHERE company_id = $28`,
         [
           payment_mode || "cod_only",
           gateway_provider || null,
@@ -136,6 +227,7 @@ export async function POST(req: NextRequest) {
           terms_and_conditions || null,
           return_refund_policy || null,
           delivery_note || null,
+          privacy_policy || null,
           support_email || null,
           support_phone || null,
           parsedThreshold,
@@ -143,6 +235,15 @@ export async function POST(req: NextRequest) {
           use_custom_pricing === true,
           use_custom_discounts === true,
           setup_status,
+          delivery_partner || "self",
+          finalDeliveryApiKeyEnc,
+          finalDeliveryApiSecretEnc,
+          finalDeliveryWebhookSecretEnc,
+          pickup_location_code || null,
+          parsedLength,
+          parsedWidth,
+          parsedHeight,
+          parsedWeight,
           companyId,
         ]
       );
@@ -151,10 +252,12 @@ export async function POST(req: NextRequest) {
         `INSERT INTO "${schema}".ecom_settings (
           company_id, payment_mode, gateway_provider, gateway_key_id, gateway_key_secret_enc,
           serviceable_countries, serviceable_states, serviceable_pincodes, terms_and_conditions,
-          return_refund_policy, delivery_note, support_email, support_phone,
+          return_refund_policy, delivery_note, privacy_policy, support_email, support_phone,
           shipping_free_threshold, shipping_fee, use_custom_pricing,
-          use_custom_discounts, setup_status
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+          use_custom_discounts, setup_status, delivery_partner, delivery_api_key_enc,
+          delivery_api_secret_enc, delivery_webhook_secret_enc, pickup_location_code,
+          default_length_cm, default_width_cm, default_height_cm, default_weight_grams
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)`,
         [
           companyId,
           payment_mode || "cod_only",
@@ -167,6 +270,7 @@ export async function POST(req: NextRequest) {
           terms_and_conditions || null,
           return_refund_policy || null,
           delivery_note || null,
+          privacy_policy || null,
           support_email || null,
           support_phone || null,
           parsedThreshold,
@@ -174,6 +278,15 @@ export async function POST(req: NextRequest) {
           use_custom_pricing === true,
           use_custom_discounts === true,
           setup_status,
+          delivery_partner || "self",
+          finalDeliveryApiKeyEnc,
+          finalDeliveryApiSecretEnc,
+          finalDeliveryWebhookSecretEnc,
+          pickup_location_code || null,
+          parsedLength,
+          parsedWidth,
+          parsedHeight,
+          parsedWeight,
         ]
       );
     }
@@ -182,7 +295,6 @@ export async function POST(req: NextRequest) {
     if (custom_domain !== undefined) {
       const cleanDomain = custom_domain ? custom_domain.trim().toLowerCase() : null;
 
-      // If custom domain is changed, update domain status
       const existingDomainResult = await client.query(
         `SELECT custom_domain, custom_domain_status FROM public.companies WHERE id = $1`,
         [companyId]
@@ -204,7 +316,6 @@ export async function POST(req: NextRequest) {
           [cleanDomain, nextStatus, verifiedAt, companyId]
         );
       } else if (custom_domain_status !== undefined && custom_domain_status !== existingStatus) {
-        // Allow updating status if triggered (e.g. verifying or failing)
         const verifiedAt = custom_domain_status === "verified" ? new Date() : null;
         await client.query(
           `UPDATE public.companies

@@ -38,6 +38,7 @@ type NavItem = {
   path?: string;
   permission?: ResponsibilityAccessKey;
   ecommerce_access?: boolean;
+  pos_access?: boolean;
   subItems?: { name: string; path: string; pro?: boolean; new?: boolean }[];
 };
 
@@ -88,6 +89,7 @@ const navItems: NavItem[] = [
     name: "Sales Billing",
     icon: <Cash />,
     permission: "sales_billing_access",
+    pos_access: true,
     // subItems: [
     //    {name: "Sales Billing" ,path:"/workspace/transactions/sales",pro:false}
     // ],
@@ -99,6 +101,7 @@ const navItems: NavItem[] = [
     ecommerce_access: true,
     subItems: [
       { name: "Store Settings", path: "/workspace/ecom-config/settings", pro: false },
+      { name: "Payment Gateway", path: "/workspace/settings/payments", pro: false },
       { name: "Product Catalog", path: "/workspace/ecom-config/products", pro: false },
       { name: "Theme & Customize", path: "/workspace/ecom-config/theme", pro: false },
       { name: "Online Orders", path: "/workspace/ecom-orders", pro: false },
@@ -211,6 +214,9 @@ const AppSidebar: React.FC = () => {
       if (!user?.ecommerce_access || !canAccess(user?.permissions, "ecommerce_access")) {
         return false;
       }
+    }
+    if (item.pos_access && !user?.pos_access) {
+      return false;
     }
     return true;
   });

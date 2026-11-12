@@ -5,6 +5,7 @@ import { createCompanySchema } from "@/lib/schema";
 import { createOnboardingCookie } from "@/lib/onboardingAuth";
 //import { ensureDB } from "@/lib/ensure-db";
 import { ensureCompanyResponsibilities, getResponsibilitiesForCompany } from "@/lib/userResponsibilities";
+import { companySlugSchema } from "@/lib/reservedSlugs";
 
 type SetupPayload = {
   businessName?: string;
@@ -22,19 +23,21 @@ type SetupPayload = {
 
 function normalizePayload(payload: SetupPayload) {
   const businessName = (payload.businessName || payload.company_name || "").trim();
-  const slug = (payload.slug || payload.subdomain_url || "").trim().toLowerCase();
+  const rawSlug = (payload.slug || payload.subdomain_url || "").trim().toLowerCase();
   const ownerName = (payload.ownerName || payload.full_name || "").trim();
   const ownerEmail = (payload.ownerEmail || payload.email || "").trim().toLowerCase();
   const ownerPhone = (payload.ownerPhone || payload.phone || "").trim();
   const password = payload.password || "";
 
-  if (!businessName || !slug || !ownerName || !ownerEmail || !ownerPhone || !password) {
+  if (!businessName || !rawSlug || !ownerName || !ownerEmail || !ownerPhone || !password) {
     throw new Error("Missing required fields");
   }
 
-  if (!/^[a-z0-9-]{3,40}$/.test(slug)) {
-    throw new Error("Invalid slug format");
+  const slugResult = companySlugSchema.safeParse(rawSlug);
+  if (!slugResult.success) {
+    throw new Error(slugResult.error.issues[0]?.message || "Invalid slug format");
   }
+  const slug = slugResult.data;
 
   if (password.length < 8) {
     throw new Error("Password must be at least 8 characters");

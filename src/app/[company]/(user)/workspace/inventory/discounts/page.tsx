@@ -14,7 +14,11 @@ import {
 } from "@heroicons/react/24/outline";
 import { useTenant } from "@/context/TenantContext";
 import ProductLookupModal from "@/components/product/ProductLookupModal";
-import { useProductLookup } from "@/hooks/useProductLookup";
+import {
+  findProductByBarcodeOrCode,
+  paginateLookupSelectedFirst,
+  useProductLookup,
+} from "@/hooks/useProductLookup";
 import { usePagination } from "@/hooks/usePagination";
 import { useConfirm } from "@/hooks/useConfirm";
 import { useNotify } from "@/hooks/useNotify";
@@ -64,15 +68,13 @@ export default function DiscountSchemesPage() {
   const { company } = useTenant();
   const {
     items: lookupItems,
+    filteredItems: lookupFilteredItems,
     loading: lookupLoading,
     filters: lookupFilters,
     setFilters: setLookupFilters,
     page: lookupPage,
     setPage: setLookupPage,
-    totalPages: lookupTotalPages,
     itemsPerPage: lookupItemsPerPage,
-    paginatedItems: lookupPaginatedItems,
-    totalCount: lookupTotalCount,
     categoryOptions: lookupCategoryOptions,
     resetFilters: resetLookupFilters,
   } = useProductLookup({ enabled: Boolean(company) });
@@ -101,6 +103,7 @@ export default function DiscountSchemesPage() {
 
   const [selectModalOpen, setSelectModalOpen] = useState(false);
   const [selectedVariantMap, setSelectedVariantMap] = useState<Record<string, boolean>>({});
+  const [scannedVariantOrder, setScannedVariantOrder] = useState<string[]>([]);
   const [barcodeValue, setBarcodeValue] = useState("");
   const [barcodeMessage, setBarcodeMessage] = useState("");
 
@@ -157,9 +160,22 @@ export default function DiscountSchemesPage() {
     resetDeps: [search],
   });
 
-  const allFilteredSelected =
-    lookupPaginatedItems.length > 0 &&
-    lookupPaginatedItems.every((row) => selectedVariantMap[String(row.variant_id)]);
+  const {
+    paginatedItems: lookupPaginatedItems,
+    totalPages: lookupTotalPages,
+    totalCount: lookupTotalCount,
+    currentPage: lookupCurrentPage,
+  } = useMemo(
+    () =>
+      paginateLookupSelectedFirst(
+        lookupFilteredItems,
+        (row) => Boolean(selectedVariantMap[String(row.variant_id)]),
+        lookupPage,
+        lookupItemsPerPage,
+        scannedVariantOrder
+      ),
+    [lookupFilteredItems, selectedVariantMap, lookupPage, lookupItemsPerPage, scannedVariantOrder]
+  );
 
   const toggleSelectAll = (checked: boolean, rows: ProductLookupItem[]) => {
     if (!checked) {
@@ -223,20 +239,28 @@ export default function DiscountSchemesPage() {
 
   const handleBarcodeSubmit = (value?: string) => {
     const barcode = String(value ?? barcodeValue).trim();
+    setBarcodeValue("");
     if (!barcode) return;
-    const match = lookupItems.find((item) => String(item.barcode || "") === barcode);
+    const match = findProductByBarcodeOrCode(lookupItems, barcode);
     if (!match) {
-      setBarcodeMessage(`Barcode "${barcode}" not found.`);
+      setBarcodeMessage("");
+      notify(`Product with barcode ${barcode} not found.`, { severity: "warning" });
       return;
     }
+    const key = String(match.variant_id);
     setBarcodeMessage("");
-    setSelectedVariantMap((prev) => ({ ...prev, [String(match.variant_id)]: true }));
-    setBarcodeValue("");
+    setSelectedVariantMap((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
+    setScannedVariantOrder((prev) => [key, ...prev.filter((id) => id !== key)]);
+    if (!lookupFilteredItems.some((item) => item.variant_id === match.variant_id)) {
+      resetLookupFilters();
+    }
+    setLookupPage(1);
   };
 
   const resetForm = () => {
     setForm(initialForm);
     setSelectedVariantMap({});
+    setScannedVariantOrder([]);
     setErrors({});
     setDuplicatedFromId(null);
     setPreloadedVariantInfo({});
@@ -1013,6 +1037,7 @@ export default function DiscountSchemesPage() {
           onClose={() => setSelectModalOpen(false)}
           onAddSelected={() => setSelectModalOpen(false)}
           items={lookupPaginatedItems}
+          allItems={lookupItems}
           loading={lookupLoading}
           filters={lookupFilters}
           onFiltersChange={(next) => {
@@ -1020,7 +1045,7 @@ export default function DiscountSchemesPage() {
             setLookupPage(1);
           }}
           categoryOptions={lookupCategoryOptions}
-          page={lookupPage}
+          page={lookupCurrentPage}
           totalPages={lookupTotalPages}
           itemsPerPage={lookupItemsPerPage}
           totalCount={lookupTotalCount}

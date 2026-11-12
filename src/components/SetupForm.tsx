@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { apiFetch } from "@/lib/apiFetch";
+import { companySlugSchema } from "@/lib/reservedSlugs";
 
 /* ===============================
    FLOATING INPUT COMPONENT (UNCHANGED)
@@ -99,8 +100,14 @@ export default function SetupForm() {
     else if (!/^[0-9]{10}$/.test(form.phone))
       newErrors.phone = "Phone must be 10 digits";
 
-    if (!form.subdomain_url.trim())
+    if (!form.subdomain_url.trim()) {
       newErrors.subdomain_url = "Company URL (Subdomain) is required";
+    } else {
+      const slugRes = companySlugSchema.safeParse(form.subdomain_url);
+      if (!slugRes.success) {
+        newErrors.subdomain_url = slugRes.error.issues[0]?.message || "Invalid Company URL";
+      }
+    }
 
     if (!form.schema_name.trim())
       newErrors.schema_name = "Database Schema name is required";

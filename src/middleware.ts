@@ -1,3 +1,4 @@
+//C:\Users\yanna\digistorii-ECom\src\middleware.ts
 import { NextRequest, NextResponse } from "next/server";
 import { canAccess, getFirstAccessiblePath, getRequiredPermissionForPath } from "./lib/accessControl";
 import {
@@ -7,6 +8,8 @@ import {
   StaffSessionPayload,
   OnboardingSessionPayload,
 } from "./lib/session";
+import { isReservedSlug } from "./lib/reservedSlugs";
+import { parseDomainHostname } from "./lib/tenant/resolveDomain";
 
 // API paths that need no staff sign-in. Each of these either has its own guard
 // (onboarding session, customer session, webhook signature, cron secret) or is public by design.
@@ -29,7 +32,7 @@ const PUBLIC_API_PREFIXES = [
 ];
 // Exact paths only (sub-paths stay protected). /api/company returns just the display name for login pages.
 const PUBLIC_API_EXACT = ["/api/company"];
-const PUBLIC_COMPANY_API = /^\/api\/[^/]+\/ecom\/(checkout|payment|webhooks)(\/|$)/;
+const PUBLIC_COMPANY_API = /^\/api\/[^/]+\/(ecom\/(checkout|payment|webhooks|support|customer)|storefront)(\/|$)/;
 const COMPANY_SCOPED_API = /^\/api\/([^/]+)\/(ecom|admin|upload)(\/|$)/;
 // Lookups the onboarding wizard needs before the owner has a staff session.
 const ONBOARDING_API_PREFIXES = ["/api/currencies", "/api/user-responsibilities", "/api/locations", "/api/warehouses"];
@@ -41,7 +44,13 @@ async function resolveTenantBySlug(req: NextRequest, slug: string) {
     if (!res.ok) return null;
     const body = await res.json();
     return body.success
-      ? { companyId: String(body.company_id), schemaName: String(body.schema_name), tenant: String(body.subdomain_url) }
+      ? {
+        companyId: String(body.company_id),
+        schemaName: String(body.schema_name),
+        tenant: String(body.subdomain_url),
+        isStorefrontBlocked: Boolean(body.is_storefront_blocked),
+        subscriptionState: String(body.subscription_state || "ACTIVE"),
+      }
       : null;
   } catch {
     return null;
@@ -74,7 +83,7 @@ async function handleApi(req: NextRequest) {
     PUBLIC_COMPANY_API.test(pathname);
 
   if (isPublic) {
-    const scoped = pathname.match(/^\/api\/(?:tenant|storefront)\/([^/]+)/) || pathname.match(/^\/api\/([^/]+)\/ecom\//);
+    const scoped = pathname.match(/^\/api\/(?:tenant|storefront)\/([^/]+)/) || pathname.match(/^\/api\/([^/]+)\/(?:ecom|storefront)\//);
     const scopedSlug = scoped?.[1] && scoped[1] !== "auth" ? scoped[1] : "";
     const slug = (scopedSlug || clientTenant).toLowerCase();
     if (slug) {
@@ -98,10 +107,13 @@ async function handleApi(req: NextRequest) {
   }
   if (!company) return jsonError(401, "Unauthorized: sign in required.");
 
-  // /api/<company>/(ecom|admin|upload)/... must be for the signed-in company.
-  const scopedCompany = pathname.match(COMPANY_SCOPED_API)?.[1]?.toLowerCase();
-  if (scopedCompany && scopedCompany !== company) return jsonError(403, "Forbidden: company mismatch.");
+  // Skip non-company static utility routes from company mismatch check
+  const NON_COMPANY_API_ROUTES = ["image-master", "image-master-v2", "pricing"];
 
+  const scopedCompany = pathname.match(COMPANY_SCOPED_API)?.[1]?.toLowerCase();
+  if (scopedCompany && !NON_COMPANY_API_ROUTES.includes(scopedCompany) && scopedCompany !== company) {
+    return jsonError(403, "Forbidden: company mismatch.");
+  }
   const tenant = await resolveTenantBySlug(req, company);
   if (!tenant) return jsonError(403, "Forbidden: unknown company.");
   applyTenant(tenant);
@@ -125,40 +137,46 @@ export async function middleware(req: NextRequest) {
     pathname.startsWith("/_next") ||
     pathname.startsWith("/setup") ||
     pathname.startsWith("/get-service") ||
+    pathname.startsWith("/store-suspended") ||
     pathname.startsWith("/api/internal/") ||
     pathname.startsWith("/favicon.ico") ||
-    pathname.includes(".")
+    (pathname.includes(".") && !pathname.endsWith("/sitemap.xml") && !pathname.endsWith("/robots.txt"))
   ) {
     return NextResponse.next();
   }
 
-  // Define platform hosts to check if it's a custom domain
-  const isCustomDomain = !host.includes("localhost") && !host.includes("digistorii") && !host.includes("platform.com");
+  // Parse host to identify platform root or merchant custom domain
+  const domainInfo = parseDomainHostname(host);
+  const isCustomDomain = domainInfo.isCustomDomain;
 
   // Let's resolve the tenant details
   let companyId = "";
   let schemaName = "";
   let tenant = "";
+  let isStorefrontBlocked = false;
+  let subscriptionState = "ACTIVE";
 
   const segments = pathname.split("/").filter(Boolean);
 
   if (isCustomDomain) {
-    // 1. If it's a custom domain, look up by host name
+    // 1. If it's a custom domain, look up by hostname
     try {
-      const res = await fetch(new URL(`/api/resolve-tenant?host=${host}`, req.url));
+      const res = await fetch(new URL(`/api/resolve-tenant?host=${encodeURIComponent(domainInfo.hostname)}`, req.url));
       if (res.ok) {
         const body = await res.json();
         if (body.success) {
           companyId = String(body.company_id);
           schemaName = body.schema_name;
           tenant = body.subdomain_url;
+          isStorefrontBlocked = Boolean(body.is_storefront_blocked);
+          subscriptionState = String(body.subscription_state || "ACTIVE");
         }
       }
     } catch (e) {
       console.error("Middleware custom domain resolution failed:", e);
     }
   } else {
-    // 2. Look up by path segment or headers (if it's a workspace API call with x-tenant)
+    // 2. Platform root or local path routing (e.g., localhost:3000/tanviboutique or testdigistorii.workpro.cloud/tanviboutique)
     let subdomain = "";
     if (segments[0] === "digistorii" && segments[1]) {
       subdomain = segments[1];
@@ -168,19 +186,21 @@ export async function middleware(req: NextRequest) {
       subdomain = req.headers.get("x-tenant") || "";
     }
 
-    if (subdomain && subdomain !== "api" && subdomain !== "setup" && subdomain !== "get-service") {
+    if (subdomain && !isReservedSlug(subdomain)) {
       try {
-        const res = await fetch(new URL(`/api/resolve-tenant?subdomain=${subdomain}`, req.url));
+        const res = await fetch(new URL(`/api/resolve-tenant?subdomain=${encodeURIComponent(subdomain)}`, req.url));
         if (res.ok) {
           const body = await res.json();
           if (body.success) {
             companyId = String(body.company_id);
             schemaName = body.schema_name;
             tenant = body.subdomain_url;
+            isStorefrontBlocked = Boolean(body.is_storefront_blocked);
+            subscriptionState = String(body.subscription_state || "ACTIVE");
           }
         }
       } catch (e) {
-        console.error("Middleware subdomain resolution failed:", e);
+        console.error("Middleware tenant resolution failed:", e);
       }
     }
   }
@@ -191,19 +211,108 @@ export async function middleware(req: NextRequest) {
     requestHeaders.set("x-tenant", tenant);
     requestHeaders.set("x-schema-name", schemaName);
     requestHeaders.set("x-company-id", companyId);
+    requestHeaders.set("x-storefront-blocked", isStorefrontBlocked ? "1" : "0");
+    requestHeaders.set("x-subscription-state", subscriptionState);
   }
 
-  // Rewrite paths if needed
+  // Rewrite or redirect paths if needed
   let effectivePathname = pathname;
   let shouldRewrite = false;
 
+  const DIRECT_COMPANY_ROUTES = new Set([
+    "workspace",
+    "admin",
+    "store",
+    "api",
+    "track",
+    "account",
+    "policies",
+    "robots.txt",
+    "sitemap.xml",
+  ]);
+
   if (isCustomDomain && tenant) {
-    effectivePathname = `/${tenant}${pathname}`;
-    shouldRewrite = true;
+    // Block /workspace and /admin routes on custom domains
+    if (
+      pathname === "/workspace" ||
+      pathname.startsWith("/workspace/") ||
+      pathname === "/admin" ||
+      pathname.startsWith("/admin/") ||
+      pathname.startsWith(`/${tenant}/workspace`) ||
+      pathname.startsWith(`/${tenant}/admin`)
+    ) {
+      return new NextResponse("Not Found", { status: 404 });
+    }
+
+    // Hide /store on custom domains via redirect
+    if (pathname === "/store" || pathname.startsWith("/store/")) {
+      const stripped = pathname.slice("/store".length) || "/";
+      const redirectUrl = new URL(stripped, req.url);
+      redirectUrl.search = req.nextUrl.search;
+      return NextResponse.redirect(redirectUrl);
+    }
+    if (pathname === `/${tenant}/store` || pathname.startsWith(`/${tenant}/store/`)) {
+      const stripped = pathname.slice(`/${tenant}/store`.length) || "/";
+      const redirectUrl = new URL(stripped, req.url);
+      redirectUrl.search = req.nextUrl.search;
+      return NextResponse.redirect(redirectUrl);
+    }
+
+    if (!pathname.startsWith(`/${tenant}`)) {
+      if (
+        pathname.startsWith("/account") ||
+        pathname.startsWith("/checkout/payment-retry") ||
+        pathname.startsWith("/policies") ||
+        pathname.startsWith("/track") ||
+        pathname === "/robots.txt" ||
+        pathname === "/sitemap.xml"
+      ) {
+        effectivePathname = `/${tenant}${pathname}`;
+      } else if (pathname === "/" || pathname === "") {
+        effectivePathname = `/${tenant}/store`;
+      } else {
+        effectivePathname = `/${tenant}/store${pathname}`;
+      }
+      shouldRewrite = true;
+    }
   } else if (segments[0] === "digistorii" && tenant) {
     effectivePathname = pathname.slice("/digistorii".length);
     shouldRewrite = true;
+  } else if (tenant) {
+    // Redirect /${company}/store (and subpaths) -> /${company} (and subpaths)
+    const storePrefix = `/${tenant}/store`;
+    if (pathname === storePrefix || pathname.startsWith(`${storePrefix}/`)) {
+      const stripped = pathname.slice(storePrefix.length);
+      const redirectUrl = new URL(`/${tenant}${stripped}`, req.url);
+      redirectUrl.search = req.nextUrl.search;
+      return NextResponse.redirect(redirectUrl);
+    }
+
+    // Internally rewrite /${company} and storefront subpaths to /${company}/store...
+    const subSegment = segments[1] || "";
+    const isDirectCheckoutSubroute = pathname.startsWith(`/${tenant}/checkout/payment-retry`);
+    if (pathname === `/${tenant}` || pathname === `/${tenant}/`) {
+      effectivePathname = `/${tenant}/store`;
+      shouldRewrite = true;
+    } else if (
+      pathname.startsWith(`/${tenant}/`) &&
+      !DIRECT_COMPANY_ROUTES.has(subSegment) &&
+      !isDirectCheckoutSubroute
+    ) {
+      const rest = pathname.slice(`/${tenant}`.length);
+      effectivePathname = `/${tenant}/store${rest}`;
+      shouldRewrite = true;
+    }
   }
+
+  // Helper to rewrite internally while preserving search parameters
+  const rewriteWithSearch = (targetPath: string) => {
+    const targetUrl = new URL(targetPath, req.url);
+    targetUrl.search = req.nextUrl.search;
+    return NextResponse.rewrite(targetUrl, {
+      request: { headers: requestHeaders },
+    });
+  };
 
   // If this is an API route, just pass it along with updated headers
   if (pathname.startsWith("/api")) {
@@ -220,9 +329,7 @@ export async function middleware(req: NextRequest) {
 
   if (!company || company === "api" || company === "setup" || company === "get-service") {
     if (shouldRewrite) {
-      return NextResponse.rewrite(new URL(effectivePathname, req.url), {
-        request: { headers: requestHeaders }
-      });
+      return rewriteWithSearch(effectivePathname);
     }
     return NextResponse.next({
       request: { headers: requestHeaders }
@@ -238,9 +345,7 @@ export async function middleware(req: NextRequest) {
 
   if (isLoginOrReset) {
     if (shouldRewrite) {
-      return NextResponse.rewrite(new URL(effectivePathname, req.url), {
-        request: { headers: requestHeaders }
-      });
+      return rewriteWithSearch(effectivePathname);
     }
     return NextResponse.next({
       request: { headers: requestHeaders }
@@ -251,13 +356,25 @@ export async function middleware(req: NextRequest) {
   const userCookie = req.cookies.get(STAFF_COOKIE_NAME)?.value;
   const adminCookie = req.cookies.get("admin_user")?.value;
 
-  // Storefront pages (e.g. /mycompany/store/...) do NOT require admin or workspace user authentication!
-  const isStorefrontRoute = effectivePathname.includes(`/${company}/store`);
+  // Storefront pages (e.g. /mycompany/store/..., /mycompany/policies/...) do NOT require admin or workspace user authentication!
+  const isStorefrontRoute =
+    effectivePathname.includes(`/${company}/store`) ||
+    effectivePathname.includes(`/${company}/policies`) ||
+    effectivePathname.includes(`/${company}/account`) ||
+    effectivePathname.includes(`/${company}/checkout`) ||
+    effectivePathname.includes(`/${company}/track`) ||
+    (isCustomDomain && !effectivePathname.includes(`/${company}/workspace`) && !effectivePathname.includes(`/${company}/admin`));
+
   if (isStorefrontRoute) {
-    if (shouldRewrite) {
-      return NextResponse.rewrite(new URL(effectivePathname, req.url), {
+    // Hard cutoff / suspension: block storefront access and show /store-suspended
+    if (isStorefrontBlocked && !effectivePathname.endsWith("/store-suspended")) {
+      return NextResponse.rewrite(new URL("/store-suspended", req.url), {
         request: { headers: requestHeaders }
       });
+    }
+
+    if (shouldRewrite) {
+      return rewriteWithSearch(effectivePathname);
     }
     return NextResponse.next({
       request: { headers: requestHeaders }
@@ -297,9 +414,7 @@ export async function middleware(req: NextRequest) {
   }
 
   if (shouldRewrite) {
-    return NextResponse.rewrite(new URL(effectivePathname, req.url), {
-      request: { headers: requestHeaders }
-    });
+    return rewriteWithSearch(effectivePathname);
   }
 
   return NextResponse.next({

@@ -13,3 +13,4 @@ export * from "./CustomerAuthModal";
 export * from "./StorefrontFooter";
 export * from "./theme-context";
 export * from "./home-sections";
+export * from "./CustomerOrderTimeline";

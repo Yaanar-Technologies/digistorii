@@ -1,6 +1,7 @@
 import Link from "next/link";
 import OnboardingWizard from "@/components/onboarding/OnboardingWizard";
 import { normalizeBillingInterval } from "@/lib/onboarding";
+import { pool } from "@/lib/db";
 
 type SetupPageProps = {
   searchParams: Promise<{ company?: string; plan_id?: string; billing_cycle?: string }>;
@@ -9,6 +10,31 @@ type SetupPageProps = {
 export default async function SetupPage({ searchParams }: SetupPageProps) {
   const params = await searchParams;
   const company = (params?.company || "").trim().toLowerCase();
+
+  let initialOwnerEmail = "";
+  if (company) {
+    try {
+      const client = await pool.connect();
+      try {
+        const res = await client.query(
+          `SELECT u.email 
+           FROM public.users u
+           JOIN public.companies c ON c.id = u.company_id
+           WHERE LOWER(c.subdomain_url) = LOWER($1)
+           ORDER BY u.id ASC
+           LIMIT 1`,
+          [company]
+        );
+        if (res.rows.length > 0 && res.rows[0].email) {
+          initialOwnerEmail = res.rows[0].email;
+        }
+      } finally {
+        client.release();
+      }
+    } catch (e) {
+      console.error("Error fetching initial owner email:", e);
+    }
+  }
 
   return (
     <div className="h-screen w-screen overflow-hidden">
@@ -30,6 +56,7 @@ export default async function SetupPage({ searchParams }: SetupPageProps) {
           company={company}
           initialPlanId={Number(params?.plan_id || 0) || null}
           initialBillingInterval={normalizeBillingInterval(params?.billing_cycle)}
+          initialOwnerEmail={initialOwnerEmail}
         />
       )}
     </div>

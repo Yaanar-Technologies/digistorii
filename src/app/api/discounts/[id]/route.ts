@@ -118,6 +118,14 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
       );
     }
 
+    const minOrderValue = body.min_order_value !== undefined ? Math.max(0, toNumber(body.min_order_value, 0)) : 0;
+    const totalUsageLimit = body.total_usage_limit !== undefined && body.total_usage_limit !== null && body.total_usage_limit !== ""
+      ? Math.max(1, Math.floor(toNumber(body.total_usage_limit, 1)))
+      : null;
+    const perCustomerLimit = body.per_customer_limit !== undefined && body.per_customer_limit !== null && body.per_customer_limit !== ""
+      ? Math.max(1, Math.floor(toNumber(body.per_customer_limit, 1)))
+      : null;
+
     await client.query("BEGIN");
     const updateRes = await client.query(
       `
@@ -130,10 +138,13 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
           coupon_code = $5,
           applies_to = $6,
           priority = $7,
-          starts_at = $8,
-          ends_at = $9,
-          is_active = $10
-        WHERE id = $11
+          min_order_value = $8,
+          total_usage_limit = $9,
+          per_customer_limit = $10,
+          starts_at = $11,
+          ends_at = $12,
+          is_active = $13
+        WHERE id = $14
         RETURNING *
       `,
       [
@@ -144,6 +155,9 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
         couponValue,
         resolvedAppliesTo,
         priority,
+        minOrderValue,
+        totalUsageLimit,
+        perCustomerLimit,
         startsAt,
         endsAt,
         body.is_active ?? true,

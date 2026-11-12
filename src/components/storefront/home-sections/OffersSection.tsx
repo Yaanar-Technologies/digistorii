@@ -4,6 +4,7 @@ import React from "react";
 import { OffersSection as OffersSectionType, StorefrontTheme, TenantOffer } from "../types";
 import { TagIcon, SparklesIcon } from "@heroicons/react/24/outline";
 import { formatPrice } from "@/lib/currency";
+import { isBannerActive } from "@/lib/bannerScheduling";
 
 interface OffersSectionProps {
   section: OffersSectionType;
@@ -23,6 +24,21 @@ export const OffersHomeSection: React.FC<OffersSectionProps> = ({
   isPreview = false,
 }) => {
   const discountIdSet = new Set((section.discountIds || []).map(Number));
+
+  // Check banner / promo schedule
+  const isScheduledActive = isBannerActive(section);
+  if (!isScheduledActive) {
+    if (isPreview) {
+      return (
+        <section className="py-8 px-4 text-center border-2 border-dashed border-amber-200 rounded-xl m-4 bg-amber-50">
+          <p className="text-sm font-medium text-amber-700">
+            Special Offers: Section is currently outside its scheduled active dates
+          </p>
+        </section>
+      );
+    }
+    return null;
+  }
 
   // Find active matching offers
   const activeMatchingOffers = offers.filter(

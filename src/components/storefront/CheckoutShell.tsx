@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { StorefrontTheme, CartItemType } from "./types";
 import { formatPrice } from "@/lib/currency";
+import { City, Country, State } from "country-state-city";
 
 export type CheckoutPaymentMethod = "upi" | "card" | "netbanking" | "wallet" | "cod";
 
@@ -39,6 +40,9 @@ export interface CheckoutShellProps {
   shippingFreeThreshold?: number;
   shippingFee?: number;
   initialCouponCode?: string;
+  serviceableCountries?: string[];
+  serviceableStates?: string[];
+  serviceablePincodes?: string[];
 }
 
 export const CheckoutShell: React.FC<CheckoutShellProps> = ({
@@ -52,6 +56,9 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
   shippingFreeThreshold = 500,
   shippingFee: propShippingFee = 49,
   initialCouponCode = "",
+  serviceableCountries,
+  serviceableStates,
+  serviceablePincodes,
 }) => {
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [addresses, setAddresses] = useState<any[]>(propSavedAddresses);
@@ -87,6 +94,19 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
     addressType: "Home",
     isDefault: false,
   });
+
+  const countryOptions = Country.getAllCountries();
+  const selectedCountry =
+    countryOptions.find((c) => c.name.toLowerCase() === (shippingAddress.country || "India").toLowerCase()) ||
+    countryOptions.find((c) => c.isoCode === "IN");
+  const stateOptions = State.getStatesOfCountry(selectedCountry?.isoCode || "IN");
+  const selectedState = stateOptions.find(
+    (s) => s.name.toLowerCase() === (shippingAddress.state || "").trim().toLowerCase()
+  );
+  const cityOptions =
+    selectedCountry && selectedState
+      ? City.getCitiesOfState(selectedCountry.isoCode, selectedState.isoCode)
+      : [];
 
   // Payment Method Scaffolding - normalized values
   const [paymentMethod, setPaymentMethod] = useState<CheckoutPaymentMethod>("cod");
@@ -173,11 +193,30 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
       );
       const data = await res.json();
       if (res.ok && data?.success && data?.data) {
+        const couponData = data.data;
+        const minOrderVal = Number(couponData.min_order_value || 0);
+
+        // Check Minimum Order Value (MOV)
+        let eligibleSub = subtotal;
+        if (couponData.applies_to === "specific_variants") {
+          const allowedVariants = (couponData.allowed_variants || []).map((id: any) => Number(id));
+          const eligibleItems = items.filter((i) => allowedVariants.includes(Number(i.variantId)));
+          eligibleSub = eligibleItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
+        }
+
+        if (minOrderVal > 0 && eligibleSub < minOrderVal) {
+          setAppliedCoupon(null);
+          setCouponError(
+            `Add items worth ₹${(minOrderVal - eligibleSub).toFixed(2)} more to use coupon code "${couponData.coupon_code}". (Minimum order: ₹${minOrderVal.toFixed(2)})`
+          );
+          return;
+        }
+
         setAppliedCoupon({
-          ...data.data,
-          value: Number(data.data.value || 0),
-          allowed_variants: Array.isArray(data.data.allowed_variants)
-            ? data.data.allowed_variants.map((id: any) => Number(id))
+          ...couponData,
+          value: Number(couponData.value || 0),
+          allowed_variants: Array.isArray(couponData.allowed_variants)
+            ? couponData.allowed_variants.map((id: any) => Number(id))
             : [],
         });
         setCouponInput("");
@@ -246,8 +285,58 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
   };
 
   const validateIndianPincode = (pin: string) => {
-    return /^[1-9][0-9]{5}$/.test(pin.trim());
+    const cleanPin = String(pin || "").replace(/\D/g, "");
+    return /^[1-9][0-9]{5}$/.test(cleanPin);
   };
+
+  const serviceabilityStatus = React.useMemo(() => {
+    const pin = (shippingAddress.postalCode || "").replace(/\D/g, "").trim();
+    const rawState = (shippingAddress.state || "").trim();
+    const cntry = (shippingAddress.country || "India").trim().toLowerCase();
+
+    // Helper to normalize state names so "Tamil Nadu", "TN", "tamilnadu" are interchangeable
+    const normalizeState = (s: string) => {
+      const clean = (s || "").toLowerCase().replace(/[\s_-]+/g, "");
+      if (clean === "tn" || clean === "tamilnadu") return "tamilnadu";
+      return clean;
+    };
+
+    const st = normalizeState(rawState);
+
+    if (serviceableCountries && serviceableCountries.length > 0 && cntry) {
+      const allowed = serviceableCountries.map((c) => c.trim().toLowerCase());
+      if (!allowed.includes(cntry)) {
+        return {
+          isServiceable: false,
+          reason: `Delivery is currently unavailable to ${shippingAddress.country || "selected country"}.`,
+        };
+      }
+    }
+
+    // If serviceableStates is configured, check normalized state; if empty/undefined, all states are serviceable
+    if (serviceableStates && serviceableStates.length > 0 && rawState) {
+      const allowed = serviceableStates.map((s) => normalizeState(s.trim()));
+      if (!allowed.includes(st)) {
+        return {
+          isServiceable: false,
+          reason: `Delivery is currently unavailable to state "${shippingAddress.state}".`,
+        };
+      }
+    }
+
+    if (serviceablePincodes && serviceablePincodes.length > 0 && pin.length >= 6) {
+      const allowed = serviceablePincodes.map((p) => p.replace(/\D/g, "").trim());
+      const isMatch = allowed.some((allowedPin) => allowedPin === pin || pin.startsWith(allowedPin));
+      if (!isMatch) {
+        return {
+          isServiceable: false,
+          reason: `Delivery is unavailable for PIN code ${pin}.`,
+        };
+      }
+    }
+
+    return { isServiceable: true, reason: "" };
+  }, [shippingAddress.postalCode, shippingAddress.state, shippingAddress.country, serviceableCountries, serviceableStates, serviceablePincodes]);
 
   const handleNextStep = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -284,6 +373,11 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
         return;
       }
 
+      if (!serviceabilityStatus.isServiceable) {
+        setAddressError(serviceabilityStatus.reason);
+        return;
+      }
+
       // Avoid Unnecessary Saves:
       // Only call POST /api/ecom/customer/addresses if:
       // 1. selectedAddressId === "new", OR
@@ -302,9 +396,13 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
               recipient_phone: shippingAddress.phone.trim(),
               address_line1: shippingAddress.addressLine.trim(),
               address_line2: shippingAddress.addressLine2.trim(),
-              city: shippingAddress.city.trim(),
-              state: shippingAddress.state.trim(),
-              pincode: shippingAddress.postalCode.trim(),
+              city: (shippingAddress.city.trim().toLowerCase() === "chennai" || shippingAddress.city.trim().toLowerCase() === "madras" || shippingAddress.postalCode.replace(/\D/g, "").startsWith("600"))
+                ? "Chennai"
+                : shippingAddress.city.trim(),
+              state: (["tn", "tamilnadu"].includes(shippingAddress.state.toLowerCase().replace(/[\s_-]+/g, "")) || shippingAddress.city.trim().toLowerCase() === "chennai" || shippingAddress.postalCode.replace(/\D/g, "").startsWith("600"))
+                ? "Tamil Nadu"
+                : shippingAddress.state.trim(),
+              pincode: shippingAddress.postalCode.replace(/\D/g, "").trim(),
               country: shippingAddress.country || "India",
               address_type: shippingAddress.addressType || "Home",
               is_default: shippingAddress.isDefault,
@@ -416,6 +514,13 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
                   1. Delivery & Shipping Address
                 </h2>
 
+                {!serviceabilityStatus.isServiceable && (
+                  <div className="rounded-xl border border-red-200 bg-red-50 p-3.5 mb-4 flex items-center gap-2.5 text-xs text-red-800 font-medium">
+                    <span className="text-red-600 font-bold text-base shrink-0">⚠️</span>
+                    <span>{serviceabilityStatus.reason} Please select or enter a serviceable address.</span>
+                  </div>
+                )}
+
                 {addressError && (
                   <div className="rounded-xl bg-red-50 p-3.5 text-xs text-red-600 font-semibold border border-red-100">
                     {addressError}
@@ -439,8 +544,8 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
                             key={addr.id}
                             onClick={() => handleSelectAddress(addr)}
                             className={`p-3.5 rounded-xl border cursor-pointer transition-all ${isSelected
-                                ? "border-black bg-gray-50 ring-1 ring-black shadow-xs"
-                                : "border-gray-200 hover:border-gray-300"
+                              ? "border-black bg-gray-50 ring-1 ring-black shadow-xs"
+                              : "border-gray-200 hover:border-gray-300"
                               }`}
                           >
                             <div className="flex items-center justify-between text-xs font-bold text-gray-900">
@@ -482,11 +587,10 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
                         type="button"
                         key={type}
                         onClick={() => setShippingAddress({ ...shippingAddress, addressType: type })}
-                        className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
-                          (shippingAddress.addressType || "Home") === type
-                            ? "border-blue-600 bg-blue-50 text-blue-700 ring-1 ring-blue-600 shadow-xs"
-                            : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
-                        }`}
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${(shippingAddress.addressType || "Home") === type
+                          ? "border-blue-600 bg-blue-50 text-blue-700 ring-1 ring-blue-600 shadow-xs"
+                          : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
+                          }`}
                       >
                         {type === "Home" ? "🏠 Home" : type === "Work" ? "💼 Work" : "📍 Other"}
                       </button>
@@ -561,29 +665,46 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">City *</label>
-                    <input
-                      type="text"
+                    <label className="block text-xs font-medium text-gray-700 mb-1">State *</label>
+                    <select
                       required
-                      value={shippingAddress.city}
-                      onChange={(e) => setShippingAddress({ ...shippingAddress, city: e.target.value })}
-                      placeholder="Bengaluru"
-                      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2"
+                      value={shippingAddress.state}
+                      onChange={(e) => setShippingAddress({ ...shippingAddress, state: e.target.value, city: "" })}
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 bg-white"
                       style={{ "--tw-ring-color": theme.primaryColor } as React.CSSProperties}
-                    />
+                    >
+                      <option value="">Select State</option>
+                      {shippingAddress.state && !stateOptions.some((s) => s.name.toLowerCase() === shippingAddress.state.toLowerCase()) && (
+                        <option value={shippingAddress.state}>{shippingAddress.state}</option>
+                      )}
+                      {stateOptions.map((s) => (
+                        <option key={s.isoCode} value={s.name}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">State *</label>
-                    <input
-                      type="text"
+                    <label className="block text-xs font-medium text-gray-700 mb-1">City *</label>
+                    <select
                       required
-                      value={shippingAddress.state}
-                      onChange={(e) => setShippingAddress({ ...shippingAddress, state: e.target.value })}
-                      placeholder="Karnataka"
-                      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2"
+                      disabled={!shippingAddress.state}
+                      value={shippingAddress.city}
+                      onChange={(e) => setShippingAddress({ ...shippingAddress, city: e.target.value })}
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 bg-white disabled:bg-gray-100 disabled:cursor-not-allowed"
                       style={{ "--tw-ring-color": theme.primaryColor } as React.CSSProperties}
-                    />
+                    >
+                      <option value="">{shippingAddress.state ? "Select City" : "Select State first"}</option>
+                      {shippingAddress.city && !cityOptions.some((c) => c.name.toLowerCase() === shippingAddress.city.toLowerCase()) && (
+                        <option value={shippingAddress.city}>{shippingAddress.city}</option>
+                      )}
+                      {cityOptions.map((c, idx) => (
+                        <option key={`${c.name}-${idx}`} value={c.name}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   <div>
@@ -624,11 +745,11 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
                   </button>
                   <button
                     type="submit"
-                    disabled={isSavingAddress}
-                    className="rounded-xl px-6 py-2.5 text-sm font-semibold text-white shadow-sm disabled:opacity-50 cursor-pointer"
+                    disabled={isSavingAddress || !serviceabilityStatus.isServiceable}
+                    className="rounded-xl px-6 py-2.5 text-sm font-semibold text-white shadow-sm disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
                     style={{ backgroundColor: theme.primaryColor }}
                   >
-                    {isSavingAddress ? "Saving..." : "Continue to Payment"}
+                    {isSavingAddress ? "Saving..." : !serviceabilityStatus.isServiceable ? "Location Unavailable" : "Continue to Payment"}
                   </button>
                 </div>
               </form>
@@ -644,8 +765,8 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
                 <div className="space-y-3">
                   <label
                     className={`flex items-center justify-between rounded-xl border p-4 cursor-pointer transition-all ${paymentMethod === "cod"
-                        ? "border-blue-600 bg-blue-50/40 ring-1 ring-blue-600"
-                        : "border-gray-200 hover:bg-gray-50"
+                      ? "border-blue-600 bg-blue-50/40 ring-1 ring-blue-600"
+                      : "border-gray-200 hover:bg-gray-50"
                       }`}
                   >
                     <div className="flex items-center gap-3">
@@ -664,8 +785,8 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
 
                   <label
                     className={`flex items-center justify-between rounded-xl border p-4 cursor-pointer transition-all ${paymentMethod === "upi"
-                        ? "border-blue-600 bg-blue-50/40 ring-1 ring-blue-600"
-                        : "border-gray-200 hover:bg-gray-50"
+                      ? "border-blue-600 bg-blue-50/40 ring-1 ring-blue-600"
+                      : "border-gray-200 hover:bg-gray-50"
                       }`}
                   >
                     <div className="flex items-center gap-3">
@@ -682,65 +803,7 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
                     </div>
                   </label>
 
-                  <label
-                    className={`flex items-center justify-between rounded-xl border p-4 cursor-pointer transition-all ${paymentMethod === "card"
-                        ? "border-blue-600 bg-blue-50/40 ring-1 ring-blue-600"
-                        : "border-gray-200 hover:bg-gray-50"
-                      }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="radio"
-                        name="payment"
-                        checked={paymentMethod === "card"}
-                        onChange={() => setPaymentMethod("card")}
-                      />
-                      <div>
-                        <div className="text-sm font-bold text-gray-900">Credit / Debit Card</div>
-                        <div className="text-xs text-gray-500">Visa, MasterCard, RuPay, Maestro</div>
-                      </div>
-                    </div>
-                  </label>
 
-                  <label
-                    className={`flex items-center justify-between rounded-xl border p-4 cursor-pointer transition-all ${paymentMethod === "netbanking"
-                        ? "border-blue-600 bg-blue-50/40 ring-1 ring-blue-600"
-                        : "border-gray-200 hover:bg-gray-50"
-                      }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="radio"
-                        name="payment"
-                        checked={paymentMethod === "netbanking"}
-                        onChange={() => setPaymentMethod("netbanking")}
-                      />
-                      <div>
-                        <div className="text-sm font-bold text-gray-900">Net Banking</div>
-                        <div className="text-xs text-gray-500">All major Indian banks supported</div>
-                      </div>
-                    </div>
-                  </label>
-
-                  <label
-                    className={`flex items-center justify-between rounded-xl border p-4 cursor-pointer transition-all ${paymentMethod === "wallet"
-                        ? "border-blue-600 bg-blue-50/40 ring-1 ring-blue-600"
-                        : "border-gray-200 hover:bg-gray-50"
-                      }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="radio"
-                        name="payment"
-                        checked={paymentMethod === "wallet"}
-                        onChange={() => setPaymentMethod("wallet")}
-                      />
-                      <div>
-                        <div className="text-sm font-bold text-gray-900">Wallets</div>
-                        <div className="text-xs text-gray-500">Paytm, PhonePe, Mobikwik, etc.</div>
-                      </div>
-                    </div>
-                  </label>
                 </div>
 
                 <div className="pt-4 flex justify-between">

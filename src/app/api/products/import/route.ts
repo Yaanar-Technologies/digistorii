@@ -11,6 +11,7 @@ import {
 import { getTenantSchema } from "@/lib/tenant";
 import { normalizeSku } from "@/lib/product-utils";
 import { getRuleValidationError } from "@/lib/formValidationRules";
+import { getNextOpeningStockDocNo, postOpeningStockToLedger } from "@/lib/stockLedger";
 
 type FieldKey =
   | "name"
@@ -31,7 +32,10 @@ type FieldKey =
   | "sku"
   | "low_stock_threshold"
   | "backorders_allowed"
-  | "barcode";
+  | "barcode"
+  | "qty"
+  | "warehouse"
+  | "locator";
 
 type MappingConfig = {
   templateName?: string;
@@ -69,6 +73,9 @@ type PreliminaryRow = {
   rootProductId: number | null;
   rootRowNumber: number | null;
   isRootRow: boolean;
+  initialQty: number;
+  warehouseId: number | null;
+  locatorId: number | null;
 };
 
 type ValidatedRow = {
@@ -85,6 +92,9 @@ type ValidatedRow = {
   rootProductId: number | null;
   rootRowNumber: number | null;
   isRootRow: boolean;
+  initialQty: number;
+  warehouseId: number | null;
+  locatorId: number | null;
 };
 
 type ProductFamily = {
@@ -123,6 +133,9 @@ const IMPORTABLE_FIELDS: FieldKey[] = [
   "low_stock_threshold",
   "backorders_allowed",
   "barcode",
+  "qty",
+  "warehouse",
+  "locator",
 ];
 
 function stringValue(value: unknown): string {
@@ -242,6 +255,16 @@ function parseRows(rows: Record<string, unknown>[], mapping: MappingConfig): Par
       }
     }
 
+    const qtyRaw = stringValue(values.qty);
+    if (qtyRaw) {
+      const qtyVal = asNumber(qtyRaw);
+      if (qtyVal === null || qtyVal < 0) {
+        errors.push("qty must be a valid non-negative number");
+      } else if (qtyVal > 0 && (!stringValue(values.warehouse) || !stringValue(values.locator))) {
+        errors.push("Warehouse and Locator are required when Quantity > 0");
+      }
+    }
+
     return { rowNumber: index + 2, values, errors };
   });
 }
@@ -306,6 +329,62 @@ async function validateRows(options: {
   ]);
   const uomMap = await loadLookupMap(client, schema, "uom", "id", ["uom_name", "uom_code"]);
 
+  const [warehousesRes, locatorsRes] = await Promise.all([
+    client.query(
+      `
+        SELECT id, code, name
+        FROM "${schema}".warehouses
+        WHERE effective_to IS NULL OR effective_to >= CURRENT_DATE
+      `
+    ),
+    client.query(
+      `
+        SELECT id, locator_name, warehouse_id
+        FROM "${schema}".locators
+        WHERE effective_to IS NULL OR effective_to >= CURRENT_DATE
+      `
+    ),
+  ]);
+
+  type WarehouseMeta = { id: number; code: string; name: string };
+  type LocatorMeta = { id: number; locator_name: string; warehouse_id: number };
+
+  const warehouseById = new Map<number, WarehouseMeta>();
+  const warehouseByKey = new Map<string, WarehouseMeta>();
+  for (const w of warehousesRes.rows) {
+    const meta: WarehouseMeta = {
+      id: Number(w.id),
+      code: stringValue(w.code),
+      name: stringValue(w.name),
+    };
+    warehouseById.set(meta.id, meta);
+    if (meta.code) warehouseByKey.set(meta.code.toLowerCase(), meta);
+    if (meta.name) warehouseByKey.set(meta.name.toLowerCase(), meta);
+    if (meta.code && meta.name) {
+      warehouseByKey.set(`${meta.code} - ${meta.name}`.toLowerCase(), meta);
+      warehouseByKey.set(`${meta.name} - ${meta.code}`.toLowerCase(), meta);
+    }
+  }
+
+  const locatorsList: LocatorMeta[] = locatorsRes.rows.map((l: any) => ({
+    id: Number(l.id),
+    locator_name: stringValue(l.locator_name),
+    warehouse_id: Number(l.warehouse_id),
+  }));
+
+  const locatorMatchesValue = (locator: LocatorMeta, targetLower: string) => {
+    const locatorName = locator.locator_name.toLowerCase();
+    if (locatorName === targetLower) return true;
+    const wh = warehouseById.get(locator.warehouse_id);
+    if (!wh) return false;
+    const candidates = [
+      wh.name ? `${wh.name} - ${locator.locator_name}` : "",
+      wh.code ? `${wh.code} - ${locator.locator_name}` : "",
+      wh.code && wh.name ? `${wh.code} - ${wh.name} - ${locator.locator_name}` : "",
+    ];
+    return candidates.some((c) => c.toLowerCase() === targetLower);
+  };
+
   const preliminaryRows: PreliminaryRow[] = [];
   const rowErrors = new Map<number, string[]>();
   const uploadSkuRows = new Map<string, PreliminaryRow[]>();
@@ -339,6 +418,42 @@ async function validateRows(options: {
     if (genderStr && !ALLOWED_GENDERS.includes(genderStr)) {
       errors.push(`Unknown gender: ${row.values.gender}`);
     }
+
+    const qtyNum = asNumber(stringValue(row.values.qty));
+    const initialQty = qtyNum !== null && qtyNum > 0 ? qtyNum : 0;
+    let resolvedWarehouseId: number | null = null;
+    let resolvedLocatorId: number | null = null;
+
+    if (initialQty > 0) {
+      const warehouseStr = stringValue(row.values.warehouse);
+      const locatorStr = stringValue(row.values.locator);
+      if (warehouseStr && locatorStr) {
+        const matchedWarehouse = warehouseByKey.get(warehouseStr.toLowerCase()) || null;
+        if (!matchedWarehouse) {
+          errors.push(`Unknown warehouse: ${warehouseStr}`);
+        } else {
+          resolvedWarehouseId = matchedWarehouse.id;
+        }
+
+        const locatorLower = locatorStr.toLowerCase();
+        const matchingLocators = locatorsList.filter((l) => locatorMatchesValue(l, locatorLower));
+        if (matchingLocators.length === 0) {
+          errors.push(`Unknown locator: ${locatorStr}`);
+        } else if (resolvedWarehouseId !== null) {
+          const matchingForWarehouse = matchingLocators.find(
+            (l) => l.warehouse_id === resolvedWarehouseId
+          );
+          if (!matchingForWarehouse) {
+            errors.push(
+              `Locator "${locatorStr}" does not belong to Warehouse "${warehouseStr}"`
+            );
+          } else {
+            resolvedLocatorId = matchingForWarehouse.id;
+          }
+        }
+      }
+    }
+
     const nextRow: PreliminaryRow = {
       rowNumber: row.rowNumber,
       values: row.values,
@@ -358,6 +473,9 @@ async function validateRows(options: {
       rootProductId: null,
       rootRowNumber: null,
       isRootRow: false,
+      initialQty,
+      warehouseId: resolvedWarehouseId,
+      locatorId: resolvedLocatorId,
     };
 
     preliminaryRows.push(nextRow);
@@ -528,6 +646,9 @@ async function validateRows(options: {
       rootProductId: row.rootProductId,
       rootRowNumber: row.rootRowNumber,
       isRootRow: row.isRootRow,
+      initialQty: row.initialQty,
+      warehouseId: row.warehouseId,
+      locatorId: row.locatorId,
     });
   }
 
@@ -593,11 +714,12 @@ function getFamilyLookup(family: ProductFamily, field: "categoryId" | "materialI
 async function importRows(options: {
   client: PoolClient;
   schema: string;
+  company: string;
   fileName: string;
   mapping: MappingConfig;
   parsedRows: ParsedRow[];
 }) {
-  const { client, schema, fileName, mapping, parsedRows } = options;
+  const { client, schema, company, fileName, mapping, parsedRows } = options;
   const { validRows, rowErrors } = await validateRows({ client, schema, parsedRows });
   const batchTemplateId = await saveTemplate(client, schema, mapping);
   const batchRes = await client.query(
@@ -651,6 +773,13 @@ async function importRows(options: {
   const familyProductIds = new Map<string, number>();
   let productCount = 0;
   let variantCount = 0;
+  const initialStockEntries: Array<{
+    warehouseId: number;
+    locatorId: number;
+    variantId: number;
+    sku: string;
+    qty: number;
+  }> = [];
 
   for (const family of families.values()) {
     const productCode = await getNextProductCodeByType(schema, "finished_good", client);
@@ -733,6 +862,60 @@ async function importRows(options: {
       `INSERT INTO "${schema}".product_import_batch_items (batch_id, product_id, variant_id, row_number, item_type) VALUES ($1, $2, $3, $4, 'variant')`,
       [batchId, productId, variantId, row.rowNumber]
     );
+
+    if (row.initialQty > 0 && row.warehouseId && row.locatorId) {
+      initialStockEntries.push({
+        warehouseId: row.warehouseId,
+        locatorId: row.locatorId,
+        variantId,
+        sku: row.finalSku,
+        qty: row.initialQty,
+      });
+    }
+  }
+
+  let openingStockCount = 0;
+  if (initialStockEntries.length > 0) {
+    const stockGroups = new Map<string, typeof initialStockEntries>();
+    for (const entry of initialStockEntries) {
+      const groupKey = `${entry.warehouseId}-${entry.locatorId}`;
+      stockGroups.set(groupKey, [...(stockGroups.get(groupKey) || []), entry]);
+    }
+
+    for (const groupEntries of stockGroups.values()) {
+      const { warehouseId, locatorId } = groupEntries[0];
+      const docNo = await getNextOpeningStockDocNo(client, schema);
+      const statusValue = "Entered";
+      const headerRes = await client.query(
+        `
+          INSERT INTO "${schema}".opening_stock
+            (doc_no, date, description, warehouse_id, locator_id, status, created_at, updated_at)
+          VALUES ($1, CURRENT_DATE, $2, $3, $4, $5, NOW(), NOW())
+          RETURNING id
+        `,
+        [docNo, "Initial stock via Product Excel Import", warehouseId, locatorId, statusValue]
+      );
+      const openingStockId = Number(headerRes.rows[0].id);
+
+      const itemValues: Array<number | string> = [openingStockId, warehouseId, locatorId];
+      const itemPlaceholders = groupEntries.map((entry, idx) => {
+        const base = idx * 3;
+        itemValues.push(entry.variantId, entry.sku, entry.qty);
+        return `($1, $2, $3, $${base + 4}, $${base + 5}, $${base + 6}, NOW())`;
+      });
+
+      await client.query(
+        `
+          INSERT INTO "${schema}".opening_stock_items
+            (opening_stock_id, warehouse_id, locator_id, product_id, sku, qty, created_at)
+          VALUES ${itemPlaceholders.join(", ")}
+        `,
+        itemValues
+      );
+
+      await postOpeningStockToLedger(client, schema, company, openingStockId);
+      openingStockCount += 1;
+    }
   }
 
   await client.query(
@@ -745,6 +928,8 @@ async function importRows(options: {
     productCount,
     variantCount,
     uploadedRows: variantCount,
+    openingStockCount,
+    initialStockItemsCount: initialStockEntries.length,
     failedRows: rowErrors.length,
     rowErrors: rowErrors.sort((a, b) => a.rowNumber - b.rowNumber),
   };
@@ -771,7 +956,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const client = await pool.connect();
   try {
-    const { schema } = await getTenantSchema(req);
+    const { company, schema } = await getTenantSchema(req);
     const form = await req.formData();
     const action = stringValue(form.get("action") || "parse");
 
@@ -911,6 +1096,7 @@ export async function POST(req: NextRequest) {
       const result = await importRows({
         client,
         schema,
+        company,
         fileName: file.name,
         mapping,
         parsedRows,
@@ -919,17 +1105,23 @@ export async function POST(req: NextRequest) {
         throw new Error(`Upload failed. 0 rows uploaded and ${result.rowErrors.length} row(s) failed.`);
       }
       await client.query("COMMIT");
+      const openingStockNote =
+        result.openingStockCount > 0
+          ? ` Created ${result.openingStockCount} opening stock entry/entries for ${result.initialStockItemsCount} variant(s).`
+          : "";
       return NextResponse.json({
         success: result.rowErrors.length === 0,
         batchId: result.batchId,
         productCount: result.productCount,
         variantCount: result.variantCount,
         uploadedRows: result.uploadedRows,
+        openingStockCount: result.openingStockCount,
+        initialStockItemsCount: result.initialStockItemsCount,
         failedRows: result.failedRows,
         message:
           result.rowErrors.length > 0
-            ? `Uploaded ${result.uploadedRows} row(s) as ${result.productCount} product(s) and ${result.variantCount} variant(s). ${result.failedRows} row(s) failed.`
-            : `Uploaded ${result.uploadedRows} row(s) as ${result.productCount} product(s) and ${result.variantCount} variant(s).`,
+            ? `Uploaded ${result.uploadedRows} row(s) as ${result.productCount} product(s) and ${result.variantCount} variant(s).${openingStockNote} ${result.failedRows} row(s) failed.`
+            : `Uploaded ${result.uploadedRows} row(s) as ${result.productCount} product(s) and ${result.variantCount} variant(s).${openingStockNote}`,
         rowErrors: result.rowErrors,
       });
     }

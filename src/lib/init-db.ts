@@ -1,5 +1,8 @@
 import { pool } from "../lib/db";
 import { ensureResponsibilitySchema } from "./userResponsibilities";
+import { ensureTenantLookupDataSeeded } from "./tenantLookupSeed";
+import { ensureLogisticsSchema } from "./logisticsSchema";
+import { ensurePaymentsSchema } from "./paymentsSchema";
 
 declare global {
   var dbInitialized: boolean | undefined;
@@ -52,6 +55,41 @@ export async function initializeDatabase() {
           CHECK (custom_domain_status IN ('not_configured','pending_dns','verified','failed')),
         custom_domain_verified_at TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS tenant_domains (
+        id SERIAL PRIMARY KEY,
+        company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        domain VARCHAR(255) UNIQUE NOT NULL,
+        is_primary BOOLEAN DEFAULT FALSE,
+        verification_status VARCHAR(50) DEFAULT 'pending',
+        verification_token VARCHAR(255),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_tenant_domains_lookup ON tenant_domains(LOWER(domain));
+ 
+    `);
+
+    // ===============================
+    // RESERVED SLUGS CONSTRAINT
+    // ===============================
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'chk_companies_reserved_subdomain'
+        ) THEN
+          ALTER TABLE companies
+          ADD CONSTRAINT chk_companies_reserved_subdomain
+          CHECK (LOWER(TRIM(subdomain_url)) NOT IN (
+            'api', 'admin', 'app', 'auth', 'dashboard', 'settings', 'store', 'setup',
+            'billing', 'login', 'register', 'checkout', 'cart', 'webhook', 'webhooks', 'public',
+            'static', 'assets', 'terms', 'privacy', 'policies', 'store-suspended', 'digistorii',
+            'account', 'orders', 'support', 'help', 'faq', 'ws', 'internal', 'health', 'cdn',
+            'mail', 'email', 'root', 'system', 'null', 'undefined'
+          ));
+        END IF;
+      END $$;
     `);
 
 
@@ -98,6 +136,7 @@ export async function initializeDatabase() {
   plan_id               INTEGER NOT NULL REFERENCES plans(id),
   plan_code             VARCHAR(50),
   ecommerce_access      BOOLEAN DEFAULT FALSE,
+  pos_access            BOOLEAN DEFAULT TRUE,
   max_users             INTEGER DEFAULT 5,
   max_warehouses        INTEGER DEFAULT 1,
   max_locations         INTEGER DEFAULT 1,
@@ -115,6 +154,10 @@ export async function initializeDatabase() {
   created_at            TIMESTAMP DEFAULT NOW(),
   updated_at            TIMESTAMP DEFAULT NOW()
 );`);
+    await client.query(`
+      ALTER TABLE company_subscriptions
+      ADD COLUMN IF NOT EXISTS pos_access BOOLEAN DEFAULT TRUE;
+    `);
     await client.query(`
       CREATE TABLE IF NOT EXISTS payments (
         id                    SERIAL PRIMARY KEY,
@@ -250,18 +293,22 @@ JOIN (
         ('INSTORE', 'max_locations', 1, NULL::BOOLEAN),
         ('INSTORE', 'max_warehouses', 1, NULL::BOOLEAN),
         ('INSTORE', 'ecommerce_access', NULL::INTEGER, FALSE),
+        ('INSTORE', 'pos_access', NULL::INTEGER, TRUE),
         ('ECOM', 'max_users', 5, NULL::BOOLEAN),
         ('ECOM', 'max_locations', 1, NULL::BOOLEAN),
         ('ECOM', 'max_warehouses', 1, NULL::BOOLEAN),
         ('ECOM', 'ecommerce_access', NULL::INTEGER, TRUE),
+        ('ECOM', 'pos_access', NULL::INTEGER, FALSE),
         ('BASIC', 'max_users', 5, NULL::BOOLEAN),
         ('BASIC', 'max_locations', 1, NULL::BOOLEAN),
         ('BASIC', 'max_warehouses', 1, NULL::BOOLEAN),
         ('BASIC', 'ecommerce_access', NULL::INTEGER, TRUE),
+        ('BASIC', 'pos_access', NULL::INTEGER, TRUE),
         ('ENTERPRISE', 'max_users', 20, NULL::BOOLEAN),
         ('ENTERPRISE', 'max_locations', 5, NULL::BOOLEAN),
         ('ENTERPRISE', 'max_warehouses', 5, NULL::BOOLEAN),
-        ('ENTERPRISE', 'ecommerce_access', NULL::INTEGER, TRUE)
+        ('ENTERPRISE', 'ecommerce_access', NULL::INTEGER, TRUE),
+        ('ENTERPRISE', 'pos_access', NULL::INTEGER, TRUE)
        ) AS v(plan_name, feature_key, value_int, value_bool)
     ON v.plan_name = p.name
 ON CONFLICT (plan_id, feature_key) DO UPDATE
@@ -270,8 +317,59 @@ SET
     value_bool = EXCLUDED.value_bool;
     `);
 
+    await client.query(`
+      UPDATE company_subscriptions cs
+      SET pos_access = pf.value_bool
+      FROM plan_features pf
+      WHERE cs.plan_id = pf.plan_id
+        AND pf.feature_key = 'pos_access'
+        AND pf.value_bool = FALSE
+        AND cs.pos_access IS DISTINCT FROM pf.value_bool;
+    `);
+
 
     await ensureResponsibilitySchema(client);
+
+    // ===============================
+    // PHASE 3: PRODUCT CATALOGUE EXTENSIONS (Back in stock & Reviews)
+    // ===============================
+    const compSchemasRes = await client.query(`
+      SELECT schema_name FROM public.companies WHERE schema_name IS NOT NULL AND schema_name <> ''
+    `);
+    for (const comp of compSchemasRes.rows) {
+      const s = comp.schema_name;
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS "${s}".back_in_stock_subscriptions (
+          id BIGSERIAL PRIMARY KEY,
+          variant_id BIGINT NOT NULL REFERENCES "${s}".product_variants(id) ON DELETE CASCADE,
+          email VARCHAR(255),
+          phone VARCHAR(50),
+          status VARCHAR(50) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'notified', 'cancelled')),
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          notified_at TIMESTAMP WITH TIME ZONE
+        );
+        CREATE INDEX IF NOT EXISTS idx_back_in_stock_variant ON "${s}".back_in_stock_subscriptions(variant_id, status);
+
+        CREATE TABLE IF NOT EXISTS "${s}".product_reviews (
+          id BIGSERIAL PRIMARY KEY,
+          variant_id BIGINT NOT NULL REFERENCES "${s}".product_variants(id) ON DELETE CASCADE,
+          customer_id INTEGER REFERENCES "${s}".customers(id) ON DELETE SET NULL,
+          customer_name VARCHAR(150) NOT NULL,
+          rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+          title VARCHAR(200),
+          comment TEXT,
+          status VARCHAR(50) NOT NULL DEFAULT 'approved' CHECK (status IN ('pending', 'approved', 'rejected')),
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_product_reviews_variant ON "${s}".product_reviews(variant_id, status);
+      `);
+
+      await ensureTenantLookupDataSeeded(client, s);
+      await ensureLogisticsSchema(client, s);
+      await ensurePaymentsSchema(client, s);
+    }
+
     await client.query("COMMIT");
     console.log("DB initialized successfully");
     global.dbInitialized = true;

@@ -35,6 +35,12 @@ export default function StoreProductsPage() {
   const [categories, setCategories] = useState<CategoryType[]>([]);
   const [products, setProducts] = useState<StorefrontProduct[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
+  const [pagination, setPagination] = useState<{ page: number; limit: number; total: number; totalPages: number }>({
+    page: 1,
+    limit: 12,
+    total: 0,
+    totalPages: 1,
+  });
 
   const cartItems = useCartStore((state) => state.items);
   const addItemToCart = useCartStore((state) => state.addItem);
@@ -78,6 +84,10 @@ export default function StoreProductsPage() {
               sortOrder: 1,
             }));
             setProducts(mappedProducts);
+
+            if (data.pagination) {
+              setPagination(data.pagination);
+            }
           }
         }
 
@@ -108,13 +118,24 @@ export default function StoreProductsPage() {
     loadData();
   }, [company, searchParams]);
 
+  const updateQueryParams = (updates: Record<string, string | null>) => {
+    const next = new URLSearchParams(searchParams.toString());
+    Object.entries(updates).forEach(([key, val]) => {
+      if (val === null || val === undefined || val === "") {
+        next.delete(key);
+      } else {
+        next.set(key, val);
+      }
+    });
+    router.push(`/${company}/store/products?${next.toString()}`);
+  };
+
   const handleSelectCategory = (cat: string) => {
     setSelectedCategory(cat);
-    if (!cat || cat.toLowerCase() === "all") {
-      router.push(`/${company}/store/products`);
-    } else {
-      router.push(`/${company}/store/products?category=${encodeURIComponent(cat)}`);
-    }
+    updateQueryParams({
+      category: !cat || cat.toLowerCase() === "all" ? null : cat,
+      page: "1",
+    });
   };
 
   const convertedCartItems: CartItemType[] = cartItems.map((ci: CartItem) => ({
@@ -185,6 +206,14 @@ export default function StoreProductsPage() {
           title={pageTitle}
           subtitle={pageSubtitle}
           initialSearch={searchParams.get("search") || ""}
+          currentPage={pagination.page}
+          totalPages={pagination.totalPages}
+          totalCount={pagination.total}
+          onPageChange={(p) => updateQueryParams({ page: String(p) })}
+          sortBy={(searchParams.get("sort") as any) || "featured"}
+          onSortChange={(s) => updateQueryParams({ sort: s !== "featured" ? s : null, page: "1" })}
+          inStockOnly={searchParams.get("in_stock") === "true"}
+          onToggleInStock={(inStock) => updateQueryParams({ in_stock: inStock ? "true" : null, page: "1" })}
           onProductClick={(p) => router.push(`/${company}/store/products/${p.variantId}`)}
           onAddToCart={handleAddToCart}
           onToggleWishlist={(p) =>

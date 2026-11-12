@@ -9,6 +9,7 @@ import { useUser } from "@/context/CurrentUserContext";
 import AdminHeader from "@/components/admin/AdminHeader";
 import { TenantProvider } from "@/context/TenantContext";
 import { RenewalBannerAndModal } from "@/components/admin/RenewalBannerAndModal";
+import { SubscriptionAlertBanner } from "@/components/admin/SubscriptionAlertBanner";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -129,6 +130,11 @@ export default function AdminLayout({
   return (
     <TenantProvider value={{ company: tenant }}>
       <div className={`${inter.className} min-h-screen bg-gray-100`}>
+        <SubscriptionAlertBanner
+          subscriptionEndDate={subscription?.subscription_end}
+          subscriptionStatus={subscription?.status}
+          tenant={tenant}
+        />
         <AdminHeader company={tenant} />
         <div className="p-6">{children}</div>
         <RenewalBannerAndModal

@@ -2,13 +2,19 @@
 
 import React, { useEffect, useState } from "react";
 import { ExclamationTriangleIcon, BellIcon } from "@heroicons/react/24/outline";
+
+interface SubscriptionInfo {
+  plan_id?: number;
+  plan_name?: string;
+  plan_code?: string;
+  subscription_end?: string | null;
+  status?: string;
+  billing_interval?: string;
+  amount?: number;
+}
+
 interface RenewalBannerAndModalProps {
-  subscription: {
-    plan_id: number;
-    subscription_end: string;
-    status: string;
-    billing_interval: string;
-  } | null;
+  subscription: SubscriptionInfo | null;
   tenant: string;
   onRenewSuccess: () => void;
 }
@@ -36,14 +42,16 @@ const loadRazorpayScript = () => {
 };
 
 // Helper for formatting date strings safely
-const formatDate = (dateStr?: string) => {
+const formatDate = (dateStr?: string | null) => {
   if (!dateStr) return "N/A";
   const d = new Date(dateStr);
-  return isNaN(d.getTime()) ? "N/A" : d.toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric"
-  });
+  return isNaN(d.getTime())
+    ? "N/A"
+    : d.toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
 };
 
 export const RenewalBannerAndModal: React.FC<RenewalBannerAndModalProps> = ({
@@ -51,6 +59,7 @@ export const RenewalBannerAndModal: React.FC<RenewalBannerAndModalProps> = ({
   tenant,
   onRenewSuccess,
 }) => {
+  const [fallbackSub, setFallbackSub] = useState<SubscriptionInfo | null>(null);
   const [isExpired, setIsExpired] = useState(false);
   const [isExpiringSoon, setIsExpiringSoon] = useState(false);
   const [daysRemaining, setDaysRemaining] = useState(0);
@@ -59,6 +68,7 @@ export const RenewalBannerAndModal: React.FC<RenewalBannerAndModalProps> = ({
   const [billingInterval, setBillingInterval] = useState<"monthly" | "yearly">("monthly");
   const [priceMonthly, setPriceMonthly] = useState<number>(0);
   const [priceYearly, setPriceYearly] = useState<number>(0);
+  const [loadingPrices, setLoadingPrices] = useState<boolean>(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -75,51 +85,104 @@ export const RenewalBannerAndModal: React.FC<RenewalBannerAndModalProps> = ({
     };
   }, []);
 
+  // Fallback tenant resolution when subscription prop is null
   useEffect(() => {
-    if (!subscription) return;
-
-    const end = subscription.subscription_end ? new Date(subscription.subscription_end) : null;
-    const now = new Date();
-
-    if (end) {
-      const diffTime = end.getTime() - now.getTime();
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      const expired = diffDays <= 0 || subscription.status?.toLowerCase() === "expired";
-      const expiringSoon = !expired && diffDays <= 7;
-
-      setIsExpired(expired);
-      setIsExpiringSoon(expiringSoon);
-      setDaysRemaining(diffDays);
-
-      // Check session storage for warning modal
-      if (expiringSoon) {
-        const hasSeen = sessionStorage.getItem("hasSeenRenewalModal");
-        if (!hasSeen) {
-          setShowWarningModal(true);
+    if (subscription || !tenant) return;
+    let active = true;
+    fetch(`/api/resolve-tenant?subdomain=${encodeURIComponent(tenant)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (active && data?.success) {
+          setFallbackSub({
+            subscription_end: data.subscription_end || null,
+            status: data.subscription_state || "",
+          });
         }
+      })
+      .catch(() => { });
+    return () => {
+      active = false;
+    };
+  }, [subscription, tenant]);
+
+  const effectiveSub = subscription || fallbackSub;
+
+  useEffect(() => {
+    if (effectiveSub) {
+      const end = effectiveSub.subscription_end ? new Date(effectiveSub.subscription_end) : null;
+      const now = new Date();
+
+      if (end && !isNaN(end.getTime())) {
+        const diffTime = end.getTime() - now.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        const expired =
+          diffDays <= 0 ||
+          effectiveSub.status?.toLowerCase() === "expired" ||
+          effectiveSub.status?.toLowerCase() === "suspended";
+        const expiringSoon = !expired && diffDays <= 7;
+
+        setIsExpired(expired);
+        setIsExpiringSoon(expiringSoon);
+        setDaysRemaining(diffDays);
+
+        // Check session storage for warning modal
+        if (expiringSoon) {
+          const hasSeen = sessionStorage.getItem("hasSeenRenewalModal");
+          if (!hasSeen) {
+            setShowWarningModal(true);
+          }
+        }
+      } else if (
+        effectiveSub.status?.toLowerCase() === "expired" ||
+        effectiveSub.status?.toLowerCase() === "suspended"
+      ) {
+        setIsExpired(true);
+      }
+
+      if (effectiveSub.billing_interval) {
+        setBillingInterval(
+          effectiveSub.billing_interval.toLowerCase() === "yearly" ? "yearly" : "monthly"
+        );
       }
     }
 
-    // Set default interval
-    setBillingInterval((subscription.billing_interval?.toLowerCase() === "yearly" ? "yearly" : "monthly"));
-
-    // Fetch plan pricing dynamically using plan_id OR fallback to current active plan query
-    const planQuery = subscription.plan_id
-      ? `plan_id=${subscription.plan_id}`
-      : `tenant=${tenant}`;
-
-    fetch(`/api/plans?${planQuery}`)
+    // Fetch plan pricing dynamically using plan_id when available, else load all active plans and match
+    const planQuery = effectiveSub?.plan_id ? `?plan_id=${effectiveSub.plan_id}` : "";
+    setLoadingPrices(true);
+    fetch(`/api/plans${planQuery}`)
       .then((res) => res.json())
       .then((data) => {
-        if (data.success && data.plans && data.plans.length > 0) {
-          const plan = data.plans[0];
-          setPriceMonthly(Number(plan.price_monthly || plan.price || 0));
-          setPriceYearly(Number(plan.price_yearly || (plan.price ? plan.price * 11 : 0)));
+        if (data.success && Array.isArray(data.plans) && data.plans.length > 0) {
+          const targetCode = (effectiveSub?.plan_code || effectiveSub?.plan_name || "")
+            .trim()
+            .toUpperCase();
+          const plan =
+            data.plans.find((p: any) =>
+              effectiveSub?.plan_id
+                ? Number(p.plan_id) === Number(effectiveSub.plan_id)
+                : targetCode
+                  ? String(p.plan_name || "").trim().toUpperCase() === targetCode
+                  : false
+            ) || data.plans[0];
+
+          const monthly = Number(plan.price_monthly || plan.price || effectiveSub?.amount || 0);
+          const yearly = Number(plan.price_yearly || (monthly ? monthly * 11 : 0));
+          setPriceMonthly(monthly);
+          setPriceYearly(yearly);
+        } else if (effectiveSub?.amount) {
+          const amt = Number(effectiveSub.amount);
+          if (effectiveSub.billing_interval?.toLowerCase() === "yearly") {
+            setPriceYearly(amt);
+            setPriceMonthly(Math.round(amt / 11));
+          } else {
+            setPriceMonthly(amt);
+            setPriceYearly(amt * 11);
+          }
         }
       })
-      .catch((err) => console.error("Failed to fetch plan pricing:", err));
-
-  }, [subscription, tenant]);
+      .catch((err) => console.error("Failed to fetch plan pricing:", err))
+      .finally(() => setLoadingPrices(false));
+  }, [effectiveSub, tenant]);
 
   const handleRenew = async () => {
     setLoading(true);
@@ -207,7 +270,10 @@ export const RenewalBannerAndModal: React.FC<RenewalBannerAndModalProps> = ({
     }
   };
 
-  const activePrice = billingInterval === "yearly" ? priceYearly : priceMonthly;
+  const activePrice =
+    billingInterval === "yearly"
+      ? priceYearly
+      : priceMonthly || Number(effectiveSub?.amount || 0);
 
   if (isExpired || showWarningModal || showManualModal) {
     return (
@@ -230,8 +296,8 @@ export const RenewalBannerAndModal: React.FC<RenewalBannerAndModalProps> = ({
               </h2>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
                 {isExpired
-                  ? `Your access was suspended on ${formatDate(subscription?.subscription_end)}. Please renew to restore full system access.`
-                  : `Current plan expires on ${formatDate(subscription?.subscription_end)}. Renew early to avoid service interruption.`}
+                  ? `Your access was suspended on ${formatDate(effectiveSub?.subscription_end)}. Please renew to restore full system access.`
+                  : `Current plan expires on ${formatDate(effectiveSub?.subscription_end)}. Renew early to avoid service interruption.`}
               </p>
             </div>
           </div>
@@ -264,7 +330,11 @@ export const RenewalBannerAndModal: React.FC<RenewalBannerAndModalProps> = ({
 
             <div className="flex justify-between items-center text-sm pt-2 border-t border-gray-100 dark:border-gray-800">
               <span className="text-gray-500">Payable Amount</span>
-              <span className="text-lg font-bold text-indigo-600 dark:text-indigo-400">₹{activePrice}</span>
+              <span className="text-lg font-bold text-indigo-600 dark:text-indigo-400">
+                {loadingPrices && activePrice === 0
+                  ? "Loading..."
+                  : `₹${activePrice.toLocaleString("en-IN")}`}
+              </span>
             </div>
           </div>
 
@@ -307,7 +377,8 @@ export const RenewalBannerAndModal: React.FC<RenewalBannerAndModalProps> = ({
 interface PlanStatusCardProps {
   subscription: {
     plan_name?: string;
-    subscription_end?: string;
+    plan_code?: string;
+    subscription_end?: string | null;
   } | null;
 }
 
@@ -318,26 +389,27 @@ export const PlanStatusCard: React.FC<PlanStatusCardProps> = ({ subscription }) 
     }
   };
 
-  const formatDate = (dateStr: string) => {
+  const formatCardDate = (dateStr?: string | null) => {
     if (!dateStr) return "N/A";
     const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return "N/A";
 
     const day = String(d.getDate()).padStart(2, "0");
     const month = String(d.getMonth() + 1).padStart(2, "0");
     const year = d.getFullYear();
 
-    return `${year}-${month}-${day}`;
+    return `${day}-${month}-${year}`;
   };
-  console.log("sub end date:", subscription?.subscription_end, subscription?.plan_name);
+
   return (
     <div className="bg-white rounded-xl shadow p-4 hover:shadow-lg transition flex justify-between items-center">
       <div>
         <p className="text-gray-500 text-sm">Active Plan</p>
         <p className="text-lg font-bold text-gray-800">
-          {subscription?.plan_name || "INSTORE"}
+          {subscription?.plan_name || subscription?.plan_code || "INSTORE"}
         </p>
         <p className="text-xs text-gray-400">
-          Expires: {subscription?.subscription_end ? formatDate(subscription.subscription_end) : "N/A"}
+          Expires: {formatCardDate(subscription?.subscription_end)}
         </p>
       </div>
       <button

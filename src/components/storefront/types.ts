@@ -39,6 +39,9 @@ export type HeroSlide = {
   subtitle?: string;
   buttonText?: string;
   buttonLink?: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  isScheduled?: boolean;
 };
 
 export type HeroCarouselSection = {
@@ -118,6 +121,9 @@ export type OffersSection = {
   discountIds: number[];
   bannerImageId?: number;
   bannerImageUrl?: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  isScheduled?: boolean;
 };
 
 export type AboutBlock = {
@@ -188,6 +194,9 @@ export type StorefrontTheme = {
   headerTitle?: string;
   bannerImages: string[];
   bannerImageId?: number;
+  bannerStartDate?: string | null;
+  bannerEndDate?: string | null;
+  isBannerScheduled?: boolean;
   fontFamily: string;
   layoutVariant?: string;
   heroTitle?: string;

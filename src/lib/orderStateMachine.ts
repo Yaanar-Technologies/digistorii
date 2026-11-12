@@ -1,7 +1,7 @@
-// src/lib/orderStateMachine.ts
 import { PoolClient } from "pg";
 import Razorpay from "razorpay";
 import { decryptSecret } from "@/lib/cryptoHelper";
+import { postOnlineOrderToLedger, releaseOrderReservations } from "@/lib/inventoryLedgerService";
 
 export type OrderStatus =
   | "placed"
@@ -35,6 +35,7 @@ export type DeliveryStatus =
 export interface TransitionOptions {
   changedBy: string;
   note?: string;
+  allowFastForward?: boolean;
 }
 
 /**
@@ -75,7 +76,7 @@ export class OrderTransitionError extends Error {
  *  - confirmed         -> [packed, cancelled]
  *  - packed            -> [shipped, cancelled]
  *  - shipped           -> [out_for_delivery, returned]
- *  - out_for_delivery  -> [delivered, packed, returned] (packed allowed for retry after failed delivery)
+ *  - out_for_delivery  -> [delivered, returned]
  *  - delivered         -> [returned]
  *  - payment_failed    -> [placed, cancelled]
  *  - returned          -> [refunded]
@@ -87,7 +88,7 @@ export const ORDER_STATUS_TRANSITIONS: Record<OrderStatus, readonly OrderStatus[
   confirmed: ["packed", "cancelled"],
   packed: ["shipped", "cancelled"],
   shipped: ["out_for_delivery", "returned"],
-  out_for_delivery: ["delivered", "packed", "returned"],
+  out_for_delivery: ["delivered", "returned"],
   delivered: ["returned"],
   payment_failed: ["placed", "cancelled"],
   returned: ["refunded"],
@@ -136,6 +137,16 @@ export const DELIVERY_STATUS_TRANSITIONS: Record<DeliveryStatus, readonly Delive
   delivered: ["rto"],
   rto: [],
 } as const;
+
+const DELIVERY_FORWARD_RANK: Record<DeliveryStatus, number> = {
+  not_shipped: 0,
+  picked_up: 1,
+  in_transit: 2,
+  out_for_delivery: 3,
+  failed_delivery: 3,
+  delivered: 4,
+  rto: 5,
+};
 
 /* ==========================================================================
    Order State Machine Implementation
@@ -387,9 +398,14 @@ class OrderStateMachine {
       return;
     }
 
-    // 3. Adjacency map validation
+    // 3. Adjacency map validation (with optional forward fast-forward for carrier webhooks)
     const allowedTargets = DELIVERY_STATUS_TRANSITIONS[fromStatus] || [];
-    if (!allowedTargets.includes(targetStatus)) {
+    const canFastForward =
+      Boolean(opts.allowFastForward) &&
+      fromStatus !== "rto" &&
+      DELIVERY_FORWARD_RANK[targetStatus] > DELIVERY_FORWARD_RANK[fromStatus];
+
+    if (!allowedTargets.includes(targetStatus) && !canFastForward) {
       throw new OrderTransitionError(
         orderId,
         fromStatus,
@@ -417,21 +433,45 @@ class OrderStateMachine {
       [orderId, fromStatus, targetStatus, opts.changedBy, opts.note || null]
     );
 
-    // 6. Chained side effects:
-    // - -> delivered: auto-call transitionOrderStatus(... 'delivered')
-    if (targetStatus === "delivered" && order.order_status !== "delivered") {
-      await this.transitionOrderStatus(client, schema, orderId, "delivered", {
-        changedBy: opts.changedBy,
-        note: opts.note || "Auto-delivered via courier delivery confirmation",
-      });
+    // 6. Chained side effects: bridge order_status cleanly through intermediate steps if skipped
+    const targetOrderChain: OrderStatus | null =
+      targetStatus === "picked_up" || targetStatus === "in_transit"
+        ? "shipped"
+        : targetStatus === "out_for_delivery" || targetStatus === "failed_delivery"
+          ? "out_for_delivery"
+          : targetStatus === "delivered"
+            ? "delivered"
+            : targetStatus === "rto" && order.order_status === "packed"
+              ? "shipped"
+              : null;
+
+    if (targetOrderChain) {
+      const bridgeOrder: OrderStatus[] = ["packed", "shipped", "out_for_delivery", "delivered"];
+      const currentIdx = bridgeOrder.indexOf(order.order_status as OrderStatus);
+      const targetIdx = bridgeOrder.indexOf(targetOrderChain);
+
+      if (currentIdx !== -1 && targetIdx > currentIdx) {
+        for (let i = currentIdx + 1; i <= targetIdx; i++) {
+          const nextOrderStatus = bridgeOrder[i];
+          await this.transitionOrderStatus(client, schema, orderId, nextOrderStatus, {
+            changedBy: opts.changedBy,
+            note:
+              nextOrderStatus === targetOrderChain && opts.note
+                ? opts.note
+                : `Auto-progressed order status to '${nextOrderStatus}' via delivery update '${targetStatus}'`,
+          });
+          order.order_status = nextOrderStatus;
+        }
+      }
     }
 
-    // - -> out_for_delivery: mirror into online_orders.order_status if valid
-    if (targetStatus === "out_for_delivery" && order.order_status === "shipped") {
-      await this.transitionOrderStatus(client, schema, orderId, "out_for_delivery", {
-        changedBy: opts.changedBy,
-        note: opts.note || "Auto-updated order status to out_for_delivery",
-      });
+    // - -> rto: Route to reverse verification / RTO tracking
+    // Do NOT force immediate transition to 'returned' until package is physically received and passes/fails QC.
+
+    if (targetStatus === "rto") {
+      console.info(
+        `[OrderStateMachine] Order #${orderId} delivery status transitioned to 'rto'. Parcel is returning to origin; awaiting physical warehouse receipt and reverse QC verification before stock reversal.`
+      );
     }
   }
 
@@ -478,11 +518,14 @@ class OrderStateMachine {
 
       case "cancelled": {
         // -> cancelled:
-        // 1. Release all 'held' reservations for this order back to 'released'
+        // 1. Release all reservations ('held' and 'converted') for this order back to 'released' (D-10)
+        await releaseOrderReservations(client, schema, orderId);
+
+        // Mark unfulfilled line items as cancelled
         await client.query(
-          `UPDATE "${schema}".inventory_reservations
-           SET status = 'released'
-           WHERE order_ref_id = $1 AND status = 'held'`,
+          `UPDATE "${schema}".online_order_items
+           SET fulfillment_status = 'cancelled'
+           WHERE order_id = $1 AND fulfillment_status IN ('pending', 'reserved', 'allocated')`,
           [orderId]
         );
 
@@ -638,6 +681,21 @@ class OrderStateMachine {
         break;
       }
 
+      case "payment_failed": {
+        // -> payment_failed:
+        // Release held reservations back to 'released' immediately
+        await releaseOrderReservations(client, schema, orderId);
+
+        // Mark unfulfilled line items as cancelled
+        await client.query(
+          `UPDATE "${schema}".online_order_items
+           SET fulfillment_status = 'cancelled'
+           WHERE order_id = $1 AND fulfillment_status IN ('pending', 'reserved')`,
+          [orderId]
+        );
+        break;
+      }
+
       case "packed": {
         // -> packed:
         // Verify all online_order_items have fulfillment_status = 'allocated' before allowing transition
@@ -692,10 +750,10 @@ class OrderStateMachine {
 
       case "delivered": {
         // -> delivered:
-        // 1. Set online_order_deliveries.delivered_at = NOW()
+        // 1. Ensure online_order_deliveries.delivered_at is populated (preserving webhook timestamp if already set)
         await client.query(
           `UPDATE "${schema}".online_order_deliveries
-           SET delivered_at = NOW(),
+           SET delivered_at = COALESCE(delivered_at, NOW()),
                updated_at = NOW()
            WHERE order_id = $1`,
           [orderId]
@@ -707,6 +765,16 @@ class OrderStateMachine {
             changedBy: opts.changedBy,
             note: opts.note || "COD payment collected upon delivery",
           });
+        }
+
+        // 3. Post online sales to stock ledger and deplete FIFO layers (D-9, D-7)
+        try {
+          await postOnlineOrderToLedger(client, schema, orderId, schema);
+        } catch (ledgerErr) {
+          console.error(
+            `[OrderStateMachine] Error posting order #${orderId} to stock ledger upon delivery:`,
+            ledgerErr
+          );
         }
         break;
       }

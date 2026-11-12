@@ -14,7 +14,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { useTenant } from "@/context/TenantContext";
 import { apiFetch } from "@/lib/apiFetch";
-import { useProductLookup } from "@/hooks/useProductLookup";
+import { findProductByBarcodeOrCode, useProductLookup } from "@/hooks/useProductLookup";
 import { usePagination } from "@/hooks/usePagination";
 import { attachRuleValidationListeners, getRuleValidationError } from "@/lib/formValidationRules";
 import type { ProductLookupItem } from "@/lib/product-lookup";
@@ -393,10 +393,12 @@ export default function StockAdjustmentPage() {
 
   const handleModalBarcodeSubmit = (value?: string) => {
     const barcode = String(value ?? barcodeValue).trim();
+    setBarcodeValue("");
     if (!barcode) return;
-    const match = lookupItems.find((item) => String(item.barcode || "") === barcode);
+    const match = findProductByBarcodeOrCode(lookupItems, barcode);
     if (!match) {
-      setBarcodeMessage(`Barcode "${barcode}" not found.`);
+      setBarcodeMessage("");
+      notify(`Product with barcode ${barcode} not found.`, { severity: "warning" });
       return;
     }
 
@@ -407,8 +409,8 @@ export default function StockAdjustmentPage() {
     }
 
     addProductToItems(match);
-    setSelectedVariantMap((prev) => ({ ...prev, [String(match.variant_id)]: true }));
-    setBarcodeValue("");
+    const key = String(match.variant_id);
+    setSelectedVariantMap((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
     setBarcodeMessage("");
   };
 

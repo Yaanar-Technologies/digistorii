@@ -12,7 +12,7 @@ const STATUS_PROGRESSION: Record<string, number> = {
   out_for_delivery: 3,
   delivered: 4,
   failed_delivery: 3,
-  rto: 4,
+  rto: 5,
 };
 
 export async function POST(
@@ -116,7 +116,18 @@ export async function POST(
     try {
       const payload = JSON.parse(rawBody);
       const parsedEvent = adapter.parseWebhookEvent(payload);
-      const { awbNumber, status, location, timestamp } = parsedEvent;
+      const {
+        awbNumber,
+        status,
+        location,
+        timestamp,
+        failureReason,
+        nextRetryDate,
+        podType,
+        podResourceUrl,
+        deliveredToPersonName,
+        deliveryCoordinates,
+      } = parsedEvent;
 
       if (!awbNumber) {
         console.warn(
@@ -127,7 +138,8 @@ export async function POST(
 
       // 5. Look up online_order_deliveries by awb_number
       const deliveryRes = await client.query(
-        `SELECT id, order_id, courier_partner, awb_number, picked_up_at, out_for_delivery_at, delivered_at
+        `SELECT id, order_id, courier_partner, awb_number, attempt_count, max_attempts,
+                picked_up_at, out_for_delivery_at, delivered_at
          FROM "${schema}".online_order_deliveries
          WHERE awb_number = $1
          LIMIT 1`,
@@ -162,14 +174,29 @@ export async function POST(
 
       const currentDeliveryStatus = orderRes.rows[0].delivery_status;
 
+      // Determine effective target status taking NDR attempts into account
+      let effectiveStatus: NormalizedDeliveryStatus = status;
+      const currentAttempts = Number(deliveryRow.attempt_count || 0);
+      const maxAttempts = Number(deliveryRow.max_attempts || 3);
+      let nextAttempts = currentAttempts;
+
+      if (status === "failed_delivery") {
+        nextAttempts = currentAttempts + 1;
+        if (nextAttempts >= maxAttempts) {
+          effectiveStatus = "rto";
+        } else {
+          effectiveStatus = "failed_delivery";
+        }
+      }
+
       // 6. Idempotency & progression guard
       const currentRank = STATUS_PROGRESSION[currentDeliveryStatus] ?? 0;
-      const incomingRank = STATUS_PROGRESSION[status] ?? 0;
+      const incomingRank = STATUS_PROGRESSION[effectiveStatus] ?? 0;
 
       if (
-        currentDeliveryStatus === status ||
-        (currentDeliveryStatus === "delivered" && status !== "delivered") ||
-        (currentDeliveryStatus === "rto" && status !== "rto") ||
+        (currentDeliveryStatus === effectiveStatus && effectiveStatus !== "failed_delivery") ||
+        (currentDeliveryStatus === "delivered" && effectiveStatus !== "delivered") ||
+        (currentDeliveryStatus === "rto" && effectiveStatus !== "rto") ||
         (currentRank > incomingRank && currentDeliveryStatus !== "failed_delivery")
       ) {
         return NextResponse.json(
@@ -181,33 +208,108 @@ export async function POST(
       // Begin transaction for database update & state transition
       await client.query("BEGIN");
 
-      // 7. Update online_order_deliveries
-      let timestampUpdateClause = "";
       const eventTimestamp = timestamp || new Date();
 
-      if (status === "picked_up") {
-        timestampUpdateClause = `, picked_up_at = COALESCE(picked_up_at, '${eventTimestamp.toISOString()}')`;
-      } else if (status === "out_for_delivery") {
-        timestampUpdateClause = `, out_for_delivery_at = COALESCE(out_for_delivery_at, '${eventTimestamp.toISOString()}')`;
-      } else if (status === "delivered") {
-        timestampUpdateClause = `, delivered_at = COALESCE(delivered_at, '${eventTimestamp.toISOString()}')`;
+      if (effectiveStatus === "failed_delivery") {
+        await client.query(
+          `UPDATE "${schema}".online_order_deliveries
+           SET attempt_count = $1,
+               failure_reason = COALESCE($2, failure_reason),
+               next_retry_date = COALESCE($3, next_retry_date, NOW() + INTERVAL '1 day'),
+               last_location = COALESCE($4, last_location),
+               last_webhook_payload = $5,
+               updated_at = NOW()
+           WHERE id = $6`,
+          [
+            nextAttempts,
+            failureReason || "Customer Unavailable / Delivery Attempt Failed",
+            nextRetryDate || null,
+            location || null,
+            JSON.stringify(payload),
+            deliveryRow.id,
+          ]
+        );
+      } else if (effectiveStatus === "rto") {
+        await client.query(
+          `UPDATE "${schema}".online_order_deliveries
+           SET attempt_count = GREATEST(attempt_count, $1),
+               failure_reason = COALESCE($2, failure_reason, 'Max delivery attempts exceeded (RTO)'),
+               rto_initiated_at = COALESCE(rto_initiated_at, NOW()),
+               last_location = COALESCE($3, last_location),
+               last_webhook_payload = $4,
+               updated_at = NOW()
+           WHERE id = $5`,
+          [
+            nextAttempts,
+            failureReason || "Max delivery attempts reached or customer rejected package",
+            location || null,
+            JSON.stringify(payload),
+            deliveryRow.id,
+          ]
+        );
+
+        // Record internal staff alert note for package arrival restock
+        await client.query(
+          `INSERT INTO "${schema}".order_notes (company_id, order_id, author_name, author_type, content, is_customer_visible, created_at)
+           SELECT company_id, id, 'System Logistics', 'system',
+                  'Alert: Shipment failed after ' || $1 || ' attempt(s) and has been converted to RTO (Return to Origin). Awaiting physical arrival at warehouse for QC inspection and inventory restock ledger reversal.',
+                  false, NOW()
+           FROM "${schema}".online_orders
+           WHERE id = $2`,
+          [nextAttempts, orderId]
+        );
+      } else if (effectiveStatus === "delivered") {
+        await client.query(
+          `UPDATE "${schema}".online_order_deliveries
+           SET delivered_at = COALESCE(delivered_at, $1),
+               pod_type = COALESCE($2, pod_type),
+               pod_resource_url = COALESCE($3, pod_resource_url),
+               delivered_to_person_name = COALESCE($4, delivered_to_person_name),
+               delivery_coordinates = COALESCE($5, delivery_coordinates),
+               last_location = COALESCE($6, last_location),
+               last_webhook_payload = $7,
+               updated_at = NOW()
+           WHERE id = $8`,
+          [
+            eventTimestamp.toISOString(),
+            podType || null,
+            podResourceUrl || null,
+            deliveredToPersonName || null,
+            deliveryCoordinates ? JSON.stringify(deliveryCoordinates) : null,
+            location || null,
+            JSON.stringify(payload),
+            deliveryRow.id,
+          ]
+        );
+      } else {
+        let timestampUpdateClause = "";
+        if (effectiveStatus === "picked_up") {
+          timestampUpdateClause = `, picked_up_at = COALESCE(picked_up_at, '${eventTimestamp.toISOString()}')`;
+        } else if (effectiveStatus === "out_for_delivery") {
+          timestampUpdateClause = `, out_for_delivery_at = COALESCE(out_for_delivery_at, '${eventTimestamp.toISOString()}')`;
+        }
+
+        await client.query(
+          `UPDATE "${schema}".online_order_deliveries
+           SET last_location = COALESCE($1, last_location),
+               last_webhook_payload = $2,
+               updated_at = NOW()
+               ${timestampUpdateClause}
+           WHERE id = $3`,
+          [location || null, JSON.stringify(payload), deliveryRow.id]
+        );
       }
 
-      await client.query(
-        `UPDATE "${schema}".online_order_deliveries
-         SET last_location = COALESCE($1, last_location),
-             last_webhook_payload = $2,
-             updated_at = NOW()
-             ${timestampUpdateClause}
-         WHERE id = $3`,
-        [location || null, JSON.stringify(payload), deliveryRow.id]
-      );
-
-      // 8. Call transitionDeliveryStatus inside transaction
-      await transitionDeliveryStatus(client, schema, orderId, status, {
-        changedBy: `webhook:${partner}`,
-        note: `Status updated to '${status}' by courier webhook for AWB: ${awbNumber}`,
-      });
+      // Call transitionDeliveryStatus inside transaction (allowing forward fast-forwarding for skipped carrier scans)
+      if (currentDeliveryStatus !== effectiveStatus) {
+        await transitionDeliveryStatus(client, schema, orderId, effectiveStatus, {
+          changedBy: `webhook:${partner}`,
+          note: `Status updated to '${effectiveStatus}' by courier webhook for AWB: ${awbNumber}${
+            effectiveStatus === "failed_delivery" ? ` (Attempt #${nextAttempts})` : ""
+          }`,
+          allowFastForward: true,
+        });
+      }
 
       await client.query("COMMIT");
     } catch (bizErr) {
@@ -218,7 +320,7 @@ export async function POST(
       );
     }
 
-    // 9. Always return 200 once signature-verified
+    // Always return 200 once signature-verified
     return NextResponse.json({ status: "ok", received: true }, { status: 200 });
   } catch (err: any) {
     console.error(`[Delivery Webhook Server Error]:`, err);

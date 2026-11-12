@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { StorefrontTheme } from "./types";
+import { isBannerActive } from "@/lib/bannerScheduling";
 
 export interface StorefrontHeroProps {
   theme: StorefrontTheme;
@@ -14,9 +15,19 @@ export const StorefrontHero: React.FC<StorefrontHeroProps> = ({
   ctaText = "Shop Now",
   onCtaClick,
 }) => {
-  const images = theme.bannerImages.length > 0
-    ? theme.bannerImages
-    : ["https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=1200&auto=format&fit=crop&q=80"];
+  const isScheduledActive = isBannerActive({
+    startDate: theme.bannerStartDate,
+    endDate: theme.bannerEndDate,
+    isScheduled: theme.isBannerScheduled,
+  });
+
+  const defaultFallbackImage =
+    "https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=1200&auto=format&fit=crop&q=80";
+
+  const images =
+    isScheduledActive && theme.bannerImages.length > 0
+      ? theme.bannerImages
+      : [defaultFallbackImage];
 
   const [currentSlide, setCurrentSlide] = useState(0);
 

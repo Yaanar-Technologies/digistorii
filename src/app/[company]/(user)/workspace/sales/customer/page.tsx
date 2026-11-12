@@ -1,3 +1,4 @@
+//C:\Users\yanna\digistorii-ECom\src\app\[company]\(user)\workspace\sales\customer\page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";

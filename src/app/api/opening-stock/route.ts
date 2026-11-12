@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { pool } from "@/lib/db";
 import { getTenantSchema } from "@/lib/tenant";
-import { isFinalStatus, postOpeningStockToLedger } from "@/lib/stockLedger";
+import {
+  getNextOpeningStockDocNo,
+  isFinalStatus,
+  postOpeningStockToLedger,
+} from "@/lib/stockLedger";
 
 const schemaValidator = /^[a-z][a-z0-9_]{0,62}$/;
 
@@ -38,22 +42,6 @@ function parseQty(value: string | number): number | null {
   const n = Number(value);
   if (!Number.isFinite(n)) return null;
   return n;
-}
-
-async function getNextDocNo(client: any, schema: string): Promise<string> {
-  const result = await client.query(
-    `
-      SELECT COALESCE(
-        MAX(CAST(SUBSTRING(doc_no FROM 4) AS INTEGER)),
-        0
-      ) AS max_code
-      FROM "${schema}".opening_stock
-      WHERE doc_no ~ '^OPS[0-9]+$'
-    `
-  );
-
-  const next = Number(result.rows[0]?.max_code || 0) + 1;
-  return `OPS${String(next).padStart(3, "0")}`;
 }
 
 async function ensureWarehouse(client: any, schema: string, warehouseId: number) {
@@ -174,7 +162,7 @@ export async function POST(req: NextRequest) {
     await client.query("BEGIN");
     inTransaction = true;
 
-    const docNo = await getNextDocNo(client, schema);
+    const docNo = await getNextOpeningStockDocNo(client, schema);
     const statusValue = asNull(parsed.status) || "Entered";
     const headerResult = await client.query(
       `

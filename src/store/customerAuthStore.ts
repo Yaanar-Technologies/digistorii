@@ -10,6 +10,11 @@ export interface CustomerProfile {
   phone?: string;
   channel?: string;
   addresses?: any[];
+  notification_preferences?: {
+    whatsapp?: boolean;
+    sms?: boolean;
+    email?: boolean;
+  };
 }
 
 interface CustomerAuthState {
@@ -46,7 +51,7 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
       checkSession: async (company) => {
         set({ isLoading: true });
         try {
-          const url = company ? `/api/ecom/auth/me?company=${company}` : `/api/ecom/auth/me`;
+          const url = company ? `/api/${company}/storefront/auth/me` : `/api/ecom/auth/me`;
           const res = await fetch(url);
           if (res.ok) {
             const data = await res.json();
@@ -69,7 +74,8 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
 
       logout: async (company) => {
         try {
-          await fetch("/api/ecom/auth/logout", { method: "POST" });
+          const url = company ? `/api/${company}/storefront/auth/logout` : `/api/ecom/auth/logout`;
+          await fetch(url, { method: "POST" });
         } catch (err) {
           console.error("Logout API call error:", err);
         } finally {

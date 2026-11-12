@@ -9,6 +9,7 @@ interface ShipRequestBody {
   awbNumber?: string;
   trackingUrl?: string;
   courierPartner?: string;
+  shippingLabelUrl?: string;
 }
 
 export async function POST(
@@ -47,9 +48,9 @@ export async function POST(
     const orderRes = await client.query(
       `SELECT
          o.id, o.order_no, o.order_status, o.payment_method, o.total_amount, o.subtotal,
-         o.shipping_address_id, o.customer_id,
-         ca.name AS recipient_name, ca.address_line1, ca.address_line2, ca.city, ca.state, ca.pincode, ca.country,
-         COALESCE(ca.phone, c.phone, '0000000000') AS phone,
+         o.shipping_address_id, o.customer_id,ca.address_line1, ca.address_line2, ca.city, ca.state, ca.pincode, ca.country,
+                  ca.recipient_name AS recipient_name,
+COALESCE(ca.recipient_phone, c.phone, '0000000000') AS phone,
          COALESCE(c.email, 'order@storefront.local') AS email
        FROM "${schema}".online_orders o
        LEFT JOIN "${schema}".customers c ON c.id = o.customer_id
@@ -96,21 +97,25 @@ export async function POST(
     let finalTrackingUrl = body.trackingUrl || null;
     let finalCourier = body.courierPartner || deliveryPartner || "Self Delivery";
     let finalEstimatedDelivery: Date | null = null;
+    let finalLabelUrl = body.shippingLabelUrl || null;
 
     if (deliveryPartner === "self" || !deliveryPartner) {
       // Manual / Self Delivery Path
       await client.query(
         `INSERT INTO "${schema}".online_order_deliveries (
-           order_id, courier_partner, awb_number, tracking_url, pickup_scheduled_at, created_at, updated_at
+           order_id, courier_partner, awb_number, tracking_url, shipping_label_url,
+           dispatched_at, pickup_scheduled_at, created_at, updated_at
          )
-         VALUES ($1, $2, $3, $4, NOW(), NOW(), NOW())
+         VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW(), NOW())
          ON CONFLICT (order_id) DO UPDATE
          SET courier_partner = EXCLUDED.courier_partner,
              awb_number = COALESCE(EXCLUDED.awb_number, "${schema}".online_order_deliveries.awb_number),
              tracking_url = COALESCE(EXCLUDED.tracking_url, "${schema}".online_order_deliveries.tracking_url),
+             shipping_label_url = COALESCE(EXCLUDED.shipping_label_url, "${schema}".online_order_deliveries.shipping_label_url),
+             dispatched_at = COALESCE("${schema}".online_order_deliveries.dispatched_at, NOW()),
              pickup_scheduled_at = NOW(),
              updated_at = NOW()`,
-        [orderId, finalCourier, finalAwb, finalTrackingUrl]
+        [orderId, finalCourier, finalAwb, finalTrackingUrl, finalLabelUrl]
       );
 
       await transitionOrderStatus(client, schema, orderId, "shipped", {
@@ -157,7 +162,7 @@ export async function POST(
       const itemsRes = await client.query(
         `SELECT
            pv.id AS variant_id,
-           oi.product_name AS name
+           oi.product_name AS name,
            oi.qty AS units,
            oi.rate AS selling_price,
            oi.discount,
@@ -186,17 +191,17 @@ export async function POST(
           orderNo: order.order_no,
           items: shipmentItems,
           shippingAddress: {
-            name: order.recipient_name || "Customer",
-            address_line1: order.address_line1 || "Customer Address",
+            name: order.recipient_name || "-",
+            address_line1: order.address_line1 || "-",
             address_line2: order.address_line2 || undefined,
-            city: order.city || "City",
-            state: order.state || "State",
-            pincode: order.pincode || "000000",
+            city: order.city || "-",
+            state: order.state || "-",
+            pincode: order.pincode || "-",
             country: order.country || "India",
-            phone: order.phone || "0000000000",
-            email: order.email || "order@storefront.local",
+            phone: order.phone || "-",
+            email: order.email || "-",
           },
-          pickupLocationCode: ecomSettings?.pickup_location_code || undefined,
+          pickupLocationCode: ecomSettings?.pickup_location_code || "Primary",
           codAmount: isCod ? Number(order.total_amount) : 0,
           subtotal: Number(order.subtotal || order.total_amount),
           totalAmount: Number(order.total_amount),
@@ -220,21 +225,16 @@ export async function POST(
       finalTrackingUrl = shipmentResult.trackingUrl || null;
       finalCourier = shipmentResult.courierName || deliveryPartner;
       finalEstimatedDelivery = shipmentResult.estimatedDeliveryAt || null;
+      finalLabelUrl = shipmentResult.shippingLabelUrl || finalLabelUrl;
 
       // Upsert online_order_deliveries
       await client.query(
         `INSERT INTO "${schema}".online_order_deliveries (
-           order_id, courier_partner, awb_number, tracking_url, estimated_delivery_at, pickup_scheduled_at, created_at, updated_at
-         )
-         VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())
-         ON CONFLICT (order_id) DO UPDATE
-         SET courier_partner = EXCLUDED.courier_partner,
-             awb_number = EXCLUDED.awb_number,
-             tracking_url = EXCLUDED.tracking_url,
-             estimated_delivery_at = EXCLUDED.estimated_delivery_at,
-             pickup_scheduled_at = NOW(),
-             updated_at = NOW()`,
-        [orderId, finalCourier, finalAwb, finalTrackingUrl, finalEstimatedDelivery]
+     order_id, courier_partner, awb_number, tracking_url, shipping_label_url,
+     estimated_delivery_at, dispatched_at, pickup_scheduled_at, created_at, updated_at
+   )
+   VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW(), NOW(), NOW())`,
+        [orderId, finalCourier, finalAwb, finalTrackingUrl, finalLabelUrl, finalEstimatedDelivery]
       );
 
       await transitionOrderStatus(client, schema, orderId, "shipped", {
@@ -254,6 +254,7 @@ export async function POST(
       courier_partner: finalCourier,
       awb_number: finalAwb,
       tracking_url: finalTrackingUrl,
+      shipping_label_url: finalLabelUrl,
       estimated_delivery_at: finalEstimatedDelivery,
     });
   } catch (err: any) {

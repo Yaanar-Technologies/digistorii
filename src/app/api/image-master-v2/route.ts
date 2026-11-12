@@ -85,17 +85,17 @@ export async function GET(req: NextRequest) {
             ELSE u.uom_name
           END AS uom_label,
           CASE
-            WHEN im.category_id IS NULL
-              OR im.material_id IS NULL
-              OR im.uom_id IS NULL
-              OR im.source IS NULL
-              THEN 'untagged'
             WHEN EXISTS (
               SELECT 1
               FROM "${schema}".product_images pi
               WHERE pi.image_id = im.id
             )
               THEN 'linked'
+            WHEN im.category_id IS NULL
+              OR im.material_id IS NULL
+              OR im.uom_id IS NULL
+              OR im.source IS NULL
+              THEN 'untagged'
             ELSE 'unlinked'
           END AS status,
           EXISTS (

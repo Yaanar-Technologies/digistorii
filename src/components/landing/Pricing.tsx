@@ -154,94 +154,94 @@ export function PlanCards({
           Selected plan is not available. Please choose a plan from pricing.
         </div>
       ) : (
+        // AFTER:
         <div
           className={
             onlySelectedPlan || visiblePlans.length === 1
               ? "flex justify-center items-stretch"
-              : "grid grid-cols-1 md:grid-cols-6 gap-8 items-stretch"
+              : "flex flex-nowrap overflow-x-auto gap-6 items-stretch pb-4 scrollbar-thin"
           }
-        >  {visiblePlans.map((plan, index) => {
-          const isSelected = Number(selectedPlanId) === Number(plan.plan_id);
-          const isPopular = plan.plan_name.toUpperCase() === "GROWTH";
-          const isEnterprise = plan.plan_name.toUpperCase() === "ENTERPRISE";
+        >
+          {visiblePlans.map((plan, index) => {
+            const isSelected = Number(selectedPlanId) === Number(plan.plan_id);
+            const isPopular = plan.plan_name.toUpperCase() === "GROWTH";
+            const isEnterprise = plan.plan_name.toUpperCase() === "ENTERPRISE";
 
-          const monthlyPrice = plan.price_monthly || 0;
-          const yearlyPrice = plan.price_yearly || 0;
-          const isYearly = plan.billing_cycle === "yearly";
-          const savings = (monthlyPrice * 12) - yearlyPrice;
-          const monthsFree = monthlyPrice > 0 ? Math.round((savings / monthlyPrice) * 10) / 10 : 0;
+            const monthlyPrice = plan.price_monthly || 0;
+            const yearlyPrice = plan.price_yearly || 0;
+            const isYearly = plan.billing_cycle === "yearly";
+            const savings = (monthlyPrice * 12) - yearlyPrice;
+            const monthsFree = monthlyPrice > 0 ? Math.round((savings / monthlyPrice) * 10) / 10 : 0;
 
-          const cardSpan =
-            visiblePlans.length === 1
-              ? "w-full max-w-md"
-              : index === 0
-                ? "md:col-start-2 md:col-span-2"
-                : "md:col-span-2";
+            const cardSpan =
+              visiblePlans.length === 1
+                ? "w-full max-w-md"
+                : "w-[250px] min-w-[280px] flex-shrink-0";
 
-          return (
-            <div
-              key={`${plan.plan_id}-${plan.billing_cycle}`}
-              className={`relative flex flex-col justify-between rounded-3xl border p-8 transition-all duration-300 transform hover:-translate-y-1.5 ${onlySelectedPlan ? "" : cardSpan} ${isSelected
-                ? "border-blue-600 bg-gradient-to-b from-blue-50/50 to-white shadow-xl ring-2 ring-blue-500/20"
-                : isPopular
-                  ? "border-indigo-300 bg-white shadow-lg hover:border-indigo-400 hover:shadow-2xl ring-1 ring-indigo-100"
-                  : "border-gray-200 bg-white shadow-sm hover:border-blue-300 hover:shadow-xl"
-                }`}
-            >
+            return (
               <div
-                className={`absolute top-0 left-0 h-1.5 w-full rounded-t-3xl ${isSelected
-                  ? "bg-gradient-to-r from-blue-600 to-indigo-600"
+                key={`${plan.plan_id}-${plan.billing_cycle}`}
+                className={`relative flex flex-col justify-between rounded-3xl border p-8 transition-all duration-300 transform hover:-translate-y-1.5 ${onlySelectedPlan ? "" : cardSpan} ${isSelected
+                  ? "border-blue-600 bg-gradient-to-b from-blue-50/50 to-white shadow-xl ring-2 ring-blue-500/20"
                   : isPopular
-                    ? "bg-gradient-to-r from-indigo-500 to-purple-600"
-                    : "bg-transparent"
+                    ? "border-indigo-300 bg-white shadow-lg hover:border-indigo-400 hover:shadow-2xl ring-1 ring-indigo-100"
+                    : "border-gray-200 bg-white shadow-sm hover:border-blue-300 hover:shadow-xl"
                   }`}
-              />
+              >
+                <div
+                  className={`absolute top-0 left-0 h-1.5 w-full rounded-t-3xl ${isSelected
+                    ? "bg-gradient-to-r from-blue-600 to-indigo-600"
+                    : isPopular
+                      ? "bg-gradient-to-r from-indigo-500 to-purple-600"
+                      : "bg-transparent"
+                    }`}
+                />
 
-              {isPopular && (
-                <span className="absolute -top-3.5 right-6 rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 px-3.5 py-1 text-[11px] font-bold uppercase tracking-wider text-white shadow-md ">
-                  Best Value
-                </span>
-              )}
-              {/* {isEnterprise && (
+                {isPopular && (
+                  <span className="absolute -top-3.5 right-6 rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 px-3.5 py-1 text-[11px] font-bold uppercase tracking-wider text-white shadow-md ">
+                    Best Value
+                  </span>
+                )}
+                {/* {isEnterprise && (
                   <span className="absolute -top-3.5 right-6 rounded-full bg-gray-800 px-3.5 py-1 text-[11px] font-bold uppercase tracking-wider text-white shadow-md">
                     Enterprise
                   </span>
                 )} */}
 
-              <div>
-                {/* Plan Name */}
-                <h3 className="text-xl font-bold text-gray-800 tracking-tight">
-                  {plan.plan_name}
-                </h3>
-                <p className="mt-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                  {plan.billing_period} Plan
-                </p>
+                <div>
+                  {/* Plan Name */}
+                  <h3 className="text-xl font-bold text-gray-800 tracking-tight">
+                    {plan.plan_name}
+                  </h3>
+                  <p className="mt-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    {plan.billing_period} Plan
+                  </p>
 
-                {/* Pricing Display */}
-                <div className="mt-6 flex flex-col">
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-3xl font-extrabold text-gray-800 tracking-tight">
-                      Rs.{Number(plan.amount || 0).toLocaleString("en-IN")}
-                    </span>
-                    <span className="text-sm font-medium text-gray-400">
-                      / {plan.billing_cycle === "yearly" ? "year" : "month"}
-                    </span>
-                  </div>
-
-                  {/* Dynamic Savings Highlight */}
-                  {isYearly && savings > 0 && (
-                    <div className="mt-3 flex flex-col items-start gap-1">
-                      <span className="inline-flex items-center rounded-lg bg-green-50 border border-green-200 px-2.5 py-1 text-xs font-bold text-green-700 shadow-sm">
-                        Save Rs.{savings.toLocaleString("en-IN")}
+                  {/* Pricing Display */}
+                  <div className="mt-6 flex flex-col">
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-3xl font-extrabold text-gray-800 tracking-tight">
+                        Rs.{Number(plan.amount || 0).toLocaleString("en-IN")}
                       </span>
-                      <span className="text-[11px] text-green-600 font-bold tracking-wide">
-                        ({monthsFree} {monthsFree === 1 ? "month" : "months"} free!)
+                      <span className="text-sm font-medium text-gray-400">
+                        / {plan.billing_cycle === "yearly" ? "year" : "month"}
                       </span>
                     </div>
-                  )}
-                </div>
-                <div className="mt-8 flex gap-3">
-                  {/* {onSelectPlan && (
+
+                    {/* Dynamic Savings Highlight */}
+                    {isYearly && savings > 0 && (
+                      <div className="mt-3 flex flex-col items-start gap-1">
+                        <span className="inline-flex items-center rounded-lg bg-green-50 border border-green-200 px-2.5 py-1 text-xs font-bold text-green-700 shadow-sm">
+                          Save Rs.{savings.toLocaleString("en-IN")}
+                        </span>
+                        <span className="text-[11px] text-green-600 font-bold tracking-wide">
+                          ({monthsFree} {monthsFree === 1 ? "month" : "months"} free!)
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="mt-8 flex gap-3">
+                    {/* {onSelectPlan && (
                       <button
                         type="button"
                         onClick={() => onSelectPlan(plan)}
@@ -254,63 +254,63 @@ export function PlanCards({
                       </button>
                     )} */}
 
-                  {onContinue ? (
-                    <button
-                      type="button"
-                      disabled={loading}
-                      onClick={() => onContinue(plan)}
-                      className="flex-1 rounded-xl bg-blue-700 py-3 text-sm font-bold text-white shadow-sm hover:bg-blue-800 disabled:opacity-70 transition-all duration-300"
-                    >
-                      {loading ? "Saving..." : "Proceed to Payment"}
-                    </button>
-                  ) : (
-                    !onSelectPlan && (
+                    {onContinue ? (
                       <button
                         type="button"
-                        onClick={() => handleMarketingChoose(plan)}
-                        className={`w-full rounded-xl py-3.5 text-sm font-bold text-white transition-all duration-300 shadow-md ${isPopular
-                          ? "bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 hover:shadow-lg transform active:scale-95"
-                          : "bg-blue-600 hover:bg-blue-700 hover:shadow-lg transform active:scale-95"
-                          }`}
+                        disabled={loading}
+                        onClick={() => onContinue(plan)}
+                        className="flex-1 rounded-xl bg-blue-700 py-3 text-sm font-bold text-white shadow-sm hover:bg-blue-800 disabled:opacity-70 transition-all duration-300"
                       >
-                        Choose {plan.plan_name}
+                        {loading ? "Saving..." : "Proceed to Payment"}
                       </button>
-                    )
-                  )}
-                </div>
-
-                {/* Divider */}
-                <div className="my-6 border-b border-gray-100" />
-
-                {/* Features List */}
-                <div className="space-y-4">
-                  {plan.features.map((feature) => (
-                    <div key={feature} className="flex items-start gap-3">
-                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600">
-                        <svg
-                          className="h-3.5 w-3.5"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="3"
-                          viewBox="0 0 24 24"
-                          xmlns="http://www.w3.org/2000/svg"
+                    ) : (
+                      !onSelectPlan && (
+                        <button
+                          type="button"
+                          onClick={() => handleMarketingChoose(plan)}
+                          className={`w-full rounded-xl py-3.5 text-sm font-bold text-white transition-all duration-300 shadow-md ${isPopular
+                            ? "bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 hover:shadow-lg transform active:scale-95"
+                            : "bg-blue-600 hover:bg-blue-700 hover:shadow-lg transform active:scale-95"
+                            }`}
                         >
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
-                      </span>
-                      <span className="text-sm font-medium text-gray-600 leading-relaxed">
-                        {feature}
-                      </span>
-                    </div>
-                  ))}
+                          Choose {plan.plan_name}
+                        </button>
+                      )
+                    )}
+                  </div>
+
+                  {/* Divider */}
+                  <div className="my-6 border-b border-gray-100" />
+
+                  {/* Features List */}
+                  <div className="space-y-4">
+                    {plan.features.map((feature) => (
+                      <div key={feature} className="flex items-start gap-3">
+                        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600">
+                          <svg
+                            className="h-3.5 w-3.5"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="3"
+                            viewBox="0 0 24 24"
+                            xmlns="http://www.w3.org/2000/svg"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        </span>
+                        <span className="text-sm font-medium text-gray-600 leading-relaxed">
+                          {feature}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
+
+                {/* Call To Actions */}
+
               </div>
-
-              {/* Call To Actions */}
-
-            </div>
-          );
-        })}
+            );
+          })}
         </div>
       )}
     </div>

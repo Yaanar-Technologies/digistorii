@@ -34,6 +34,7 @@ type WizardProps = {
   company: string;
   initialPlanId?: number | null;
   initialBillingInterval?: BillingInterval;
+  initialOwnerEmail?: string;
 };
 
 type StaffMember = {
@@ -137,6 +138,7 @@ type StatusResponse = {
     slug: string;
     setup_stage: SetupStage;
     next_step: number;
+    owner_email?: string;
   };
   subscription?: {
     plan_code: string;
@@ -346,6 +348,7 @@ export default function OnboardingWizard({
   company,
   initialPlanId = null,
   initialBillingInterval = "monthly",
+  initialOwnerEmail = "",
 }: WizardProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -372,6 +375,7 @@ export default function OnboardingWizard({
   const [modeInput, setModeInput] = useState("");
   const [staffUsers, setStaffUsers] = useState<StaffMember[]>([]);
   const [companyName, setCompanyName] = useState(company);
+  const [ownerEmail, setOwnerEmail] = useState<string>(initialOwnerEmail);
   const [stage, setStage] = useState("PENDING");
   const [emailSent, setEmailSent] = useState(false);
   const [emailSending, setEmailSending] = useState(false);
@@ -535,6 +539,9 @@ export default function OnboardingWizard({
       }
 
       setCompanyName(data.company.name || company);
+      if (data.company.owner_email) {
+        setOwnerEmail(data.company.owner_email);
+      }
       setCompanyId(data.company.id);
       setStage(data.company.setup_stage);
       setCurrentStep(data.company.next_step || getNextStepNumber(data.company.setup_stage));
@@ -935,6 +942,9 @@ export default function OnboardingWizard({
         setError(data?.message || "Unable to send activation email.");
         return;
       }
+      if (data?.email) {
+        setOwnerEmail(data.email);
+      }
       setEmailSent(true);
       setEmailSentButNotVerifiedYet(true);
     } catch {
@@ -1021,7 +1031,7 @@ export default function OnboardingWizard({
       };
 
       const paymentObject = new window.Razorpay(options);
-      paymentObject.on("payment.failed", (response) => {
+      paymentObject.on("payment.failed", (response: any) => {
         setError(
           response?.error?.description ||
           response?.error?.reason ||
@@ -1595,7 +1605,7 @@ export default function OnboardingWizard({
                     {/* Target Email Indicator */}
                     <div className="inline-flex items-center gap-2 rounded-lg bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-700 border border-slate-200/80 shadow-xs">
                       <span className="text-slate-400">Sending to:</span>
-                      <span className="text-blue-600 font-mono">{"owner@yourdomain.com"}</span>
+                      <span className="text-blue-600 font-mono">{ownerEmail}</span>
                     </div>
                   </div>
 

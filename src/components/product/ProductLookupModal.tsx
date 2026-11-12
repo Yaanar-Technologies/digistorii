@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import ProductFilters from "@/app/[company]/(user)/workspace/inventory/products/components/ProductFilters";
 import {
@@ -7,7 +8,8 @@ import {
   PRODUCT_LOOKUP_COLUMN_LABELS,
   ProductLookupItem,
 } from "@/lib/product-lookup";
-import type { ProductLookupFilters } from "@/hooks/useProductLookup";
+import { findProductByBarcodeOrCode, type ProductLookupFilters } from "@/hooks/useProductLookup";
+import { useNotify } from "@/hooks/useNotify";
 
 type ProductLookupModalProps = {
   open: boolean;
@@ -17,6 +19,7 @@ type ProductLookupModalProps = {
   isEditable?: boolean;
   errorMessage?: string;
   items: ProductLookupItem[];
+  allItems?: ProductLookupItem[];
   loading: boolean;
   filters: ProductLookupFilters;
   onFiltersChange: (next: ProductLookupFilters) => void;
@@ -47,6 +50,7 @@ export default function ProductLookupModal({
   isEditable = true,
   errorMessage,
   items,
+  allItems,
   loading,
   filters,
   onFiltersChange,
@@ -60,7 +64,7 @@ export default function ProductLookupModal({
   onToggle,
   onToggleAll,
   showBarcodeInput = false,
-  barcodeValue = "",
+  barcodeValue,
   barcodeMessage,
   onBarcodeChange,
   onBarcodeSubmit,
@@ -68,6 +72,23 @@ export default function ProductLookupModal({
   title,
   maxSelection,
 }: ProductLookupModalProps) {
+  const notify = useNotify();
+  const barcodeInputRef = useRef<HTMLInputElement>(null);
+  const [localBarcodeValue, setLocalBarcodeValue] = useState("");
+  const isParentBarcodeControlled = onBarcodeChange !== undefined;
+  const resolvedBarcodeValue = isParentBarcodeControlled ? (barcodeValue ?? "") : localBarcodeValue;
+
+  useEffect(() => {
+    if (!open) {
+      setLocalBarcodeValue("");
+      return;
+    }
+    const timer = setTimeout(() => {
+      barcodeInputRef.current?.focus();
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [open]);
+
   if (!open) return null;
 
   const startIndex = totalCount === 0 ? 0 : (page - 1) * itemsPerPage + 1;
@@ -94,6 +115,61 @@ export default function ProductLookupModal({
 
   const isPurchaseLookup = items.some(i => i.last_price_this_supplier !== undefined);
 
+  const clearBarcodeField = () => {
+    if (isParentBarcodeControlled) {
+      onBarcodeChange?.("");
+    } else {
+      setLocalBarcodeValue("");
+    }
+    requestAnimationFrame(() => {
+      barcodeInputRef.current?.focus();
+    });
+  };
+
+  const handleBarcodeEnter = (scanned?: string) => {
+    const raw = String(scanned ?? resolvedBarcodeValue).trim();
+    if (!raw) {
+      clearBarcodeField();
+      return;
+    }
+
+    if (onBarcodeSubmit) {
+      onBarcodeSubmit(raw);
+      if (!isParentBarcodeControlled) {
+        setLocalBarcodeValue("");
+      }
+      requestAnimationFrame(() => {
+        barcodeInputRef.current?.focus();
+      });
+      return;
+    }
+
+    const searchPool = allItems && allItems.length > 0 ? allItems : items;
+    const match = findProductByBarcodeOrCode(searchPool, raw);
+    clearBarcodeField();
+
+    if (!match) {
+      notify(`Product with barcode ${raw} not found.`, { severity: "warning" });
+      return;
+    }
+
+    if (!isSelected(match)) {
+      if (maxSelection !== undefined && countToShow >= maxSelection) {
+        notify(`Maximum selection limit (${maxSelection}) reached.`, { severity: "warning" });
+        return;
+      }
+      onToggle(match);
+    }
+
+    const isVisibleInCurrentItems = items.some((i) => i.variant_id === match.variant_id);
+    if (!isVisibleInCurrentItems) {
+      if (filters.search || filters.type || filters.category || filters.source) {
+        onFiltersChange({ search: "", type: "", category: "", source: "" });
+      }
+      onPageChange(1);
+    }
+  };
+
   return createPortal(
     <div className="fixed inset-0 z-[100002] bg-black/40 backdrop-blur-sm flex items-center justify-center">
       <div className="w-[1200px] max-w-[95vw] h-[700px] bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden">
@@ -118,7 +194,7 @@ export default function ProductLookupModal({
                 + Add New ItemPO
               </button>
             ) : null}
-            <button onClick={onClose} className="text-gray-500 hover:text-black text-xl cursor-pointer">
+            <button type="button" onClick={onClose} className="text-gray-500 hover:text-black text-xl cursor-pointer">
               ✕
             </button>
           </div>
@@ -130,10 +206,18 @@ export default function ProductLookupModal({
             onChange={onFiltersChange}
             categoryOptions={categoryOptions}
             searchPlaceholder="Search by SKU or product name"
-            barcodeValue={barcodeValue}
+            barcodeValue={resolvedBarcodeValue}
             barcodeMessage={barcodeMessage}
-            onBarcodeChange={onBarcodeChange}
-            onBarcodeSubmit={onBarcodeSubmit}
+            onBarcodeChange={(nextVal) => {
+              if (isParentBarcodeControlled) {
+                onBarcodeChange?.(nextVal);
+              } else {
+                setLocalBarcodeValue(nextVal);
+              }
+            }}
+            onBarcodeSubmit={handleBarcodeEnter}
+            autoFocusBarcode={open}
+            barcodeInputRef={barcodeInputRef}
           />
         </div>
 
@@ -295,6 +379,7 @@ export default function ProductLookupModal({
 
           <div className="flex items-center gap-1">
             <button
+              type="button"
               disabled={page === 1}
               onClick={() => onPageChange(page - 1)}
               className="px-3 py-1 text-sm border rounded bg-white disabled:opacity-50 hover:bg-gray-100"
@@ -305,6 +390,7 @@ export default function ProductLookupModal({
             {start > 1 && (
               <>
                 <button
+                  type="button"
                   onClick={() => onPageChange(1)}
                   className="px-3 py-1 text-sm border rounded bg-white hover:bg-gray-100"
                 >
@@ -316,6 +402,7 @@ export default function ProductLookupModal({
 
             {pages.map((p) => (
               <button
+                type="button"
                 key={p}
                 onClick={() => onPageChange(p)}
                 className={`px-3 py-1 text-sm border rounded transition-colors ${page === p
@@ -331,6 +418,7 @@ export default function ProductLookupModal({
               <>
                 {end < totalPages - 1 && <span className="px-2 text-sm text-gray-500">...</span>}
                 <button
+                  type="button"
                   onClick={() => onPageChange(totalPages)}
                   className="px-3 py-1 text-sm border rounded bg-white hover:bg-gray-100"
                 >
@@ -340,6 +428,7 @@ export default function ProductLookupModal({
             )}
 
             <button
+              type="button"
               disabled={page >= totalPages}
               onClick={() => onPageChange(page + 1)}
               className="px-3 py-1 text-sm border rounded bg-white disabled:opacity-50 hover:bg-gray-100"
@@ -350,10 +439,11 @@ export default function ProductLookupModal({
         </div>
 
         <div className="flex justify-end gap-3 px-6 py-3 border-t bg-gray-50">
-          <button onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 hover:bg-gray-300">
+          <button type="button" onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 hover:bg-gray-300">
             Cancel
           </button>
           <button
+            type="button"
             onClick={() => {
               if (!isEditable) return;
               onAddSelected();

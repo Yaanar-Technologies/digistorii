@@ -159,12 +159,39 @@ export async function GET(
       outerOrderBy = "ORDER BY sub.final_selling_price DESC";
     }
 
-    let limitClause = "";
-    if (limitParam && !isNaN(Number(limitParam)) && Number(limitParam) > 0) {
-      limitClause = `LIMIT $${valIdx}`;
-      values.push(Number(limitParam));
+    const pageParam = url.searchParams.get("page");
+    const page = Math.max(1, parseInt(pageParam || "1", 10) || 1);
+    // If no explicit limit passed, default to 12 per page
+    const limit = limitParam && !isNaN(Number(limitParam)) && Number(limitParam) > 0
+      ? Number(limitParam)
+      : 12;
+    const offset = (page - 1) * limit;
+
+    const minPriceParam = url.searchParams.get("min_price");
+    const maxPriceParam = url.searchParams.get("max_price");
+    const inStockParam = url.searchParams.get("in_stock");
+
+    const outerConditions: string[] = [];
+    if (minPriceParam && !isNaN(Number(minPriceParam))) {
+      outerConditions.push(`sub.final_selling_price >= $${valIdx}`);
+      values.push(Number(minPriceParam));
       valIdx++;
     }
+    if (maxPriceParam && !isNaN(Number(maxPriceParam))) {
+      outerConditions.push(`sub.final_selling_price <= $${valIdx}`);
+      values.push(Number(maxPriceParam));
+      valIdx++;
+    }
+    if (inStockParam === "true" || inStockParam === "1") {
+      outerConditions.push(`sub.available_qty > 0`);
+    }
+    const outerWhereClause = outerConditions.length > 0 ? `WHERE ${outerConditions.join(" AND ")}` : "";
+
+    values.push(limit);
+    const limitValIdx = valIdx++;
+    values.push(offset);
+    const offsetValIdx = valIdx++;
+    const paginationClause = `LIMIT $${limitValIdx} OFFSET $${offsetValIdx}`;
 
     const newArrivalConditionSql = newArrivalsValIdx !== null
       ? `(pv.id = ANY($${newArrivalsValIdx}::bigint[]))`
@@ -184,7 +211,7 @@ export async function GET(
 
     // 2. Fetch the storefront products that are live (is_live = true)
     const query = `
-      SELECT * FROM (
+      SELECT sub.*, COUNT(*) OVER() AS total_count FROM (
         SELECT ${distinctClause}
           pv.id AS variant_id,
           p.id AS product_id,
@@ -261,11 +288,15 @@ export async function GET(
         ${whereClause}
         ${innerOrderByClause}
       ) sub
+      ${outerWhereClause}
       ${outerOrderBy}
-      ${limitClause}
+      ${paginationClause}
     `;
 
     const result = await client.query(query, values);
+
+    const total = result.rows.length > 0 ? Number(result.rows[0].total_count || 0) : 0;
+    const totalPages = Math.max(1, Math.ceil(total / limit));
 
     const products = result.rows.map((row) => {
       const discountObj = row.discount_type && Number(row.discount_value) > 0
@@ -310,6 +341,12 @@ export async function GET(
     return NextResponse.json({
       success: true,
       products,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
     });
   } catch (err: any) {
     console.error("Store products API load error:", err);

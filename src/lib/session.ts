@@ -30,6 +30,9 @@ export interface StaffSessionPayload extends BaseSessionPayload {
   real_company_name?: string;
   permissions?: any;
   warehouse_id?: number | null;
+  has_completed_guided_setup?: boolean;
+  ecommerce_access?: boolean;
+  pos_access?: boolean;
 }
 
 export const STAFF_COOKIE_NAME = "user";

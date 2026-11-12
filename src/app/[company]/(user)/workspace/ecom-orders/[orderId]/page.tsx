@@ -5,6 +5,8 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiFetch } from "@/lib/apiFetch";
 import Badge from "@/components/ui/badge/Badge";
+import { AdminReturnApprovalCard } from "@/components/ecommerce/AdminReturnApprovalCard";
+import { AdminOperationalAlertsBanner } from "@/components/admin/AdminOperationalAlertsBanner";
 import {
   ArrowLeftIcon,
   ShoppingBagIcon,
@@ -23,6 +25,7 @@ import {
   ClipboardDocumentIcon,
   ArrowTopRightOnSquareIcon,
   CubeIcon,
+  DocumentTextIcon,
 } from "@heroicons/react/24/outline";
 
 interface OrderDetailResponse {
@@ -310,11 +313,10 @@ export default function OrderDetailPage({
       {/* Global Feedback Banner */}
       {feedback && (
         <div
-          className={`p-4 rounded-xl border flex items-start justify-between gap-3 ${
-            feedback.type === "success"
-              ? "bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-200"
-              : "bg-red-50 border-red-200 text-red-800 dark:bg-red-950/40 dark:border-red-800 dark:text-red-200"
-          }`}
+          className={`p-4 rounded-xl border flex items-start justify-between gap-3 ${feedback.type === "success"
+            ? "bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-200"
+            : "bg-red-50 border-red-200 text-red-800 dark:bg-red-950/40 dark:border-red-800 dark:text-red-200"
+            }`}
         >
           <div className="flex items-center gap-2.5">
             {feedback.type === "success" ? (
@@ -333,6 +335,8 @@ export default function OrderDetailPage({
         </div>
       )}
 
+      <AdminOperationalAlertsBanner company={company} />
+
       {/* Main Order Header Card */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-5 sm:p-6 space-y-5">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 border-b border-gray-100 dark:border-gray-700/60 pb-5">
@@ -341,8 +345,22 @@ export default function OrderDetailPage({
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
                 {order.order_no}
               </h1>
-              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-brand-50 text-brand-600 dark:bg-brand-500/10 dark:text-brand-400 border border-brand-200/50">
-                Online Storefront
+              <span>
+                {/* Action Buttons Bar */}
+                {/* GST Tax Invoice */}
+                <a
+                  href={`/api/${company}/ecom/orders/${order.id}/invoice`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-3.5 py-2
+    border border-indigo-200 dark:border-indigo-800
+    bg-indigo-50 dark:bg-indigo-950/40
+    text-indigo-700 dark:text-indigo-300
+    hover:bg-indigo-100 dark:hover:bg-indigo-900/60
+    rounded-lg text-sm font-semibold transition-all shadow-sm"                >
+                  <DocumentTextIcon className="w-4 h-4 text-indigo-500" />
+                  Invoice
+                </a>
               </span>
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
@@ -350,7 +368,7 @@ export default function OrderDetailPage({
             </p>
           </div>
 
-          {/* Action Buttons Bar */}
+
           <div className="flex flex-wrap items-center gap-2.5">
             {/* 1. Confirm Order (placed -> confirmed) */}
             {order.order_status === "placed" && (
@@ -453,13 +471,12 @@ export default function OrderDetailPage({
             </div>
             <div className="capitalize font-semibold text-gray-900 dark:text-white flex items-center gap-2">
               <span
-                className={`w-2.5 h-2.5 rounded-full ${
-                  order.order_status === "delivered"
-                    ? "bg-emerald-500"
-                    : order.order_status === "cancelled"
+                className={`w-2.5 h-2.5 rounded-full ${order.order_status === "delivered"
+                  ? "bg-emerald-500"
+                  : order.order_status === "cancelled"
                     ? "bg-red-500"
                     : "bg-brand-500"
-                }`}
+                  }`}
               />
               {order.order_status.replace(/_/g, " ")}
             </div>
@@ -471,13 +488,12 @@ export default function OrderDetailPage({
             </div>
             <div className="capitalize font-semibold text-gray-900 dark:text-white flex items-center gap-2">
               <span
-                className={`w-2.5 h-2.5 rounded-full ${
-                  order.payment_status === "paid"
-                    ? "bg-emerald-500"
-                    : order.payment_status === "failed"
+                className={`w-2.5 h-2.5 rounded-full ${order.payment_status === "paid"
+                  ? "bg-emerald-500"
+                  : order.payment_status === "failed"
                     ? "bg-red-500"
                     : "bg-amber-500"
-                }`}
+                  }`}
               />
               {order.payment_status} ({order.payment_method || "COD"})
             </div>
@@ -489,13 +505,12 @@ export default function OrderDetailPage({
             </div>
             <div className="capitalize font-semibold text-gray-900 dark:text-white flex items-center gap-2">
               <span
-                className={`w-2.5 h-2.5 rounded-full ${
-                  order.delivery_status === "delivered"
-                    ? "bg-emerald-500"
-                    : order.delivery_status === "not_shipped"
+                className={`w-2.5 h-2.5 rounded-full ${order.delivery_status === "delivered"
+                  ? "bg-emerald-500"
+                  : order.delivery_status === "not_shipped"
                     ? "bg-gray-400"
                     : "bg-purple-500"
-                }`}
+                  }`}
               />
               {order.delivery_status.replace(/_/g, " ")}
             </div>
@@ -569,15 +584,14 @@ export default function OrderDetailPage({
                       </td>
                       <td className="py-3.5 px-4 text-center">
                         <span
-                          className={`text-xs px-2.5 py-1 rounded-full font-medium capitalize ${
-                            item.fulfillment_status === "allocated"
-                              ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300"
-                              : item.fulfillment_status === "fulfilled"
+                          className={`text-xs px-2.5 py-1 rounded-full font-medium capitalize ${item.fulfillment_status === "allocated"
+                            ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300"
+                            : item.fulfillment_status === "fulfilled"
                               ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
                               : item.fulfillment_status === "cancelled"
-                              ? "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300"
-                              : "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
-                          }`}
+                                ? "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300"
+                                : "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+                            }`}
                         >
                           {item.fulfillment_status}
                         </span>
@@ -757,6 +771,16 @@ export default function OrderDetailPage({
             )}
           </div>
 
+          {/* Reverse Logistics & Return Management Card */}
+          <AdminReturnApprovalCard
+            orderId={order.id}
+            orderNo={order.order_no}
+            company={company}
+            orderStatus={order.order_status}
+            totalAmount={order.total_amount}
+            onActionSuccess={fetchOrderDetail}
+          />
+
           {/* Payments Audit Trail Card */}
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-5 space-y-4">
             <h3 className="text-sm font-bold text-gray-900 dark:text-white flex items-center gap-2">
@@ -780,13 +804,12 @@ export default function OrderDetailPage({
                         {p.gateway} &bull; {p.method || "card"}
                       </span>
                       <span
-                        className={`font-semibold capitalize px-2 py-0.5 rounded-full ${
-                          p.status === "captured"
-                            ? "bg-emerald-100 text-emerald-700"
-                            : p.status === "failed"
+                        className={`font-semibold capitalize px-2 py-0.5 rounded-full ${p.status === "captured"
+                          ? "bg-emerald-100 text-emerald-700"
+                          : p.status === "failed"
                             ? "bg-red-100 text-red-700"
                             : "bg-amber-100 text-amber-700"
-                        }`}
+                          }`}
                       >
                         {p.status}
                       </span>

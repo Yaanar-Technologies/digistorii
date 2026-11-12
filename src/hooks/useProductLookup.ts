@@ -119,6 +119,7 @@ export function useProductLookup(options: UseProductLookupOptions = {}) {
 
   return {
     items,
+    filteredItems,
     loading,
     error,
     filters,
@@ -132,5 +133,69 @@ export function useProductLookup(options: UseProductLookupOptions = {}) {
     categoryOptions,
     resetFilters,
     refresh,
+  };
+}
+
+export function findProductByBarcodeOrCode(
+  items: ProductLookupItem[],
+  rawInput: string
+): ProductLookupItem | undefined {
+  const query = rawInput.trim();
+  if (!query) return undefined;
+  const lowerQuery = query.toLowerCase();
+
+  return (
+    items.find((item) => String(item.barcode || "").trim() === query) ||
+    items.find((item) => String(item.barcode || "").trim().toLowerCase() === lowerQuery) ||
+    items.find(
+      (item) =>
+        String(item.sku || "").trim().toLowerCase() === lowerQuery ||
+        String(item.code || item.product_code || "").trim().toLowerCase() === lowerQuery
+    )
+  );
+}
+
+export function paginateLookupSelectedFirst(
+  filteredItems: ProductLookupItem[],
+  isSelected: (item: ProductLookupItem) => boolean,
+  page: number,
+  itemsPerPage: number,
+  scanOrder: string[] = []
+) {
+  const selected: ProductLookupItem[] = [];
+  const unselected: ProductLookupItem[] = [];
+  for (const item of filteredItems) {
+    if (isSelected(item)) selected.push(item);
+    else unselected.push(item);
+  }
+
+  if (scanOrder.length > 0 && selected.length > 1) {
+    const rank = new Map<string, number>();
+    scanOrder.forEach((id, idx) => rank.set(String(id), idx));
+    selected.sort((a, b) => {
+      const ra = rank.get(String(a.variant_id));
+      const rb = rank.get(String(b.variant_id));
+      if (ra !== undefined && rb !== undefined) return ra - rb;
+      if (ra !== undefined) return -1;
+      if (rb !== undefined) return 1;
+      return 0;
+    });
+  }
+
+  const sortedItems = [...selected, ...unselected];
+  const totalCount = sortedItems.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / itemsPerPage));
+  const currentPage = Math.min(Math.max(1, page), totalPages);
+  const paginatedItems = sortedItems.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
+  return {
+    sortedItems,
+    paginatedItems,
+    totalCount,
+    totalPages,
+    currentPage,
   };
 }

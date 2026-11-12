@@ -57,6 +57,9 @@ type ThemeConfig = {
   hero_subtitle?: string;
   hero_banner_url?: string;
   hero_banner_image_id?: number;
+  hero_banner_start_date?: string | null;
+  hero_banner_end_date?: string | null;
+  hero_banner_scheduled?: boolean;
   primary_color?: string;
   secondary_color?: string;
   social_facebook?: string;
@@ -84,6 +87,9 @@ export const toStorefrontTheme = (
     ? [config.hero_banner_url]
     : [],
   bannerImageId: config.hero_banner_image_id,
+  bannerStartDate: config.hero_banner_start_date || null,
+  bannerEndDate: config.hero_banner_end_date || null,
+  isBannerScheduled: Boolean(config.hero_banner_scheduled),
   fontFamily: config.font_family || "Inter",
   layoutVariant: config.layout_variant || "standard",
   heroTitle: config.hero_title || "",
@@ -140,6 +146,9 @@ export default function ThemeCustomizationPage() {
   const [heroSubtitle, setHeroSubtitle] = useState("");
   const [heroBannerUrl, setHeroBannerUrl] = useState("");
   const [heroBannerImageId, setHeroBannerImageId] = useState<number | undefined>();
+  const [heroBannerStartDate, setHeroBannerStartDate] = useState("");
+  const [heroBannerEndDate, setHeroBannerEndDate] = useState("");
+  const [heroBannerScheduled, setHeroBannerScheduled] = useState(false);
   const [primaryColor, setPrimaryColor] = useState("#2563eb");
   const [secondaryColor, setSecondaryColor] = useState("#1e40af");
   const [socialFacebook, setSocialFacebook] = useState("");
@@ -249,6 +258,9 @@ export default function ThemeCustomizationPage() {
             setHeroSubtitle(config.hero_subtitle || "");
             setHeroBannerUrl(config.hero_banner_url || "");
             setHeroBannerImageId(config.hero_banner_image_id);
+            setHeroBannerStartDate(config.hero_banner_start_date || "");
+            setHeroBannerEndDate(config.hero_banner_end_date || "");
+            setHeroBannerScheduled(Boolean(config.hero_banner_scheduled));
             setPrimaryColor(config.primary_color || "#2563eb");
             setSecondaryColor(config.secondary_color || "#1e40af");
             setSocialFacebook(config.social_facebook || "");
@@ -414,6 +426,9 @@ export default function ThemeCustomizationPage() {
       hero_subtitle: heroSubtitle,
       hero_banner_url: heroBannerUrl,
       hero_banner_image_id: heroBannerImageId,
+      hero_banner_start_date: heroBannerStartDate || null,
+      hero_banner_end_date: heroBannerEndDate || null,
+      hero_banner_scheduled: heroBannerScheduled,
       primary_color: primaryColor,
       secondary_color: secondaryColor,
       social_facebook: socialFacebook,
@@ -833,7 +848,7 @@ export default function ThemeCustomizationPage() {
             </p>
           </div>
           <a
-            href={`/${company}/store`}
+            href={`/${company}`}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 shadow-xs"
@@ -1178,6 +1193,81 @@ export default function ThemeCustomizationPage() {
                               assetType="hero_slide"
                               placeholder="Upload or paste image URL"
                             />
+
+                            {/* Slide Scheduling */}
+                            <div className="pt-2 border-t border-gray-200/60 space-y-2">
+                              <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-gray-700">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(slide.isScheduled)}
+                                  onChange={(e) => {
+                                    const checked = e.target.checked;
+                                    const updated = homeSections.map((s) =>
+                                      s.id === sec.id && s.type === "hero_carousel"
+                                        ? {
+                                            ...s,
+                                            slides: s.slides.map((item) =>
+                                              item.id === slide.id ? { ...item, isScheduled: checked } : item
+                                            ),
+                                          }
+                                        : s
+                                    );
+                                    setHomeSections(updated);
+                                  }}
+                                  className="rounded text-blue-600 focus:ring-blue-500"
+                                />
+                                <span>Schedule Slide (Start & End Date)</span>
+                              </label>
+
+                              {slide.isScheduled && (
+                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                  <div>
+                                    <span className="block text-[11px] text-gray-500 mb-0.5">Start Date</span>
+                                    <input
+                                      type="datetime-local"
+                                      value={slide.startDate || ""}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        const updated = homeSections.map((s) =>
+                                          s.id === sec.id && s.type === "hero_carousel"
+                                            ? {
+                                                ...s,
+                                                slides: s.slides.map((item) =>
+                                                  item.id === slide.id ? { ...item, startDate: val } : item
+                                                ),
+                                              }
+                                            : s
+                                        );
+                                        setHomeSections(updated);
+                                      }}
+                                      className="w-full text-xs rounded border border-gray-300 p-1.5 focus:outline-none"
+                                    />
+                                  </div>
+                                  <div>
+                                    <span className="block text-[11px] text-gray-500 mb-0.5">End Date</span>
+                                    <input
+                                      type="datetime-local"
+                                      value={slide.endDate || ""}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        const updated = homeSections.map((s) =>
+                                          s.id === sec.id && s.type === "hero_carousel"
+                                            ? {
+                                                ...s,
+                                                slides: s.slides.map((item) =>
+                                                  item.id === slide.id ? { ...item, endDate: val } : item
+                                                ),
+                                              }
+                                            : s
+                                        );
+                                        setHomeSections(updated);
+                                      }}
+                                      className="w-full text-xs rounded border border-gray-300 p-1.5 focus:outline-none"
+                                    />
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -1531,6 +1621,69 @@ export default function ThemeCustomizationPage() {
                           assetType="banner"
                           placeholder="Upload promo banner"
                         />
+
+                        {/* Offers Section Scheduling */}
+                        <div className="pt-2 border-t border-gray-200/60 space-y-2">
+                          <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-gray-700">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(sec.isScheduled)}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                setHomeSections(
+                                  homeSections.map((s) =>
+                                    s.id === sec.id && s.type === "offers"
+                                      ? { ...s, isScheduled: checked }
+                                      : s
+                                  )
+                                );
+                              }}
+                              className="rounded text-blue-600 focus:ring-blue-500"
+                            />
+                            <span>Schedule Special Deals Section (Start & End Date)</span>
+                          </label>
+
+                          {sec.isScheduled && (
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                              <div>
+                                <span className="block text-[11px] text-gray-500 mb-0.5">Start Date</span>
+                                <input
+                                  type="datetime-local"
+                                  value={sec.startDate || ""}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setHomeSections(
+                                      homeSections.map((s) =>
+                                        s.id === sec.id && s.type === "offers"
+                                          ? { ...s, startDate: val }
+                                          : s
+                                      )
+                                    );
+                                  }}
+                                  className="w-full text-xs rounded border border-gray-300 p-1.5 focus:outline-none"
+                                />
+                              </div>
+                              <div>
+                                <span className="block text-[11px] text-gray-500 mb-0.5">End Date</span>
+                                <input
+                                  type="datetime-local"
+                                  value={sec.endDate || ""}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setHomeSections(
+                                      homeSections.map((s) =>
+                                        s.id === sec.id && s.type === "offers"
+                                          ? { ...s, endDate: val }
+                                          : s
+                                      )
+                                    );
+                                  }}
+                                  className="w-full text-xs rounded border border-gray-300 p-1.5 focus:outline-none"
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
 
                         <div>
                           <label className="block text-xs font-semibold text-gray-700 mb-1">

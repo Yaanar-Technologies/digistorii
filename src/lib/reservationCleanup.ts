@@ -1,5 +1,6 @@
 import { PoolClient } from "pg";
 import { pool } from "@/lib/db";
+import { transitionOrderStatus, transitionPaymentStatus } from "@/lib/orderStateMachine";
 
 export function getReservationTimeoutMinutes(): number {
   const envVal = Number(process.env.RESERVATION_TIMEOUT_MINUTES);
@@ -42,42 +43,17 @@ export async function releaseExpiredReservations(
     for (const row of expiredOrdersRes.rows) {
       const orderId = Number(row.id);
       try {
-        const resUpdate = await clientParam.query(
-          `UPDATE "${schemaParam}".inventory_reservations
-           SET status = 'released'
-           WHERE order_ref_id = $1 AND status = 'held'`,
-          [orderId]
-        );
+        await transitionOrderStatus(clientParam, schemaParam, orderId, "cancelled", {
+          changedBy: "system:auto_cancel",
+          note: `Auto-cancelled: payment not completed within ${timeoutMinutes} minutes`,
+        });
 
-        await clientParam.query(
-          `UPDATE "${schemaParam}".online_orders
-           SET order_status = 'cancelled',
-               payment_status = 'failed',
-               updated_by = 'system:auto_cancel',
-               updated_at = NOW()
-           WHERE id = $1`,
-          [orderId]
-        );
+        await transitionPaymentStatus(clientParam, schemaParam, orderId, "failed", {
+          changedBy: "system:auto_cancel",
+          note: `Auto-cancelled: unpaid timeout after ${timeoutMinutes} minutes`,
+        });
 
-        await clientParam.query(
-          `INSERT INTO "${schemaParam}".online_order_status_history (
-             order_id, status_type, from_status, to_status, changed_by, note, created_at
-           )
-           VALUES (
-             $1, 'order', 'placed', 'cancelled', 'system:auto_cancel',
-             $2, NOW()
-           )`,
-          [orderId, `Auto-cancelled: payment not completed within ${timeoutMinutes} minutes`]
-        );
-
-        await clientParam.query(
-          `UPDATE "${schemaParam}".online_order_items
-           SET fulfillment_status = 'cancelled'
-           WHERE order_id = $1 AND fulfillment_status = 'reserved'`,
-          [orderId]
-        );
-
-        releasedCount += resUpdate.rowCount || 0;
+        releasedCount++;
       } catch (err) {
         console.error(`[ReservationCleanup] Error cancelling order #${orderId}:`, err);
       }
@@ -131,45 +107,20 @@ export async function releaseExpiredReservations(
             continue;
           }
 
-          const resUpdate = await orderClient.query(
-            `UPDATE "${schema}".inventory_reservations
-             SET status = 'released'
-             WHERE order_ref_id = $1 AND status = 'held'`,
-            [orderId]
-          );
+          await transitionOrderStatus(orderClient, schema, orderId, "cancelled", {
+            changedBy: "system:auto_cancel",
+            note: `Auto-cancelled: payment not completed within ${timeoutMinutes} minutes`,
+          });
 
-          await orderClient.query(
-            `UPDATE "${schema}".online_orders
-             SET order_status = 'cancelled',
-                 payment_status = 'failed',
-                 updated_by = 'system:auto_cancel',
-                 updated_at = NOW()
-             WHERE id = $1`,
-            [orderId]
-          );
-
-          await orderClient.query(
-            `INSERT INTO "${schema}".online_order_status_history (
-               order_id, status_type, from_status, to_status, changed_by, note, created_at
-             )
-             VALUES (
-               $1, 'order', 'placed', 'cancelled', 'system:auto_cancel',
-               $2, NOW()
-             )`,
-            [orderId, `Auto-cancelled: payment not completed within ${timeoutMinutes} minutes`]
-          );
-
-          await orderClient.query(
-            `UPDATE "${schema}".online_order_items
-             SET fulfillment_status = 'cancelled'
-             WHERE order_id = $1 AND fulfillment_status = 'reserved'`,
-            [orderId]
-          );
+          await transitionPaymentStatus(orderClient, schema, orderId, "failed", {
+            changedBy: "system:auto_cancel",
+            note: `Auto-cancelled: unpaid timeout after ${timeoutMinutes} minutes`,
+          });
 
           await orderClient.query("COMMIT");
 
           totalCancelledOrders += 1;
-          totalReleasedReservations += resUpdate.rowCount || 0;
+          totalReleasedReservations += 1;
         } catch (err) {
           await orderClient.query("ROLLBACK");
           console.error(

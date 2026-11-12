@@ -32,26 +32,26 @@ export async function GET(
     const orderRes = await client.query(
       `SELECT
          o.*,
-         COALESCE(c.name, 'Guest Customer') AS customer_name,
+         COALESCE(c.cust_name, c.name, 'Guest Customer') AS customer_name,
          c.phone AS customer_phone,
          c.email AS customer_email,
          c.cust_code AS customer_code,
-         sa.name AS shipping_name,
+         sa.recipient_name AS shipping_name,
+         sa.recipient_phone AS shipping_phone,
          sa.address_line1 AS shipping_address_line1,
          sa.address_line2 AS shipping_address_line2,
          sa.city AS shipping_city,
          sa.state AS shipping_state,
          sa.pincode AS shipping_pincode,
          sa.country AS shipping_country,
-         sa.phone AS shipping_phone,
-         ba.name AS billing_name,
+         ba.recipient_name AS billing_name,
+         ba.recipient_phone AS billing_phone,
          ba.address_line1 AS billing_address_line1,
          ba.address_line2 AS billing_address_line2,
          ba.city AS billing_city,
          ba.state AS billing_state,
          ba.pincode AS billing_pincode,
-         ba.country AS billing_country,
-         ba.phone AS billing_phone
+         ba.country AS billing_country
        FROM "${schema}".online_orders o
        LEFT JOIN "${schema}".customers c ON c.id = o.customer_id
        LEFT JOIN "${schema}".customer_addresses sa ON sa.id = o.shipping_address_id
@@ -88,10 +88,12 @@ export async function GET(
          oi.fulfillment_status,
          oi.created_at,
          pv.sku,
-         pv.color,
+         pcl.color_name AS color,
+         pcl.hex_code AS color_hex,
          pv.size
        FROM "${schema}".online_order_items oi
        LEFT JOIN "${schema}".product_variants pv ON pv.id = oi.variant_id
+       LEFT JOIN "${schema}".product_colors pcl ON pcl.id = pv.color_id
        WHERE oi.order_id = $1
        ORDER BY oi.id ASC`,
       [orderId]

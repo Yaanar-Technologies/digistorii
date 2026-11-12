@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { HeroCarouselSection as HeroCarouselSectionType, StorefrontTheme } from "../types";
 import { ChevronLeftIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
+import { isBannerActive } from "@/lib/bannerScheduling";
 
 interface HeroCarouselSectionProps {
   section: HeroCarouselSectionType;
@@ -19,7 +20,12 @@ export const HeroCarouselHomeSection: React.FC<HeroCarouselSectionProps> = ({
   onCtaClick,
   isPreview = false,
 }) => {
-  const slides = section.slides || [];
+  const slides = useMemo(() => {
+    const raw = section.slides || [];
+    if (isPreview) return raw;
+    return raw.filter((s) => isBannerActive(s));
+  }, [section.slides, isPreview]);
+
   const [currentIdx, setCurrentIdx] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
 

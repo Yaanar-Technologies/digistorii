@@ -4,6 +4,7 @@ import { getTenantSchema } from "@/lib/tenant";
 import {
   RESPONSIBILITY_ACCESS_FIELDS,
   ensureCompanyResponsibilities,
+  getCompanyPlanAccess,
   getResponsibilitiesForCompany,
 } from "@/lib/userResponsibilities";
 
@@ -28,8 +29,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: false, message: "Company not found" }, { status: 404 });
     }
 
-    const data = await getResponsibilitiesForCompany(client, companyId);
-    return NextResponse.json({ success: true, data });
+    const [data, planAccess] = await Promise.all([
+      getResponsibilitiesForCompany(client, companyId),
+      getCompanyPlanAccess(client, companyId),
+    ]);
+    return NextResponse.json({ success: true, data, planAccess });
   } catch (error: any) {
     return NextResponse.json(
       { success: false, message: error.message || "Failed to load responsibilities" },
@@ -66,8 +70,13 @@ export async function POST(req: NextRequest) {
     await client.query("BEGIN");
     transactionStarted = true;
     await ensureCompanyResponsibilities(client, companyId);
+    const planAccess = await getCompanyPlanAccess(client, companyId);
 
-    const insertValues = RESPONSIBILITY_ACCESS_FIELDS.map((field) => normalizeBool(body?.[field]));
+    const insertValues = RESPONSIBILITY_ACCESS_FIELDS.map((field) => {
+      if (field === "sales_billing_access" && !planAccess.pos_access) return false;
+      if (field === "ecommerce_access" && !planAccess.ecommerce_access) return false;
+      return normalizeBool(body?.[field]);
+    });
     const inserted = await client.query(
       `INSERT INTO public.user_responsibilities
        (

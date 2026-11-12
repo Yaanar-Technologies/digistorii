@@ -5,6 +5,7 @@ import { useSidebar } from "@/context/SidebarContext";
 import AppHeader from "@/layout/AppHeader";
 import AppSidebar from "@/layout/AppSidebar";
 import Backdrop from "@/layout/Backdrop";
+import { SubscriptionAlertBanner } from "@/components/admin/SubscriptionAlertBanner";
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -31,6 +32,7 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
 
       {/* Main content */}
       <div className={`flex-1 transition-all duration-300 ease-in-out ${mainContentMargin}`}>
+        <SubscriptionAlertBanner />
         <AppHeader />
         <div className="p-4 mx-auto max-w-screen-2xl md:p-6">{children}</div>
       </div>

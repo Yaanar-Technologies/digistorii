@@ -159,6 +159,25 @@ async function insertStockLayerEntry(
   );
 }
 
+export async function getNextOpeningStockDocNo(
+  client: PoolClient,
+  schema: string
+): Promise<string> {
+  const result = await client.query(
+    `
+      SELECT COALESCE(
+        MAX(CAST(SUBSTRING(doc_no FROM 4) AS INTEGER)),
+        0
+      ) AS max_code
+      FROM "${schema}".opening_stock
+      WHERE doc_no ~ '^OPS[0-9]+$'
+    `
+  );
+
+  const next = Number(result.rows[0]?.max_code || 0) + 1;
+  return `OPS${String(next).padStart(3, "0")}`;
+}
+
 export async function postOpeningStockToLedger(
   client: PoolClient,
   schema: string,

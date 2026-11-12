@@ -12,10 +12,18 @@ async function ensurePaymentGatewayTable(client: any, schema: string) {
       key_secret VARCHAR(255) NOT NULL,
       webhook_secret VARCHAR(255),
       is_active BOOLEAN DEFAULT TRUE,
+      is_test_mode BOOLEAN DEFAULT TRUE,
+      is_live_mode BOOLEAN DEFAULT FALSE,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
       UNIQUE (provider)
     );
+
+    ALTER TABLE "${schema}".payment_gateway_configs
+      ADD COLUMN IF NOT EXISTS is_test_mode BOOLEAN DEFAULT TRUE,
+      ADD COLUMN IF NOT EXISTS is_live_mode BOOLEAN DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS key_secret_enc VARCHAR(255),
+      ADD COLUMN IF NOT EXISTS webhook_secret VARCHAR(255);
   `);
 }
 
@@ -58,11 +66,15 @@ export async function GET(
     await ensurePaymentGatewayTable(client, schema);
 
     const configRes = await client.query(
-      `SELECT id, provider, key_id, key_secret, webhook_secret, is_active, updated_at
+      `SELECT id, provider, key_id, key_secret, webhook_secret, is_active, is_test_mode, is_live_mode, updated_at
        FROM "${schema}".payment_gateway_configs
        WHERE provider = 'razorpay'
        LIMIT 1`
     );
+
+    const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "localhost:3000";
+    const proto = req.headers.get("x-forwarded-proto") || "https";
+    const webhookUrl = `${proto}://${host}/api/${paramCompany}/ecom/webhooks/razorpay`;
 
     let config = null;
 
@@ -76,13 +88,26 @@ export async function GET(
         maskedSecret = maskSecret(row.key_secret, 4);
       }
 
+      let maskedWebhook = "";
+      if (row.webhook_secret) {
+        try {
+          const decryptedWh = decryptSecret(row.webhook_secret);
+          maskedWebhook = maskSecret(decryptedWh, 4);
+        } catch {
+          maskedWebhook = maskSecret(row.webhook_secret, 4);
+        }
+      }
+
       config = {
         provider: row.provider || "razorpay",
         key_id: row.key_id,
         key_secret_masked: maskedSecret,
+        webhook_secret_masked: maskedWebhook,
         has_secret: !!row.key_secret,
         has_webhook_secret: !!row.webhook_secret,
         is_active: row.is_active ?? true,
+        is_test_mode: row.is_test_mode ?? !row.is_live_mode,
+        webhook_url: webhookUrl,
         updated_at: row.updated_at,
       };
     } else {
@@ -107,13 +132,26 @@ export async function GET(
           }
         }
 
+        let maskedWebhook = "";
+        if (eRow.gateway_webhook_secret_enc) {
+          try {
+            const decWh = decryptSecret(eRow.gateway_webhook_secret_enc);
+            maskedWebhook = maskSecret(decWh, 4);
+          } catch {
+            maskedWebhook = maskSecret(eRow.gateway_webhook_secret_enc, 4);
+          }
+        }
+
         config = {
           provider: "razorpay",
           key_id: eRow.gateway_key_id,
           key_secret_masked: maskedSecret,
+          webhook_secret_masked: maskedWebhook,
           has_secret: !!eRow.gateway_key_secret_enc,
           has_webhook_secret: !!eRow.gateway_webhook_secret_enc,
           is_active: true,
+          is_test_mode: true,
+          webhook_url: webhookUrl,
           updated_at: null,
         };
       }
@@ -121,7 +159,19 @@ export async function GET(
 
     return NextResponse.json({
       success: true,
-      config,
+      config: config || {
+        provider: "razorpay",
+        key_id: "",
+        key_secret_masked: "",
+        webhook_secret_masked: "",
+        has_secret: false,
+        has_webhook_secret: false,
+        is_active: true,
+        is_test_mode: true,
+        webhook_url: webhookUrl,
+        updated_at: null,
+      },
+      webhook_url: webhookUrl,
     });
   } catch (err: any) {
     console.error("[Get Payment Gateway Settings Error]:", err);
@@ -177,6 +227,7 @@ export async function POST(
       key_secret,
       webhook_secret,
       is_active = true,
+      is_test_mode = true,
     } = body;
 
     const trimmedKeyId = String(key_id || "").trim();
@@ -217,19 +268,24 @@ export async function POST(
       encryptedWebhookSecret = existingRes.rows[0].webhook_secret;
     }
 
+    const testModeBool = Boolean(is_test_mode);
+
     // 1. Upsert payment_gateway_configs
     await client.query(
       `INSERT INTO "${schema}".payment_gateway_configs (
-         provider, key_id, key_secret, webhook_secret, is_active, updated_at
+         provider, key_id, key_secret, key_secret_enc, webhook_secret, is_active, is_test_mode, is_live_mode, updated_at
        )
-       VALUES ($1, $2, $3, $4, $5, NOW())
+       VALUES ($1, $2, $3, $3, $4, $5, $6, $7, NOW())
        ON CONFLICT (provider) DO UPDATE
        SET key_id = EXCLUDED.key_id,
            key_secret = EXCLUDED.key_secret,
+           key_secret_enc = EXCLUDED.key_secret,
            webhook_secret = COALESCE(EXCLUDED.webhook_secret, "${schema}".payment_gateway_configs.webhook_secret),
            is_active = EXCLUDED.is_active,
+           is_test_mode = EXCLUDED.is_test_mode,
+           is_live_mode = EXCLUDED.is_live_mode,
            updated_at = NOW()`,
-      [provider, trimmedKeyId, encryptedSecret, encryptedWebhookSecret, !!is_active]
+      [provider, trimmedKeyId, encryptedSecret, encryptedWebhookSecret, !!is_active, testModeBool, !testModeBool]
     );
 
     // 2. Sync to ecom_settings for backward compatibility

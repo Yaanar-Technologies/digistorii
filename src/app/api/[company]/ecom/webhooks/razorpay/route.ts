@@ -1,4 +1,5 @@
-// This webhook is the only source of truth for payment_status — any client-side Razorpay checkout success callback built later must NOT independently mark orders paid.
+// This webhook is the sole mutator and single source of truth for payment_status.
+// Client-side verify route is read-only and polls order status.
 
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
@@ -6,6 +7,8 @@ import { pool } from "@/lib/db";
 import { getTenantSchemaByCompany } from "@/lib/tenant";
 import { decryptSecret } from "@/lib/cryptoHelper";
 import { transitionPaymentStatus } from "@/lib/orderStateMachine";
+import { generateTaxInvoiceForOrder } from "@/lib/tax/invoiceService";
+import { autoFulfillOrder } from "@/lib/fulfillment/autoFulfill";
 
 export async function POST(
   req: NextRequest,
@@ -38,14 +41,31 @@ export async function POST(
   const client = await pool.connect();
 
   try {
-    // 3. Load ecom_settings.gateway_webhook_secret_enc for this company
-    const settingsRes = await client.query(
-      `SELECT gateway_webhook_secret_enc
-       FROM "${schema}".ecom_settings
+    // 3. Load webhook secret from payment_gateway_configs or ecom_settings
+    let webhookSecretEnc = "";
+    const gwRes = await client.query(
+      `SELECT *
+       FROM "${schema}".payment_gateway_configs
+       WHERE provider = 'razorpay' AND is_active = true
        LIMIT 1`
     );
 
-    const webhookSecretEnc = settingsRes.rows[0]?.gateway_webhook_secret_enc;
+    if (gwRes.rowCount && gwRes.rowCount > 0) {
+      const gw = gwRes.rows[0];
+      webhookSecretEnc = gw.is_live_mode
+        ? gw.live_webhook_secret_enc || gw.webhook_secret
+        : gw.test_webhook_secret_enc || gw.webhook_secret;
+    }
+
+    if (!webhookSecretEnc) {
+      const settingsRes = await client.query(
+        `SELECT gateway_webhook_secret_enc
+         FROM "${schema}".ecom_settings
+         LIMIT 1`
+      );
+      webhookSecretEnc = settingsRes.rows[0]?.gateway_webhook_secret_enc;
+    }
+
     if (!webhookSecretEnc) {
       console.warn(
         `[Razorpay Webhook] Webhook secret is not configured for company '${company}'. Rejecting request.`
@@ -60,14 +80,7 @@ export async function POST(
     try {
       decryptedWebhookSecret = decryptSecret(webhookSecretEnc);
     } catch (err) {
-      console.error(
-        `[Razorpay Webhook] Failed to decrypt webhook secret for company '${company}':`,
-        err
-      );
-      return NextResponse.json(
-        { success: false, error: "Invalid webhook secret configuration" },
-        { status: 400 }
-      );
+      decryptedWebhookSecret = webhookSecretEnc; // In case stored as plain text
     }
 
     // 4. Verify 'x-razorpay-signature' header against raw body
@@ -99,18 +112,38 @@ export async function POST(
       );
     }
 
-    // 5. Parse verified payload and process business logic
-    // Once signature is verified, any downstream processing error returns 200 to prevent Razorpay disablement
+    // 5. Parse verified payload
+    let payload: any = {};
     try {
-      const payload = JSON.parse(rawBody);
-      const eventName = payload?.event;
+      payload = JSON.parse(rawBody);
+    } catch {
+      return NextResponse.json({ status: "ok", message: "Invalid JSON ignored" }, { status: 200 });
+    }
+
+    const eventId = payload?.event_id || payload?.id || `evt_${receivedSignature.slice(0, 32)}`;
+    const eventName = payload?.event;
+
+    // 6. Strict Webhook Idempotency Check
+    const eventCheckRes = await client.query(
+      `SELECT id FROM "${schema}".payment_webhook_events WHERE event_id = $1 LIMIT 1`,
+      [eventId]
+    );
+
+    if (eventCheckRes.rowCount && eventCheckRes.rowCount > 0) {
+      return NextResponse.json(
+        { status: "ok", message: "Event already processed (idempotent duplicate)" },
+        { status: 200 }
+      );
+    }
+
+    // 7. Process Event Payloads
+    try {
       const paymentEntity = payload?.payload?.payment?.entity;
       const refundEntity = payload?.payload?.refund?.entity;
 
       const rzpOrderId: string | undefined = paymentEntity?.order_id;
       const rzpPaymentId: string | undefined = paymentEntity?.id || refundEntity?.payment_id;
 
-      // Handle events
       if (eventName === "payment.authorized") {
         if (rzpOrderId || rzpPaymentId) {
           const payRes = await client.query(
@@ -123,11 +156,6 @@ export async function POST(
 
           if (payRes.rowCount) {
             const paymentRow = payRes.rows[0];
-            // Idempotency check
-            if (paymentRow.status === "authorized" && paymentRow.gateway_payment_id === rzpPaymentId) {
-              return NextResponse.json({ status: "ok", message: "Already processed" }, { status: 200 });
-            }
-
             await client.query(
               `UPDATE "${schema}".online_order_payments
                SET gateway_payment_id = COALESCE($1, gateway_payment_id),
@@ -155,10 +183,9 @@ export async function POST(
 
           if (payRes.rowCount) {
             const paymentRow = payRes.rows[0];
-            // Idempotency check
-            if (paymentRow.status === "captured" && paymentRow.gateway_payment_id === rzpPaymentId) {
-              return NextResponse.json({ status: "ok", message: "Already processed" }, { status: 200 });
-            }
+            const orderId = Number(paymentRow.order_id);
+
+            await client.query("BEGIN");
 
             await client.query(
               `UPDATE "${schema}".online_order_payments
@@ -170,7 +197,7 @@ export async function POST(
             );
 
             // Chained state machine handles transition to paid & order to confirmed + converts reservations
-            await transitionPaymentStatus(client, schema, paymentRow.order_id, "paid", {
+            await transitionPaymentStatus(client, schema, orderId, "paid", {
               changedBy: "webhook:razorpay",
               note: `Captured via Razorpay payment ID: ${rzpPaymentId || "N/A"}`,
             });
@@ -182,8 +209,28 @@ export async function POST(
                  AND variant_id IN (
                    SELECT variant_id FROM "${schema}".online_order_items WHERE order_id = $1
                  )`,
-              [paymentRow.order_id]
+              [orderId]
             );
+
+            // Statutory GST Tax Invoice Generation
+            try {
+              await generateTaxInvoiceForOrder(client, schema, orderId);
+            } catch (invErr: any) {
+              console.warn(
+                `[Razorpay Webhook] Auto invoice generation notice for order #${orderId}:`,
+                invErr.message
+              );
+            }
+
+            await client.query("COMMIT");
+
+            // Trigger Asynchronous Zero-Touch Fulfillment Pipeline (Phase B)
+            autoFulfillOrder(schema, orderId, { trigger: "webhook:razorpay" }).catch((fErr) => {
+              console.warn(
+                `[Razorpay Webhook] Auto-fulfillment notice for order #${orderId}:`,
+                fErr?.message
+              );
+            });
           }
         }
       } else if (eventName === "payment.failed") {
@@ -198,11 +245,6 @@ export async function POST(
 
           if (payRes.rowCount) {
             const paymentRow = payRes.rows[0];
-            // Idempotency check
-            if (paymentRow.status === "failed") {
-              return NextResponse.json({ status: "ok", message: "Already processed" }, { status: 200 });
-            }
-
             const errorDesc =
               paymentEntity?.error_description ||
               paymentEntity?.error_reason ||
@@ -226,6 +268,7 @@ export async function POST(
       } else if (eventName === "refund.processed") {
         const refundPaymentId = refundEntity?.payment_id || rzpPaymentId;
         const refundId = refundEntity?.id;
+        const refundAmount = Number(refundEntity?.amount || 0) / 100;
 
         if (refundPaymentId || rzpOrderId) {
           const payRes = await client.query(
@@ -238,10 +281,6 @@ export async function POST(
 
           if (payRes.rowCount) {
             const paymentRow = payRes.rows[0];
-            // Idempotency check
-            if (paymentRow.status === "refunded") {
-              return NextResponse.json({ status: "ok", message: "Already processed" }, { status: 200 });
-            }
 
             await client.query(
               `UPDATE "${schema}".online_order_payments
@@ -251,23 +290,77 @@ export async function POST(
               [JSON.stringify(payload), paymentRow.id]
             );
 
+            await client.query(
+              `INSERT INTO "${schema}".payment_refunds (
+                 order_id, payment_id, gateway_refund_id, amount, status, notes, created_at, updated_at
+               )
+               VALUES ($1, $2, $3, $4, 'SUCCESS', 'Refund confirmed by Razorpay webhook', NOW(), NOW())
+               ON CONFLICT DO NOTHING`,
+              [paymentRow.order_id, paymentRow.id, refundId || null, refundAmount]
+            );
+
             await transitionPaymentStatus(client, schema, paymentRow.order_id, "refunded", {
               changedBy: "webhook:razorpay",
               note: `Refund processed: ${refundId || "N/A"}`,
             });
           }
         }
-      } else {
-        console.log(`[Razorpay Webhook] Received unhandled event '${eventName}' for company '${company}'.`);
+      } else if (eventName === "refund.failed") {
+        const refundPaymentId = refundEntity?.payment_id || rzpPaymentId;
+        const refundId = refundEntity?.id;
+        const errorDesc = refundEntity?.error_description || "Gateway refund processing failed";
+
+        if (refundPaymentId || rzpOrderId) {
+          const payRes = await client.query(
+            `SELECT id, order_id
+             FROM "${schema}".online_order_payments
+             WHERE gateway_payment_id = $1 OR gateway_order_id = $2
+             LIMIT 1`,
+            [refundPaymentId || null, rzpOrderId || null]
+          );
+
+          if (payRes.rowCount) {
+            const orderId = payRes.rows[0].order_id;
+
+            // Record failed refund
+            await client.query(
+              `INSERT INTO "${schema}".payment_refunds (
+                 order_id, payment_id, gateway_refund_id, amount, status, failure_reason, notes, created_at, updated_at
+               )
+               VALUES ($1, $2, $3, $4, 'FAILED', $5, 'Webhook reported refund.failed', NOW(), NOW())`,
+              [orderId, payRes.rows[0].id, refundId || null, Number(refundEntity?.amount || 0) / 100, errorDesc]
+            );
+
+            // Critical Operational Alert for Admin
+            await client.query(
+              `INSERT INTO "${schema}".admin_operational_alerts (
+                 alert_type, severity, title, message, payload, is_resolved, created_at
+               )
+               VALUES ('REFUND_FAILURE', 'CRITICAL', $1, $2, $3, FALSE, NOW())`,
+              [
+                `Refund Failed for Order #${orderId}`,
+                `Razorpay reported refund failure (${refundId || "N/A"}): ${errorDesc}. Immediate manual action needed.`,
+                JSON.stringify({ orderId, refundId, error: errorDesc }),
+              ]
+            );
+          }
+        }
       }
+
+      // Record in payment_webhook_events
+      await client.query(
+        `INSERT INTO "${schema}".payment_webhook_events (event_id, event_type, payload, processed_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (event_id) DO NOTHING`,
+        [eventId, eventName, JSON.stringify(payload)]
+      );
     } catch (bizErr) {
       console.error(
-        `[Razorpay Webhook] Error processing event for company '${company}':`,
+        `[Razorpay Webhook] Error processing event '${eventName}' for company '${company}':`,
         bizErr
       );
     }
 
-    // Always return 200 once signature verification passed
     return NextResponse.json({ status: "ok", received: true }, { status: 200 });
   } catch (err: any) {
     console.error(`[Razorpay Webhook Server Error]:`, err);

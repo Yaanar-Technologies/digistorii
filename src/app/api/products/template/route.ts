@@ -19,18 +19,21 @@ const TEMPLATE_COLUMNS = [
   { header: "Height", key: "height", width: 14 },
   { header: "Color*", key: "color", width: 16 },
   { header: "Size*", key: "size", width: 16 },
-  { header: "Parent SKU (or SKU)", key: "parent_sku", width: 22 },
-  { header: "SKU (or Parent SKU)", key: "sku", width: 22 },
+  { header: "Parent SKU", key: "parent_sku", width: 22 },
+  { header: "SKU ", key: "sku", width: 22 },
   { header: "Low Stock Threshold", key: "low_stock_threshold", width: 22 },
   { header: "Backorders Allowed", key: "backorders_allowed", width: 22 },
   { header: "Barcode", key: "barcode", width: 20 },
+  { header: "Quantity", key: "qty", width: 16 },
+  { header: "Warehouse", key: "warehouse", width: 24 },
+  { header: "Locator", key: "locator", width: 24 },
 ];
 
 export async function GET(req: NextRequest) {
   const client = await pool.connect();
   try {
     const { schema } = await getTenantSchema(req);
-    const [categoriesRes, materialsRes, uomRes, colorsRes, fittingsRes] = await Promise.all([
+    const [categoriesRes, materialsRes, uomRes, colorsRes, fittingsRes, warehousesRes, locatorsRes] = await Promise.all([
       client.query(
         `
           SELECT id, path_string, category_name
@@ -66,7 +69,24 @@ export async function GET(req: NextRequest) {
           ORDER BY fitting_name ASC
         `
       ),
-
+      client.query(
+        `
+          SELECT id, code, name
+          FROM "${schema}".warehouses
+          WHERE effective_to IS NULL OR effective_to >= CURRENT_DATE
+          ORDER BY name ASC
+        `
+      ),
+      client.query(
+        `
+          SELECT l.id, l.locator_name, w.name AS warehouse_name
+          FROM "${schema}".locators l
+          INNER JOIN "${schema}".warehouses w ON w.id = l.warehouse_id
+          WHERE (l.effective_to IS NULL OR l.effective_to >= CURRENT_DATE)
+            AND (w.effective_to IS NULL OR w.effective_to >= CURRENT_DATE)
+          ORDER BY w.name ASC, l.locator_name ASC
+        `
+      ),
     ]);
 
     const categories = categoriesRes.rows
@@ -92,6 +112,22 @@ export async function GET(req: NextRequest) {
     const fittings = fittingsRes.rows.map((r: any) => r.fitting_name);
     const genders = ["Male", "Female", "Transgender", "Not Specified"]
     const sources = ["own", "vendor"];
+    const warehouses = warehousesRes.rows
+      .map((row: { code: string | null; name: string | null }) => {
+        const code = String(row.code || "").trim();
+        const name = String(row.name || "").trim();
+        return code && name ? `${code} - ${name}` : name || code;
+      })
+      .filter(Boolean);
+    const locators = locatorsRes.rows
+      .map((row: { warehouse_name: string | null; locator_name: string | null }) => {
+        const warehouseName = String(row.warehouse_name || "").trim();
+        const locatorName = String(row.locator_name || "").trim();
+        return warehouseName && locatorName
+          ? `${warehouseName} - ${locatorName}`
+          : locatorName;
+      })
+      .filter(Boolean);
 
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet("Products");
@@ -127,6 +163,8 @@ export async function GET(req: NextRequest) {
     listSheet.getColumn(5).values = ["Color", ...colors];
     listSheet.getColumn(6).values = ["Fitting", ...fittings];
     listSheet.getColumn(7).values = ["Gender", ...genders];
+    listSheet.getColumn(8).values = ["Warehouse", ...warehouses];
+    listSheet.getColumn(9).values = ["Locator", ...locators];
     listSheet.state = "veryHidden";
 
     const maxRows = 500;
@@ -138,6 +176,8 @@ export async function GET(req: NextRequest) {
     const colorRange = `Lists!$E$2:$E$${Math.max(colors.length + 1, 2)}`;
     const fittingRange = `Lists!$F$2:$F$${Math.max(fittings.length + 1, 2)}`;
     const genderRange = `Lists!$G$2:$G$${Math.max(genders.length + 1, 2)}`;
+    const warehouseRange = `Lists!$H$2:$H$${Math.max(warehouses.length + 1, 2)}`;
+    const locatorRange = `Lists!$I$2:$I$${Math.max(locators.length + 1, 2)}`;
 
     // 1. Category (Col C)
     (worksheet as any).dataValidations.add(`C2:C${maxRows}`, {
@@ -214,6 +254,40 @@ export async function GET(req: NextRequest) {
       errorTitle: "Invalid color",
       error: "Choose a color from the list.",
       formulae: [colorRange],
+    });
+
+    // 8. Quantity (Col U) - Optional non-negative initial stock
+    (worksheet as any).dataValidations.add(`U2:U${maxRows}`, {
+      type: "decimal",
+      operator: "greaterThanOrEqual",
+      allowBlank: true,
+      showErrorMessage: true,
+      errorStyle: "error",
+      errorTitle: "Invalid quantity",
+      error: "Quantity must be a non-negative number.",
+      formulae: [0],
+    });
+
+    // 9. Warehouse (Col V)
+    (worksheet as any).dataValidations.add(`V2:V${maxRows}`, {
+      type: "list",
+      allowBlank: true,
+      showErrorMessage: true,
+      errorStyle: "error",
+      errorTitle: "Invalid warehouse",
+      error: "Choose a warehouse from the list or leave it blank.",
+      formulae: [warehouseRange],
+    });
+
+    // 10. Locator (Col W)
+    (worksheet as any).dataValidations.add(`W2:W${maxRows}`, {
+      type: "list",
+      allowBlank: true,
+      showErrorMessage: true,
+      errorStyle: "error",
+      errorTitle: "Invalid locator",
+      error: "Choose a locator from the list or leave it blank.",
+      formulae: [locatorRange],
     });
 
     const buffer = Buffer.from(await workbook.xlsx.writeBuffer());

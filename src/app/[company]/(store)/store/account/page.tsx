@@ -1,8 +1,17 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { GlobeAltIcon, BuildingStorefrontIcon } from "@heroicons/react/24/outline";
+import {
+  GlobeAltIcon,
+  BuildingStorefrontIcon,
+  ArchiveBoxIcon,
+  MapPinIcon,
+  EnvelopeIcon,
+  PhoneIcon,
+  XCircleIcon,
+  UserIcon,
+} from "@heroicons/react/24/outline";
 import {
   StorefrontHeader,
   StorefrontFooter,
@@ -10,12 +19,7 @@ import {
   mockFooterSettings,
   useStorefrontTheme,
 } from "@/components/storefront";
-import {
-  ArchiveBoxIcon,
-  MapPinIcon,
-  EnvelopeIcon,
-  PhoneIcon,
-} from "@heroicons/react/24/outline";
+import CustomerOrderTimeline from "@/components/storefront/CustomerOrderTimeline";
 import { useCartStore } from "@/store/cartStore";
 import { useCustomerAuthStore } from "@/store/customerAuthStore";
 import { formatPrice } from "@/lib/currency";
@@ -38,6 +42,13 @@ export default function CustomerAccountPage() {
   const [loadingData, setLoadingData] = useState(true);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
 
+  // Cancellation state
+  const [cancellingOrder, setCancellingOrder] = useState<any | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [isSubmittingCancel, setIsSubmittingCancel] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
+
   const cartItems = useCartStore((state) => state.items);
 
   useEffect(() => {
@@ -48,48 +59,100 @@ export default function CustomerAccountPage() {
 
   useEffect(() => {
     checkSession(company);
+  }, [company, checkSession]);
+
+  const loadAccountData = useCallback(async () => {
+    setLoadingData(true);
+    try {
+      // Load customer orders (from online_orders and linked POS purchases)
+      const ordersRes = await fetch(`/api/ecom/customer/orders?company=${company}`);
+      if (ordersRes.ok) {
+        const ordersData = await ordersRes.json();
+        if (ordersData.success && Array.isArray(ordersData.orders)) {
+          setOrders(ordersData.orders);
+        }
+      }
+
+      // Load customer addresses
+      const addrRes = await fetch(`/api/ecom/customer/addresses?company=${company}`);
+      if (addrRes.ok) {
+        const addrData = await addrRes.json();
+        if (addrData.success && Array.isArray(addrData.addresses)) {
+          setAddresses(addrData.addresses);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load account details:", err);
+    } finally {
+      setLoadingData(false);
+    }
   }, [company]);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
-
-    const loadAccountData = async () => {
-      setLoadingData(true);
-      try {
-        // Load customer orders
-        const ordersRes = await fetch(`/api/ecom/customer/orders?company=${company}`);
-        if (ordersRes.ok) {
-          const ordersData = await ordersRes.json();
-          if (ordersData.success && Array.isArray(ordersData.orders)) {
-            setOrders(ordersData.orders);
-          }
-        }
-
-        // Load customer addresses
-        const addrRes = await fetch(`/api/ecom/customer/addresses?company=${company}`);
-        if (addrRes.ok) {
-          const addrData = await addrRes.json();
-          if (addrData.success && Array.isArray(addrData.addresses)) {
-            setAddresses(addrData.addresses);
-          }
-        }
-      } catch (err) {
-        console.error("Failed to load account details:", err);
-      } finally {
-        setLoadingData(false);
-      }
-    };
-
-    loadAccountData();
-  }, [isAuthenticated, company]);
+    if (isAuthenticated) {
+      loadAccountData();
+    }
+  }, [isAuthenticated, loadAccountData]);
 
   const handleLogout = async () => {
     await logout(company);
     router.push(`/${company}/store`);
   };
 
+  // Eligibility rule for customer self-service cancellation (window until packed/shipped)
+  const canCancelOrder = (order: any) => {
+    if (order.channel_type !== "online") return false;
+    const eligibleStatus = ["placed", "confirmed"].includes(order.order_status);
+    const disallowedDelivery = [
+      "packed",
+      "picked_up",
+      "in_transit",
+      "out_for_delivery",
+      "delivered",
+    ];
+    return eligibleStatus && !disallowedDelivery.includes(order.delivery_status);
+  };
+
+  const handleConfirmCancel = async () => {
+    if (!cancellingOrder) return;
+    setIsSubmittingCancel(true);
+    setCancelError(null);
+    try {
+      const res = await fetch(
+        `/api/${company}/ecom/orders/${cancellingOrder.id}/customer-cancel`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            reason: cancelReason.trim() || "Cancelled by customer before dispatch",
+          }),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Failed to cancel order.");
+      }
+
+      setActionSuccessMsg(
+        `Order #${cancellingOrder.order_no || cancellingOrder.sales_no} has been cancelled.`
+      );
+      setCancellingOrder(null);
+      setCancelReason("");
+      await loadAccountData();
+
+      setTimeout(() => setActionSuccessMsg(null), 5000);
+    } catch (err: any) {
+      setCancelError(err.message || "Failed to cancel order");
+    } finally {
+      setIsSubmittingCancel(false);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50/40 flex flex-col justify-between" style={{ fontFamily: theme.fontFamily }}>
+    <div
+      className="min-h-screen bg-gray-50/40 flex flex-col justify-between"
+      style={{ fontFamily: theme.fontFamily }}
+    >
       <div>
         <StorefrontHeader
           theme={theme}
@@ -101,14 +164,27 @@ export default function CustomerAccountPage() {
         />
 
         <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+          {actionSuccessMsg && (
+            <div className="mb-6 rounded-2xl bg-emerald-50 border border-emerald-200 p-4 text-sm font-semibold text-emerald-800 flex items-center justify-between shadow-xs">
+              <span>{actionSuccessMsg}</span>
+              <button
+                onClick={() => setActionSuccessMsg(null)}
+                className="text-emerald-600 hover:text-emerald-900 font-bold ml-4 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
           {!isAuthenticated ? (
             <div className="bg-white rounded-3xl border border-gray-100 p-8 sm:p-12 text-center max-w-md mx-auto my-12 space-y-4 shadow-sm">
-              <div className="h-16 w-16 bg-gray-100 text-gray-500 rounded-full flex items-center justify-center mx-auto text-2xl">
-                👤
+              <div className="h-16 w-16 bg-gray-100 text-gray-500 rounded-full flex items-center justify-center mx-auto">
+                <UserIcon className="h-8 w-8 text-gray-400" />
               </div>
               <h1 className="text-2xl font-bold text-gray-900">Sign in to View Account</h1>
               <p className="text-sm text-gray-500">
-                Please sign in or register to access your order history, delivery addresses, and profile details.
+                Please sign in or register to access your order history, delivery addresses, and
+                profile details.
               </p>
               <button
                 onClick={() => setIsAuthOpen(true)}
@@ -130,7 +206,9 @@ export default function CustomerAccountPage() {
                     {customer?.name?.[0]?.toUpperCase() || "C"}
                   </div>
                   <div>
-                    <h1 className="text-xl font-bold text-gray-900 sm:text-2xl">{customer?.name}</h1>
+                    <h1 className="text-xl font-bold text-gray-900 sm:text-2xl">
+                      {customer?.name}
+                    </h1>
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 mt-1">
                       {customer?.email && (
                         <span className="inline-flex items-center gap-1.5">
@@ -154,7 +232,12 @@ export default function CustomerAccountPage() {
                     className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold text-red-600 border border-red-200 bg-red-50/50 hover:bg-red-100 transition-colors cursor-pointer"
                   >
                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                      />
                     </svg>
                     Log Out
                   </button>
@@ -165,14 +248,18 @@ export default function CustomerAccountPage() {
               <div className="flex border-b border-gray-200 gap-8 text-sm font-semibold">
                 <button
                   onClick={() => setActiveTab("orders")}
-                  className={`pb-3.5 border-b-2 transition-colors cursor-pointer ${activeTab === "orders" ? "border-black text-black" : "border-transparent text-gray-400 hover:text-gray-600"
+                  className={`pb-3.5 border-b-2 transition-colors cursor-pointer ${activeTab === "orders"
+                      ? "border-black text-black"
+                      : "border-transparent text-gray-400 hover:text-gray-600"
                     }`}
                 >
                   📦 Order History ({orders.length})
                 </button>
                 <button
                   onClick={() => setActiveTab("addresses")}
-                  className={`pb-3.5 border-b-2 transition-colors cursor-pointer ${activeTab === "addresses" ? "border-black text-black" : "border-transparent text-gray-400 hover:text-gray-600"
+                  className={`pb-3.5 border-b-2 transition-colors cursor-pointer ${activeTab === "addresses"
+                      ? "border-black text-black"
+                      : "border-transparent text-gray-400 hover:text-gray-600"
                     }`}
                 >
                   📍 Saved Addresses ({addresses.length})
@@ -183,7 +270,9 @@ export default function CustomerAccountPage() {
               {activeTab === "orders" && (
                 <div className="space-y-6">
                   {loadingData ? (
-                    <div className="py-12 text-center text-sm text-gray-400">Loading your purchase history...</div>
+                    <div className="py-12 text-center text-sm text-gray-400">
+                      Loading your purchase history...
+                    </div>
                   ) : orders.length === 0 ? (
                     <div className="bg-white rounded-2xl border border-gray-100 p-8 text-center space-y-3">
                       <div className="text-3xl">🛍️</div>
@@ -200,66 +289,128 @@ export default function CustomerAccountPage() {
                       </button>
                     </div>
                   ) : (
-                    orders.map((order) => (
-                      <div key={order.id} className="bg-white rounded-2xl border border-gray-100 shadow-xs overflow-hidden">
-                        {/* Order Header Card */}
-                        <div className="p-4 sm:p-6 bg-gray-50/70 border-b border-gray-100 flex flex-wrap items-center justify-between gap-4">
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-bold text-gray-900">{order.sales_no}</span>
+                    orders.map((order) => {
+                      const isCancellable = canCancelOrder(order);
 
-                              {/* Channel Badge: Online Storefront vs POS In-Store */}
-                              {order.channel_type === "online" ? (
-                                <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 text-[11px] font-bold text-indigo-700">
-                                  <GlobeAltIcon className="h-3.5 w-3.5 shrink-0 text-indigo-600" />
-                                  <span>Online Order</span>
+                      return (
+                        <div
+                          key={order.id}
+                          className="bg-white rounded-2xl border border-gray-100 shadow-xs overflow-hidden"
+                        >
+                          {/* Order Header Card */}
+                          <div className="p-4 sm:p-6 bg-gray-50/70 border-b border-gray-100 flex flex-wrap items-center justify-between gap-4">
+                            <div className="space-y-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-sm font-bold text-gray-900">
+                                  {order.sales_no || order.order_no}
                                 </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700">
-                                  <BuildingStorefrontIcon className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
-                                  <span>In-Store POS Purchase</span>
+
+                                {/* Channel Badge */}
+                                {order.channel_type === "online" ? (
+                                  <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 text-[11px] font-bold text-indigo-700">
+                                    <GlobeAltIcon className="h-3.5 w-3.5 shrink-0 text-indigo-600" />
+                                    <span>Online Order</span>
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700">
+                                    <BuildingStorefrontIcon className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                                    <span>In-Store POS Purchase</span>
+                                  </span>
+                                )}
+
+                                {/* Status Chip */}
+                                <span
+                                  className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold capitalize ${order.order_status === "delivered"
+                                      ? "bg-emerald-100 text-emerald-800"
+                                      : order.order_status === "cancelled"
+                                        ? "bg-red-100 text-red-800"
+                                        : order.order_status === "confirmed"
+                                          ? "bg-blue-100 text-blue-800"
+                                          : "bg-gray-200/80 text-gray-700"
+                                    }`}
+                                >
+                                  {order.order_status}
                                 </span>
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                Placed on:{" "}
+                                {new Date(order.sales_date || order.created_at).toLocaleDateString()}
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-4 text-right">
+                              <div>
+                                <div className="text-xs text-gray-400">Total Amount</div>
+                                <div className="text-base font-bold text-gray-900">
+                                  {formatPrice(order.total_amount)}
+                                </div>
+                              </div>
+
+                              {isCancellable && (
+                                <button
+                                  onClick={() => {
+                                    setCancellingOrder(order);
+                                    setCancelReason("");
+                                    setCancelError(null);
+                                  }}
+                                  className="inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-red-600 border border-red-200 bg-red-50 hover:bg-red-100 transition-colors cursor-pointer"
+                                >
+                                  Cancel Order
+                                </button>
                               )}
                             </div>
-                            <div className="text-xs text-gray-500">
-                              Placed on: {new Date(order.sales_date || order.created_at).toLocaleDateString()}
-                            </div>
                           </div>
 
-                          <div className="flex items-center gap-4 text-right">
-                            <div>
-                              <div className="text-xs text-gray-400">Total Amount</div>
-                              <div className="text-base font-bold text-gray-900">{formatPrice(order.total_amount)}</div>
-                            </div>
-                            <span className="rounded-lg bg-gray-200/80 px-2.5 py-1 text-xs font-semibold text-gray-700 capitalize">
-                              {order.payment_status || "Completed"}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Order Items Table */}
-                        <div className="p-4 sm:p-6">
-                          <div className="divide-y divide-gray-100">
-                            {order.items?.map((item: any) => (
-                              <div key={item.id} className="py-3 flex items-center justify-between gap-4 first:pt-0 last:pb-0">
-                                <div className="flex items-center gap-3">
-                                  <img
-                                    src={item.imageUrl}
-                                    alt={item.productName}
-                                    className="h-12 w-12 rounded-lg object-cover border border-gray-100"
-                                  />
-                                  <div>
-                                    <div className="text-sm font-semibold text-gray-900">{item.productName}</div>
-                                    <div className="text-xs text-gray-500">Qty: {item.qty} × {formatPrice(item.rate)}</div>
+                          {/* Order Items List */}
+                          <div className="p-4 sm:p-6">
+                            <div className="divide-y divide-gray-100">
+                              {order.items?.map((item: any) => (
+                                <div
+                                  key={item.id}
+                                  className="py-3 flex items-center justify-between gap-4 first:pt-0 last:pb-0"
+                                >
+                                  <div className="flex items-center gap-3">
+                                    <img
+                                      src={item.imageUrl}
+                                      alt={item.productName}
+                                      className="h-12 w-12 rounded-lg object-cover border border-gray-100"
+                                    />
+                                    <div>
+                                      <div className="text-sm font-semibold text-gray-900">
+                                        {item.productName}
+                                      </div>
+                                      <div className="text-xs text-gray-500">
+                                        Qty: {item.qty} × {formatPrice(item.rate)}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="text-sm font-bold text-gray-900">
+                                    {formatPrice(item.lineTotal)}
                                   </div>
                                 </div>
-                                <div className="text-sm font-bold text-gray-900">{formatPrice(item.lineTotal)}</div>
-                              </div>
-                            ))}
+                              ))}
+                            </div>
                           </div>
+
+                          {/* Customer Order Timeline Stepper & History (for online orders) */}
+                          {order.channel_type === "online" && (
+                            <div className="px-4 sm:px-6 pb-6">
+                              <CustomerOrderTimeline
+                                orderNo={order.order_no || order.sales_no}
+                                createdAt={order.created_at}
+                                orderStatus={order.order_status}
+                                deliveryStatus={order.delivery_status}
+                                paymentStatus={order.payment_status}
+                                history={order.history}
+                                delivery={order.delivery}
+                                customerNotes={order.customerNotes}
+                                primaryColor={theme.primaryColor}
+                              />
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               )}
@@ -268,25 +419,35 @@ export default function CustomerAccountPage() {
               {activeTab === "addresses" && (
                 <div className="space-y-6">
                   {loadingData ? (
-                    <div className="py-12 text-center text-sm text-gray-400">Loading saved addresses...</div>
+                    <div className="py-12 text-center text-sm text-gray-400">
+                      Loading saved addresses...
+                    </div>
                   ) : addresses.length === 0 ? (
                     <div className="bg-white rounded-2xl border border-gray-100 p-8 text-center space-y-3">
                       <div className="text-3xl">📍</div>
                       <h3 className="text-base font-bold text-gray-900">No Saved Addresses</h3>
                       <p className="text-xs text-gray-500 max-w-sm mx-auto">
-                        You don't have any saved delivery addresses yet. Add one during your next checkout!
+                        You don't have any saved delivery addresses yet. Add one during your next
+                        checkout!
                       </p>
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       {addresses.map((addr) => (
-                        <div key={addr.id} className="bg-white rounded-2xl border border-gray-100 p-5 shadow-xs space-y-2">
+                        <div
+                          key={addr.id}
+                          className="bg-white rounded-2xl border border-gray-100 p-5 shadow-xs space-y-2"
+                        >
                           <div className="flex items-center justify-between text-sm font-bold text-gray-900">
                             <div className="flex items-center gap-2">
                               <span>{addr.recipient_name}</span>
                               {addr.address_type && (
                                 <span className="bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-semibold px-2 py-0.5 rounded">
-                                  {addr.address_type === "Home" ? "🏠 Home" : addr.address_type === "Work" ? "💼 Work" : "📍 " + addr.address_type}
+                                  {addr.address_type === "Home"
+                                    ? "🏠 Home"
+                                    : addr.address_type === "Work"
+                                      ? "💼 Work"
+                                      : "📍 " + addr.address_type}
                                 </span>
                               )}
                             </div>
@@ -300,12 +461,16 @@ export default function CustomerAccountPage() {
                             <div>{addr.address_line1}</div>
                             {addr.address_line2 && <div>{addr.address_line2}</div>}
                             <div>
-                              {addr.city}, {addr.state} - <span className="font-semibold text-gray-900">{addr.pincode}</span>
+                              {addr.city}, {addr.state} -{" "}
+                              <span className="font-semibold text-gray-900">{addr.pincode}</span>
                             </div>
                             <div>{addr.country || "India"}</div>
                           </div>
                           <div className="text-xs text-gray-500 pt-2 border-t border-gray-100">
-                            Phone: <span className="font-semibold text-gray-700">+91 {addr.recipient_phone}</span>
+                            Phone:{" "}
+                            <span className="font-semibold text-gray-700">
+                              +91 {addr.recipient_phone}
+                            </span>
                           </div>
                         </div>
                       ))}
@@ -327,6 +492,69 @@ export default function CustomerAccountPage() {
         onClose={() => setIsAuthOpen(false)}
         onSuccessAuth={() => checkSession(company)}
       />
+
+      {/* Customer Order Cancellation Modal */}
+      {cancellingOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-gray-900">Cancel Order</h3>
+              <button
+                onClick={() => setCancellingOrder(null)}
+                className="text-gray-400 hover:text-gray-600 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-500">
+              Are you sure you want to cancel Order #
+              <span className="font-bold text-gray-800">
+                {cancellingOrder.order_no || cancellingOrder.sales_no}
+              </span>
+              ? Reserved inventory items will be released back to the store.
+            </p>
+
+            {cancelError && (
+              <div className="rounded-xl bg-red-50 border border-red-200 p-3 text-xs text-red-700">
+                {cancelError}
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">
+                Reason for cancellation (optional):
+              </label>
+              <textarea
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="E.g., Changed mind, ordered wrong item/size, delivery timeline too long..."
+                rows={3}
+                className="w-full rounded-xl border border-gray-200 p-3 text-xs focus:border-black focus:outline-none"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setCancellingOrder(null)}
+                disabled={isSubmittingCancel}
+                className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 cursor-pointer"
+              >
+                Keep Order
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmCancel}
+                disabled={isSubmittingCancel}
+                className="rounded-xl bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-700 disabled:opacity-50 cursor-pointer"
+              >
+                {isSubmittingCancel ? "Cancelling..." : "Confirm Cancellation"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -28,6 +28,7 @@ type CompanyContext = {
   gst_number: string | null;
   pan_number: string | null;
   currency: string | null;
+  has_completed_guided_setup: boolean;
 };
 
 function toSetupStage(value: string | null | undefined): SetupStage {
@@ -39,7 +40,7 @@ function toSetupStage(value: string | null | undefined): SetupStage {
 
 async function getCompanyContext(client: any, company: string): Promise<CompanyContext> {
   const result = await client.query(
-    `SELECT id, company_name, subdomain_url, schema_name, setup_stage, gst_number, pan_number, currency
+    `SELECT id, company_name, subdomain_url, schema_name, setup_stage, gst_number, pan_number, currency, has_completed_guided_setup
      FROM public.companies
      WHERE subdomain_url = $1
      LIMIT 1`,
@@ -60,12 +61,13 @@ async function getCompanyContext(client: any, company: string): Promise<CompanyC
     gst_number: row.gst_number || null,
     pan_number: row.pan_number || null,
     currency: row.currency || null,
+    has_completed_guided_setup: Boolean(row.has_completed_guided_setup),
   };
 }
 
 async function getOwnerForCompany(client: any, companyId: number) {
   const owner = await client.query(
-    `SELECT id, phone
+    `SELECT id, name, email, phone
      FROM public.users
      WHERE company_id = $1
      ORDER BY id ASC
@@ -115,6 +117,7 @@ async function getPlanDetails(client: any, planId: number, billingInterval: stri
         ? Number(planRow.price_yearly || 0)
         : Number(planRow.price_monthly || 0),
     ecommerce_access: getBool("ecommerce_access", Boolean(fallback.ecommerce_access)),
+    pos_access: getBool("pos_access", planCode !== "ECOM"),
     max_users: getInt("max_users", Number(fallback.max_users || 5)),
     max_warehouses: getInt("max_warehouses", Number(fallback.max_warehouses || 1)),
     max_locations: getInt("max_locations", Number(fallback.max_locations || 1)),
@@ -128,6 +131,7 @@ async function getPlanForCompany(client: any, companyId: number) {
        cs.plan_code,
        (SELECT name FROM public.plans WHERE id = cs.plan_id) AS plan_name,
        cs.ecommerce_access,
+       COALESCE(cs.pos_access, TRUE) AS pos_access,
        cs.max_users,
        cs.max_warehouses,
        COALESCE(
@@ -148,7 +152,7 @@ async function getPlanForCompany(client: any, companyId: number) {
        cs.payment_status,
        cs.razorpay_order_id,
        cs.subscription_start,
-       cs.subscription_end
+       COALESCE(cs.subscription_end, cs.current_period_end) AS subscription_end
      FROM public.company_subscriptions cs
      WHERE cs.company_id = $1
      ORDER BY cs.updated_at DESC, cs.id DESC
@@ -250,15 +254,18 @@ export async function GET(req: NextRequest) {
         schema: context.schema_name,
         setup_stage: context.setup_stage,
         next_step: getNextStepNumber(context.setup_stage),
+        has_completed_guided_setup: context.has_completed_guided_setup,
+        owner_email: (await getOwnerForCompany(client, context.id))?.email || "",
       },
       subscription: subscription
         ? {
           plan_id: Number(subscription.plan_id),
           plan_code: subscription.plan_code,
-          plan_name: subscription.plan_code,
+          plan_name: subscription.plan_name || subscription.plan_code,
           subscription_end: subscription.subscription_end,
           subscription_start: subscription.subscription_start,
           ecommerce_access: Boolean(subscription.ecommerce_access),
+          pos_access: subscription.pos_access !== false,
           max_users: Number(subscription.max_users ?? 5),
           max_locations: Number(subscription.max_locations ?? subscription.max_warehouses ?? 1),
           max_warehouses: Number(subscription.max_warehouses ?? 1),
@@ -370,6 +377,7 @@ export async function POST(req: NextRequest) {
            plan_id,
            plan_code,
            ecommerce_access,
+           pos_access,
            max_users,
            max_warehouses,
            max_locations,
@@ -384,12 +392,13 @@ export async function POST(req: NextRequest) {
            current_period_end,
            updated_at
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'ACTIVE', $12, $13, NOW())
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'ACTIVE', $13, $14, NOW())
          ON CONFLICT (company_id) DO UPDATE
          SET
            plan_id = EXCLUDED.plan_id,
            plan_code = EXCLUDED.plan_code,
            ecommerce_access = EXCLUDED.ecommerce_access,
+           pos_access = EXCLUDED.pos_access,
            max_users = EXCLUDED.max_users,
            max_warehouses = EXCLUDED.max_warehouses,
            max_locations = EXCLUDED.max_locations,
@@ -403,12 +412,13 @@ export async function POST(req: NextRequest) {
            current_period_end = EXCLUDED.current_period_end,
            status = 'ACTIVE',
            updated_at = NOW()
-         RETURNING id`,
+         RETURNING id `,
         [
           context.id,
           plan.id,
           plan.code,
           plan.ecommerce_access,
+          plan.pos_access,
           plan.max_users,
           plan.max_warehouses,
           plan.max_locations,
@@ -1106,8 +1116,9 @@ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW())`,
         ? {
           plan_id: Number(subscription.plan_id),
           plan_code: subscription.plan_code,
-          plan_name: subscription.plan_code,
+          plan_name: subscription.plan_name || subscription.plan_code,
           ecommerce_access: Boolean(subscription.ecommerce_access),
+          pos_access: subscription.pos_access !== false,
           max_users: Number(subscription.max_users ?? 5),
           max_locations: Number(subscription.max_locations ?? subscription.max_warehouses ?? 1),
           max_warehouses: Number(subscription.max_warehouses ?? 1),

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { getTenantSchema } from "@/lib/tenant";
+import { requireStaff } from "@/lib/apiGuard";
 
 async function resolveVariantId(
     client: any,
@@ -163,7 +164,14 @@ export async function GET(
 
     try {
 
-        const { schema } = await getTenantSchema(req);
+        const { company, schema } = await getTenantSchema(req);
+        const guard = await requireStaff(req, company, {
+            permission: "sales_billing_access",
+            requirePos: true,
+        });
+        if (!guard.ok) {
+            return guard.response;
+        }
         const { id: saleId } = await context.params;
 
         const headerRes = await client.query(
@@ -271,7 +279,14 @@ export async function PUT(
 
     try {
 
-        const { schema } = await getTenantSchema(req);
+        const { company, schema } = await getTenantSchema(req);
+        const guard = await requireStaff(req, company, {
+            permission: "sales_billing_access",
+            requirePos: true,
+        });
+        if (!guard.ok) {
+            return guard.response;
+        }
         const { id: salesId } = await context.params;
 
         const body = await req.json();

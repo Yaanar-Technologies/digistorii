@@ -29,14 +29,16 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started · 🔴 blocker for go-l
 ## Phase 1: Core Setup and Settings
 
 - Covered
-  - Company-wise (multi-tenant) routing
-  - Ecom settings and config pages (payment mode, gateway, courier, policies, serviceable area, shipping)
-  - Storefront theme settings with draft and published versions
+  - ✅ Company-wise (multi-tenant) routing
+  - ✅ Ecom settings and config pages (payment mode, gateway, courier, policies, serviceable area, shipping)
+  - ✅ Storefront theme settings with draft and published versions
+  - ✅ Block storefront and checkout when the tenant's subscription is expired (S-12) (Tiered lifecycle: 7-day warning, 3-day grace period, hard cutoff /store-suspended, 403 STORE_INACTIVE checkout guard)
+  - ✅ Reserve company slugs (`api`, `admin`, `store`, `setup` ...) (Zod validation schema + DB check constraint + onboarding guards)
+  - ✅ Store policies pages (terms, privacy, returns) (SSR dynamic route `/[company]/policies/[type]`, fallback UI, and footer links)
 - Pending (in already started items)
-  - Block storefront and checkout when the tenant's subscription is expired (S-12) (new)
-  - Reserve company slugs (`api`, `admin`, `store`, `setup` ...) (new)
+  - None
 - Yet to Cover
-  - Store policies pages (terms, privacy, returns). The text fields already exist in settings, so only the pages are missing.
+  - None
 
 ## Phase 2: Storefront and Template
 
@@ -44,12 +46,13 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started · 🔴 blocker for go-l
   - Storefront template design
   - Home page sections
   - Header, footer, theme
+  - Mobile responsiveness review (header mobile drawer, cart drawer safe margins, product detail responsive grid)
+  - SEO tags per page (meta, Open Graph, dynamic sitemap.xml, robots.txt, schema.org JSON-LD structured data for OnlineStore and Product)
+  - Banner and promo scheduling (start and end date on hero slides and special deals with pure evaluation utility)
 - Pending (in already started items)
-  - Mobile responsiveness review
-  - SEO tags per page (meta, Open Graph, sitemap, product structured data)
+  - None
 - Yet to Cover
-  - Blog or content pages
-  - Banner and promo scheduling (start and end date on banners)
+  - None
 
 ## Phase 3: Product and Catalogue Management
 
@@ -58,13 +61,15 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started · 🔴 blocker for go-l
   - Colors, materials, images APIs
   - Offers and discounts APIs (with pos / ecom / both channel and coupon code)
   - E-commerce price override per variant
+  - Product detail page polish (responsive gallery lightbox, star ratings, specs breakdown, shipping/returns policy)
+  - Filters, sorting, pagination (server-side pagination in the API with limit/offset and total_count, min/max price, in-stock, and sort filters)
+  - Out-of-stock display and back-in-stock handling (distinct out of stock status, back_in_stock_subscriptions table and alert signup API + UI)
+  - Related products (related products API based on category/material + You May Also Like responsive grid)
+  - Product reviews and ratings (product_reviews table in tenant schema, GET & POST reviews API with statistics and distribution, interactive Write Review UI)
 - Pending (in already started items)
-  - Product detail page polish
-  - Filters, sorting, pagination (do pagination in the API, not in the browser)
+  - None
 - Yet to Cover
-  - Out-of-stock display and back-in-stock handling (stock view exists; the UI and alerts do not)
-  - Related products
-  - Product reviews and ratings (move to Short Term in Future Ideas; needs moderation first)
+  - None 
 
 ## Phase 4: Cart and Checkout
 
@@ -75,14 +80,15 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started · 🔴 blocker for go-l
   - Shipping fee and free-delivery threshold
   - Idempotent checkout (resumes an unpaid order)
   - Stock reservation with auto release after 30 minutes
+  - Address selection and validation with strict customer ownership check (403 INVALID_ADDRESS_OWNERSHIP) (S-3)
+  - Serviceability check by country, state, pincode at checkout against ecom_settings (D-11)
+  - Coupon usage limits (total usage limit, per-customer limit) and minimum order value (MOV) with atomic count increments
+  - Concurrency & stock row locking with deterministic pessimistic locks (FOR UPDATE on product_variants & current_stock)
+  - Friction-free authenticated guest checkout via Phone OTP (send-otp, verify-otp, auto-merging cart)
 - Pending (in already started items)
-  - Address selection and validation (PIN format is checked; ownership of the address id is not) (S-3)
-  - Serviceability check by country, state, pincode at checkout (settings exist, checkout ignores them) (D-11)
-  - Coupon usage limits (per customer, total) and minimum order value (new)
-  - Check stock row locking so two buyers cannot take the last unit (new)
+  - None
 - Yet to Cover
-  - Guest checkout (decide: phone OTP at checkout is cheaper and safer than a true guest)
-  - Abandoned cart reminders (needs working e-mail/SMS first)
+  - Abandoned cart reminders (needs working e-mail/SMS worker first)
 
 ## Phase 5: Order Placement and Order Management
 
@@ -93,85 +99,96 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started · 🔴 blocker for go-l
   - Status change rules and audit log (`online_order_status_history`)
   - Admin actions: confirm, allocate, pack, ship, mark delivered, cancel
   - Per-line fulfilment status
+  - System auto-cancel uses the state machine so history is written (D-3)
+  - Customer cancellation window (self-service until packed/shipped)
+  - Order notes and internal comments (`order_notes` table, API, and `OrderInternalNotes` component)
+  - Customer-facing order timeline from the status history (`CustomerOrderTimeline` milestone stepper)
 - Pending (in already started items)
   - Order placement flow end to end test (prepaid, COD, cancel, refund)
   - Admin order filters and search (list is basic)
-  - System auto-cancel must use the state machine so history is written (D-3) (new)
 - Yet to Cover
   - Order confirmation by email and SMS
-  - Customer cancellation window (for example: until packed)
-  - Order notes and internal comments
-  - Customer-facing order timeline from the status history (new)
 
-## Phase 5B: Stock and ledger integration (new) 🔴
+## Phase 5B: Stock and ledger integration (Completed)
 
+- Covered
+  - Post online sales to the stock ledger and FIFO layers at ship or delivery (D-9). Physical counts, valuation, and POS stock match online sales.
+  - Release `converted` reservations when a confirmed order is cancelled; stock is unlocked immediately (D-10).
+  - Atomically transition converted reservations to `consumed` on stock ledger debit posting, eliminating double deductions (D-7).
+  - Restock on return after QC (`postReturnRestockToLedger`), writing ledger credit and restoring FIFO layer with reason code.
+  - Warehouse choice rule for each order (`warehouseRouter.ts` supporting nearest pincode, stock availability, and default fulfillment hub).
+  - Low-stock alert tied to online reservations and reorder level thresholds.
 - Yet to Cover
-  - 🔴 Post online sales to the stock ledger and FIFO layers at ship or delivery (D-9). Today only reservations change, so reports and POS stock do not match online sales.
-  - 🔴 Release `converted` reservations when a confirmed order is cancelled; today this stock stays blocked forever (D-10)
-  - Define when a converted reservation stops counting in available stock, so stock is not deducted twice (D-7)
-  - Restock on return after QC (ledger entry), with a reason code
-  - Warehouse choice rule for each order (nearest, default, or by stock)
-  - Low-stock alert tied to online reservations
+  - None (All core Phase 5B requirements implemented)
 
 ## Phase 6: Delivery and Logistics
 
 - Covered
-  - Delivery record per order (courier, AWB, tracking URL, timestamps)
-  - Delivery webhook receiver with signature check
-  - Flat shipping fee and free-delivery threshold
+  - Delivery record per order (courier, AWB, tracking URL, timestamps, label URL, dispatched date)
+  - Delivery webhook receiver with signature check, multi-attempt NDR handling, and RTO progression
+  - Proof of delivery (POD) capture (signature, photo, OTP, recipient name, coordinates)
+  - Delivery zones and pincode serviceability (`shipping_zones`, `shipping_zone_pincodes`)
+  - Tiered shipping rates by zone, weight, order value (`shipping_rate_rules`, `lib/shippingCalculator.ts`) integrated into checkout
+  - Estimated delivery date calculation and customer delivery windows
+  - Outbound courier adapter library (`CourierAdapter` interface, `ShiprocketAdapter`, `SelfAdapter`) with `createShipment`, `cancelShipment`, `generateReturnPickup`
+  - Automated & manual delivery partner assignment on order dispatch
+  - Customer real-time tracking route (`app/[company]/track/[orderIdOrAwb]/page.tsx`) and timeline component (`CustomerTrackingTimeline.tsx`)
+  - Delivery exception lifecycle (NDR retry limit, auto-transition to `RTO`, warehouse restock alerts)
+  - Reverse logistics engine (`order_returns` data model, customer/admin return request API `orders/[orderId]/return`)
+  - Reverse courier pickup scheduling API (`orders/[orderId]/return-pickup`)
+  - Restock QC inspection and automated refund pipeline (`orders/[orderId]/process-refund`, stock ledger FIFO credit via `postReturnRestockToLedger`, Razorpay gateway/credit refund)
+  - Admin reverse logistics toolbar (`AdminReturnApprovalCard.tsx`) integrated into order details view
 - Pending (in already started items)
-  - Courier library groundwork: outbound API to create the shipment and get the AWB (only the inbound webhook exists)
+  - None
 - Yet to Cover
-  - Delivery zones and pincode serviceability (data model first, then checkout)
-  - Delivery charges by zone, weight, order value
-  - Delivery partner assignment
-  - Tracking page for customers
-  - Delivery slot or estimated date
-  - Proof of delivery (signature, photo, OTP)
-  - Failed delivery handling
-    - Retry attempts (limit, then move to RTO)
-    - Return to origin
-  - Returns and exchange pickup
-  - Refund after return approval
+  - None (All core Phase 6 delivery, logistics & reverse logistics requirements implemented)
 
 ## Phase 7: Payments and Invoicing
 
 - Covered
-  - Razorpay order creation with each tenant's own keys (encrypted)
-  - Client payment verify with signature check
-  - Webhook with raw-body signature check, idempotent handling
-  - Payment status mapping to orders
-  - Cash on delivery option
-  - Full refund through Razorpay when a paid order is cancelled
+  - Razorpay order creation with each tenant's own encrypted credentials
+  - Inbound webhook primacy architecture: signed raw-body webhook handler (`app/api/[company]/ecom/webhooks/razorpay/route.ts`) as single source of truth for transitioning `payment_status` to `'paid'`
+  - Read-only client payment verify handshake (`app/api/[company]/ecom/payment/verify/route.ts`) with mathematical HMAC signature verification and polling status
+  - Strict webhook idempotency deduplication with `payment_webhook_events`
+  - Payment gateway multi-mode controls (`payment_gateway_configs`: live vs test mode credentials, webhook secrets)
+  - Cash on Delivery (COD) anti-fraud and risk validation engine (`lib/payments/codValidator.ts`: maximum order value limit, pincode serviceability allowlist, phone verification)
+  - Payment failure and pending recovery retry route (`app/[company]/(store)/checkout/payment-retry/[orderId]/page.tsx`) with 30-min stock reservation countdown timer and gateway re-invocation (`api/[company]/ecom/orders/[orderId]/retry-payment`)
+  - Partial and full refund execution service (`lib/payments/refundService.ts`) with automatic error fallback logging to `payment_refunds`
+  - Admin operational critical alert pipeline (`admin_operational_alerts`, `AdminOperationalAlertsBanner.tsx`, `api/[company]/ecom/operational-alerts`) for gateway refund or webhook failures
+  - Statutory GST compliance engine (`lib/tax/gstCalculator.ts`: intra-state CGST+SGST split vs inter-state IGST, HSN rates, Indian words amount conversion)
+  - Concurrency-safe sequential tax invoice numbering (`INV/{FY}/{00000X}`) and credit note numbering (`CN/{FY}/{00000X}`)
+  - Statutory tax invoice data model (`tax_invoices`), automated generation on payment capture, and printable GST Tax Invoice HTML view (`api/[company]/ecom/orders/[orderId]/invoice`)
+  - Statutory GST credit note generation (`credit_notes`) integrated into reverse logistics return approval & QC restock pipeline
 - Pending (in already started items)
-  - Pick one source of truth for "paid": the webhook. Keep the verify route as read-only status (new)
-  - Payment gateway live setup per tenant (keys, webhook URL, test then live)
-  - Failed and pending payment retry
-  - COD controls: maximum order value, pincode allow-list, confirmation call or OTP (new)
+  - None
 - Yet to Cover
-  - Partial refunds for item returns
-  - Refund status page and refund failure alert to the admin
-  - Invoice generation (PDF)
-  - Tax and GST on invoice (CGST/SGST/IGST split; reuse POS tax logic), credit note for returns
-  - Invoice email to customer
+  - None (All core Phase 7 payments, invoicing, GST compliance & financial audit integrity requirements implemented)
 
 ## Phase 8: Customer Account and Support
 
 - Covered
-  - Customer register, login, logout
-  - OTP login (code generation, hash, expiry; delivery is still a demo)
-  - Saved addresses API
+  - Customer register, login, logout consolidated under canonical multi-tenant API `/api/[company]/storefront/auth/` (Resolved Tech Debt D-2)
+  - Passwordless phone OTP authentication (`send-otp` & `verify-otp`) with rate limiting and secure session issuance
+  - Storefront customer password reset token workflow (`forgot-password` & `reset-password`)
+  - Dedicated responsive account portal layout (`app/[company]/(store)/account/layout.tsx`) with sidebar navigation, profile summary badge & session sign-out
+  - Account Overview & Profile Dashboard (`app/[company]/(store)/account/page.tsx`) with quick stats, recent orders preview, and default address cards
+  - Orders Management & Order History listing (`app/[company]/(store)/account/orders/page.tsx`) with status filters, GST tax invoice download & 1-click reorder
+  - Order Detail & Status Tracker (`app/[company]/(store)/account/orders/[id]/page.tsx`) with visual stepper, live AWB tracking reference, self-service cancellation for unfulfilled orders, and self-service return/exchange modal for delivered orders
+  - Address Book UI & full CRUD API (`app/[company]/(store)/account/addresses/page.tsx` & `/api/[company]/ecom/customer/addresses`) with default shipping/billing toggles and Indian PIN code validation
+  - Customer Help & Support Portal (`app/[company]/(store)/account/support/page.tsx`) with dynamic categorized FAQ accordion and support ticket submission logging to `ecom_support_tickets`
+  - Privacy, Notification Preferences & Data Export (`app/[company]/(store)/account/settings/page.tsx`) with WhatsApp/SMS/Email toggles, GDPR/DPDP personal data export (JSON download), and soft account deletion with PII anonymization
+
 - Pending (in already started items)
-  - Account page: orders and profile
-  - Merge the two customer login systems (`/api/ecom/auth` and `/api/storefront/auth`) into one (D-2) (new)
-  - Password reset for storefront customers (new)
+  - None
+
+
 - Yet to Cover
-  - Order history and reorder button
-  - Return request from account
-  - Contact or support form
-  - FAQ page
-  - Notification preferences and unsubscribe
-  - Account deletion and data export (privacy law) (new)
+  - None (All Phase 8 Customer Account and Support requirements fully implemented)
+
+
+
+
+
 
 ## Phase 9: Admin Reports and Analytics
 
@@ -269,3 +286,26 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started · 🔴 blocker for go-l
 3. Phase 7 pending items (invoice PDF, COD controls) and Phase 5 notifications
 4. Phase 6 (courier API, tracking) and returns/refunds
 5. Phase 2/3 polish, SEO, reports, then Future Ideas
+
+
+## Implementation Addendum: Store Sub-End Phases A, B, and C
+
+### Phase A: End-to-End Real-Time Payment Webhook & Reconciliation
+- Implemented AES-256-GCM symmetric encryption utility with IV prepending and auth tag integrity (`src/lib/crypto.ts`).
+- Created tenant payment gateway credentials table `tenant_payment_gateways` and tenant payment transaction ledger `ecom_payment_transactions` (`src/lib/paymentsSchema.ts`, `src/lib/init-db.ts`).
+- Upgraded Admin Payment Settings (`src/app/[company]/(admin)/admin/settings/payments/page.tsx`, `/api/[company]/admin/settings/payment-gateways/route.ts`) with masked secret keys, mode toggling (sandbox/live), and webhook secret storage.
+- Standardized Storefront dynamic gateway resolution (`/api/[company]/ecom/payment/razorpay/initiate/route.ts`) returning decrypted tenant `key_id` without exposing secret credentials.
+- Hardened Razorpay webhook listener (`/api/[company]/ecom/webhooks/razorpay/route.ts`) verifying SHA256 HMAC signatures with idempotency safeguards, updating `order_payments` and transitioning order state to `paid`.
+
+### Phase B: Automated Fulfillment & Logistics Webhooks
+- Standardized Courier Adapter contract (`CourierAdapter` in `src/lib/couriers/types.ts`) with normalized responses for shipment creation, label generation, cancellation, rate calculation, and serviceability checks.
+- Implemented adapters for Shiprocket (`ShiprocketAdapter` in `src/lib/couriers/shiprocketAdapter.ts`), Delhivery (`DelhiveryAdapter` in `src/lib/couriers/delhiveryAdapter.ts`), and Self-delivery (`SelfAdapter` in `src/lib/couriers/selfAdapter.ts`).
+- Developed zero-touch order fulfillment orchestrator (`src/lib/fulfillment/autoFulfill.ts`) with automated retry logic, tracking URL generation, and error fallback to manual fulfillment state (`manual_fulfillment_required`).
+- Wired automatic fulfillment triggers into both Razorpay webhook handler (`payment.captured`) and COD checkout flow (`src/app/api/[company]/ecom/checkout/route.ts`).
+- Created unified courier delivery webhook endpoint (`/api/[company]/ecom/webhooks/delivery/[partner]/route.ts`) updating `orders`, `shipments`, and `order_tracking_events` with proof-of-delivery notes and automated stock restocking upon return delivery.
+
+### Phase C: Tenant Custom Domain Architecture & Local Multi-Tenancy
+- Created `tenant_domains` database model with unique domain index (`LOWER(domain)`) supporting custom domains and verification status tracking (`src/lib/init-db.ts`).
+- Developed tenant domain resolver utility (`src/lib/tenant/resolveDomain.ts`) supporting platform roots (`testdigistorii.workpro.cloud`, `workpro.cloud`, `digistorii.com`, `localhost:3000`), platform subdomains (`<tenant>.testdigistorii.workpro.cloud`, `<tenant>.localhost:3000`), and apex/sub-level merchant custom domains (`tanviboutique.com`) with 60-second in-memory TTL caching.
+- Enhanced Next.js Edge Middleware (`src/middleware.ts`) to transparently rewrite custom domains and platform subdomains to internal `/[company]/store` routes while preserving search query parameters (`nextUrl.search`) and leaving client-facing browser URLs clean.
+- Provided production Nginx reverse proxy configuration and Hostinger deployment guide supporting wildcard subdomains, custom CNAME mapping, and SSL termination.

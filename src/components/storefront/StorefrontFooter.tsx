@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
+import { useParams } from "next/navigation";
 import { StorefrontTheme, FooterSettings } from "./types";
 
 export interface StorefrontFooterProps {
@@ -12,6 +14,8 @@ export const StorefrontFooter: React.FC<StorefrontFooterProps> = ({
   theme,
   settings,
 }) => {
+  const params = useParams();
+  const company = (params?.company as string) || "";
   const [modalPolicy, setModalPolicy] = useState<{ title: string; content: string } | null>(null);
 
   return (
@@ -103,36 +107,30 @@ export const StorefrontFooter: React.FC<StorefrontFooterProps> = ({
           <div className="space-y-3">
             <h3 className="text-sm font-semibold text-white uppercase tracking-wider">Store Policies</h3>
             <ul className="space-y-2 text-xs">
-              {settings?.termsAndConditions && (
-                <li>
-                  <button
-                    onClick={() =>
-                      setModalPolicy({
-                        title: "Terms & Conditions",
-                        content: settings.termsAndConditions!,
-                      })
-                    }
-                    className="text-gray-400 hover:text-white transition-colors"
-                  >
-                    Terms & Conditions
-                  </button>
-                </li>
-              )}
-              {settings?.returnRefundPolicy && (
-                <li>
-                  <button
-                    onClick={() =>
-                      setModalPolicy({
-                        title: "Return & Refund Policy",
-                        content: settings.returnRefundPolicy!,
-                      })
-                    }
-                    className="text-gray-400 hover:text-white transition-colors"
-                  >
-                    Return & Refund Policy
-                  </button>
-                </li>
-              )}
+              <li>
+                <Link
+                  href={company ? `/${company}/policies/terms` : "#"}
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  Terms & Conditions
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href={company ? `/${company}/policies/privacy` : "#"}
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  Privacy Policy
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href={company ? `/${company}/policies/returns` : "#"}
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  Return & Refund Policy
+                </Link>
+              </li>
             </ul>
           </div>
 

@@ -94,9 +94,19 @@ export async function POST(req: NextRequest) {
     const rawRecipientPhone = String(body?.recipient_phone || body?.recipientPhone || body?.phone || "").trim();
     const addressLine1 = String(body?.address_line1 || body?.addressLine1 || body?.addressLine || "").trim();
     const addressLine2 = String(body?.address_line2 || body?.addressLine2 || "").trim();
-    const city = String(body?.city || "").trim();
-    const state = String(body?.state || "").trim();
-    const pincode = String(body?.pincode || body?.postalCode || "").trim();
+    let city = String(body?.city || "").trim();
+    let state = String(body?.state || "").trim();
+    const pincode = String(body?.pincode || body?.postalCode || "").replace(/\D/g, "").trim();
+
+    const cleanStateLower = state.toLowerCase().replace(/[\s_-]+/g, "");
+    const cleanCityLower = city.toLowerCase().replace(/[\s_-]+/g, "");
+
+    if (cleanCityLower === "chennai" || cleanCityLower === "madras" || pincode.startsWith("600")) {
+      city = "Chennai";
+      state = "Tamil Nadu";
+    } else if (cleanStateLower === "tamilnadu" || cleanStateLower === "tn") {
+      state = "Tamil Nadu";
+    }
     const country = String(body?.country || "India").trim();
     const addressType = String(body?.address_type || body?.addressType || "Home").trim();
     const isDefault = body?.is_default === true || body?.isDefault === true;

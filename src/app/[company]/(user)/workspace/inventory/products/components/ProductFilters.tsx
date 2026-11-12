@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { MagnifyingGlassIcon } from "@heroicons/react/24/outline";
 
 type FilterValues = {
@@ -22,6 +23,8 @@ type ProductFiltersProps = {
   barcodeMessage?: string;
   onBarcodeChange?: (value: string) => void;
   onBarcodeSubmit?: (value?: string) => void;
+  autoFocusBarcode?: boolean;
+  barcodeInputRef?: RefObject<HTMLInputElement | null>;
 };
 
 export default function ProductFilters({
@@ -30,11 +33,26 @@ export default function ProductFilters({
   categoryOptions,
   showStatus = false,
   searchPlaceholder,
-  barcodeValue = "",
+  barcodeValue,
   barcodeMessage = "",
   onBarcodeChange,
   onBarcodeSubmit,
+  autoFocusBarcode = false,
+  barcodeInputRef,
 }: ProductFiltersProps) {
+  const localBarcodeRef = useRef<HTMLInputElement>(null);
+  const resolvedBarcodeRef = barcodeInputRef ?? localBarcodeRef;
+  const [internalBarcode, setInternalBarcode] = useState("");
+  const isBarcodeControlled = onBarcodeChange !== undefined;
+  const resolvedBarcodeValue = isBarcodeControlled ? (barcodeValue ?? "") : internalBarcode;
+
+  useEffect(() => {
+    if (!autoFocusBarcode) return;
+    const timer = setTimeout(() => {
+      resolvedBarcodeRef.current?.focus();
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [autoFocusBarcode, resolvedBarcodeRef]);
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-5">
       <div className={`grid gap-3 ${showStatus ? "md:grid-cols-6" : "md:grid-cols-5"}`}>
@@ -91,12 +109,29 @@ export default function ProductFilters({
         ) : null}
         <div>
           <input
-            value={barcodeValue}
-            onChange={(e) => onBarcodeChange?.(e.target.value)}
+            ref={resolvedBarcodeRef}
+            type="text"
+            value={resolvedBarcodeValue}
+            onChange={(e) => {
+              const nextValue = e.target.value;
+              if (isBarcodeControlled) {
+                onBarcodeChange?.(nextValue);
+              } else {
+                setInternalBarcode(nextValue);
+              }
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
-                onBarcodeSubmit?.(barcodeValue);
+                e.stopPropagation();
+                const scanned = e.currentTarget.value;
+                onBarcodeSubmit?.(scanned);
+                if (!isBarcodeControlled) {
+                  setInternalBarcode("");
+                }
+                requestAnimationFrame(() => {
+                  resolvedBarcodeRef.current?.focus();
+                });
               }
             }}
             placeholder="Scan barcode"

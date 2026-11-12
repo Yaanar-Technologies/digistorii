@@ -57,6 +57,7 @@ export default function CompanyLayout({
         const onboardingRes = await fetch(
           `/api/onboarding?company=${encodeURIComponent(tenant)}`
         );
+        let isAlreadyCompleted = Boolean(user.has_completed_guided_setup);
         if (onboardingRes.ok) {
           const onboardingData = await onboardingRes.json();
           if (
@@ -67,19 +68,22 @@ export default function CompanyLayout({
             router.replace(`/setup?company=${encodeURIComponent(tenant)}`);
             return;
           }
+          if (onboardingData?.company?.has_completed_guided_setup) {
+            isAlreadyCompleted = true;
+          }
         }
 
         // ONE-TIME REDIRECT: Auto-mark as completed & redirect once
         const configPath = `/${tenant}/workspace/administration/business-configuration`;
-        if (!user.has_completed_guided_setup) {
+        if (!isAlreadyCompleted) {
           // 1. Immediately update state so layout never redirects again
           setUser({ ...user, has_completed_guided_setup: true });
 
-          // 2. Persist to DB in the background
+          // 2. Persist to DB and refresh session cookie in the background
           fetch(`/api/guided-setup`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ company: user.subdomain_url || tenant }),
+            body: JSON.stringify({ company: user.company_name || user.subdomain_url || tenant }),
           }).catch((err) => console.error("Failed to update guided setup flag", err));
 
           // 3. Redirect to configuration page if not already there
@@ -87,6 +91,8 @@ export default function CompanyLayout({
             router.replace(configPath);
             return;
           }
+        } else if (!user.has_completed_guided_setup) {
+          setUser({ ...user, has_completed_guided_setup: true });
         }
 
         setCheckingAuth(false);

@@ -4,6 +4,7 @@ import { pool } from "@/lib/db";
 import { getTenantSchemaByCompany } from "@/lib/tenant";
 import { getStorefrontCustomerSession } from "@/lib/storefrontAuth";
 import { decryptSecret } from "@/lib/cryptoHelper";
+import { autoFulfillOrder } from "@/lib/fulfillment/autoFulfill";
 import { applySalesRowCalculation, calculateSalesTotals } from "@/lib/pricing/salesCalculations";
 import { transitionOrderStatus } from "@/lib/orderStateMachine";
 import { RESERVATION_TTL_MINUTES } from "@/lib/reservationCleanup";
@@ -122,7 +123,8 @@ export async function POST(
 
     // Step 2: Load payment settings and tenant gateway configuration
     const settingsRes = await client.query(
-      `SELECT payment_mode, shipping_free_threshold, shipping_fee
+      `SELECT payment_mode, shipping_free_threshold, shipping_fee,
+              serviceable_countries, serviceable_states, serviceable_pincodes
        FROM "${schema}".ecom_settings
        WHERE company_id = $1
        LIMIT 1`,
@@ -131,6 +133,59 @@ export async function POST(
 
     const ecomSettings = settingsRes.rows[0] || null;
     const paymentMode = ecomSettings?.payment_mode || "both";
+
+    // Bug A Fix: Backend Address Serviceability & Pincode/State validation
+    if (shippingAddressId) {
+      const addrRes = await client.query(
+        `SELECT country, state, pincode, city FROM "${schema}".customer_addresses WHERE id = $1 AND customer_id = $2 LIMIT 1`,
+        [Number(shippingAddressId), parsedCustomerId]
+      );
+      if (addrRes.rowCount) {
+        const addr = addrRes.rows[0];
+        const rawCountry = (addr.country || "India").trim().toLowerCase();
+        const rawState = (addr.state || "").trim();
+        const pin = (addr.pincode || "").replace(/\D/g, "").trim();
+
+        const normalizeState = (s: string) => {
+          const clean = (s || "").toLowerCase().replace(/[\s_-]+/g, "");
+          if (clean === "tn" || clean === "tamilnadu") return "tamilnadu";
+          return clean;
+        };
+
+        const serviceableCountries: string[] = ecomSettings?.serviceable_countries || [];
+        const serviceableStates: string[] = ecomSettings?.serviceable_states || [];
+        const serviceablePincodes: string[] = ecomSettings?.serviceable_pincodes || [];
+
+        if (serviceableCountries.length > 0 && !serviceableCountries.map((c) => c.trim().toLowerCase()).includes(rawCountry)) {
+          return NextResponse.json(
+            { success: false, error: `Delivery is currently unavailable to country "${addr.country || "selected country"}".` },
+            { status: 400 }
+          );
+        }
+
+        // Only enforce state restriction if serviceableStates is configured with non-empty list
+        if (serviceableStates && serviceableStates.length > 0 && rawState) {
+          const allowedStates = serviceableStates.map((s) => normalizeState(s.trim()));
+          if (!allowedStates.includes(normalizeState(rawState))) {
+            return NextResponse.json(
+              { success: false, error: `Delivery is currently unavailable to state "${rawState}".` },
+              { status: 400 }
+            );
+          }
+        }
+
+        if (serviceablePincodes && serviceablePincodes.length > 0 && pin.length >= 6) {
+          const allowedPins = serviceablePincodes.map((p) => p.replace(/\D/g, "").trim());
+          const isMatch = allowedPins.some((allowedPin) => allowedPin === pin || pin.startsWith(allowedPin));
+          if (!isMatch) {
+            return NextResponse.json(
+              { success: false, error: `Delivery is unavailable for PIN code ${pin}.` },
+              { status: 400 }
+            );
+          }
+        }
+      }
+    }
 
     if (paymentMode === "cod_only" && paymentMethod !== "cod") {
       return NextResponse.json(
@@ -718,6 +773,11 @@ export async function POST(
 
       await client.query("COMMIT");
       inTransaction = false;
+
+      // Trigger Asynchronous Zero-Touch Fulfillment Pipeline for valid COD order (Phase B)
+      autoFulfillOrder(schema, orderId, { trigger: "checkout:cod" }).catch((fErr) => {
+        console.warn(`[Checkout COD] Auto-fulfillment notice for order #${orderId}:`, fErr?.message);
+      });
 
       return NextResponse.json({
         success: true,
