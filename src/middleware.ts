@@ -31,6 +31,7 @@ const PUBLIC_API_PREFIXES = [
   "/api/tenant/",
 ];
 // Exact paths only (sub-paths stay protected). /api/company returns just the display name for login pages.
+const INTERNAL_ORIGIN = `http://127.0.0.1:${process.env.PORT || 3000}`;
 const PUBLIC_API_EXACT = ["/api/company"];
 const PUBLIC_COMPANY_API = /^\/api\/[^/]+\/(ecom\/(checkout|payment|webhooks|support|customer)|storefront)(\/|$)/;
 const COMPANY_SCOPED_API = /^\/api\/([^/]+)\/(ecom|admin|upload)(\/|$)/;
@@ -40,7 +41,9 @@ const TRUSTED_TENANT_HEADERS = ["x-tenant", "x-schema-name", "x-company-id", "x-
 
 async function resolveTenantBySlug(req: NextRequest, slug: string) {
   try {
-    const res = await fetch(new URL(`/api/resolve-tenant?subdomain=${encodeURIComponent(slug)}`, req.url));
+    const res = await fetch(`${INTERNAL_ORIGIN}/api/resolve-tenant?subdomain=${encodeURIComponent(slug)}`, {
+      cache: "no-store",
+    });
     if (!res.ok) return null;
     const body = await res.json();
     return body.success
@@ -161,7 +164,9 @@ export async function middleware(req: NextRequest) {
   if (isCustomDomain) {
     // 1. If it's a custom domain, look up by hostname
     try {
-      const res = await fetch(new URL(`/api/resolve-tenant?host=${encodeURIComponent(domainInfo.hostname)}`, req.url));
+      const res = await fetch(`${INTERNAL_ORIGIN}/api/resolve-tenant?host=${encodeURIComponent(domainInfo.hostname)}`, {
+        cache: "no-store",
+      });
       if (res.ok) {
         const body = await res.json();
         if (body.success) {
@@ -188,7 +193,9 @@ export async function middleware(req: NextRequest) {
 
     if (subdomain && !isReservedSlug(subdomain)) {
       try {
-        const res = await fetch(new URL(`/api/resolve-tenant?subdomain=${encodeURIComponent(subdomain)}`, req.url));
+        const res = await fetch(`${INTERNAL_ORIGIN}/api/resolve-tenant?subdomain=${encodeURIComponent(subdomain)}`, {
+          cache: "no-store",
+        });
         if (res.ok) {
           const body = await res.json();
           if (body.success) {
