@@ -2,19 +2,36 @@
 
 import React, { useEffect, useState, useRef } from "react";
 import Badge from "../ui/badge/Badge";
-import { ArrowDownIcon, ArrowUpIcon, BoxIconLine, GroupIcon } from "@/icons";
+import { ArrowDownIcon, ArrowUpIcon, BoxIconLine } from "@/icons";
+import { CurrencyRupeeIcon } from "@heroicons/react/24/outline";
 import { useTenant } from "@/context/TenantContext";
+
+interface MetricsData {
+  todaySalesCount: number;
+  salesCountGrowth: number;
+  todayAov: number;
+  aovGrowth: number;
+}
+
+const formatINR = (amount: number): string => {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount || 0);
+};
 
 export const EcommerceMetrics = () => {
   const { company } = useTenant();
   const loaded = useRef(false);
   const [loading, setLoading] = useState(true);
 
-  const [metrics, setMetrics] = useState({
-    customers: 0,
-    orders: 0,
-    customerGrowth: 0,
-    orderGrowth: 0,
+  const [metrics, setMetrics] = useState<MetricsData>({
+    todaySalesCount: 0,
+    salesCountGrowth: 0,
+    todayAov: 0,
+    aovGrowth: 0,
   });
 
   useEffect(() => {
@@ -28,12 +45,17 @@ export const EcommerceMetrics = () => {
           method: "GET",
           headers: {
             "Content-Type": "application/json",
-            "x-tenant": company
-          }
+            "x-tenant": company,
+          },
         });
         const result = await res.json();
-        if (result.success) {
-          setMetrics(result.data);
+        if (result.success && result.data) {
+          setMetrics({
+            todaySalesCount: Number(result.data.todaySalesCount ?? result.data.orders ?? 0),
+            salesCountGrowth: Number(result.data.salesCountGrowth ?? result.data.orderGrowth ?? 0),
+            todayAov: Number(result.data.todayAov ?? 0),
+            aovGrowth: Number(result.data.aovGrowth ?? 0),
+          });
         }
       } catch (error) {
         console.error("Metrics load error", error);
@@ -49,58 +71,57 @@ export const EcommerceMetrics = () => {
     return (
       <div className="flex items-center justify-center h-32">
         <span className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></span>
-        <span className="ml-2 text-sm text-gray-500">Loading customer and order metrics...</span>
+        <span className="ml-2 text-sm text-gray-500">Loading sales metrics...</span>
       </div>
     );
   }
 
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:gap-6">
-      {/* <!-- Metric Item Start --> */}
+      {/* <!-- Card 1: Today's Sales (Count) --> */}
       <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
         <div className="flex items-center justify-center w-12 h-12 bg-blue-600 rounded-xl dark:bg-gray-800">
-          <GroupIcon className="ize-6 text-white" />
+          <BoxIconLine className="w-6 h-6 text-white" />
         </div>
 
         <div className="flex items-end justify-between mt-5">
           <div>
             <span className="text-sm text-gray-500 dark:text-gray-400">
-              Customers
+              Today's Sales
             </span>
             <h4 className="mt-2 font-bold text-gray-800 text-title-sm dark:text-white/90">
-              {metrics.customers}
+              {metrics.todaySalesCount.toLocaleString("en-IN")}
             </h4>
           </div>
-          <Badge color={metrics.orderGrowth >= 0 ? "success" : "error"}>
-            {metrics.orderGrowth >= 0 ? <ArrowUpIcon /> : <ArrowDownIcon />}
-            {Math.abs(metrics.orderGrowth)}%
+          <Badge color={metrics.salesCountGrowth >= 0 ? "success" : "error"}>
+            {metrics.salesCountGrowth >= 0 ? <ArrowUpIcon /> : <ArrowDownIcon />}
+            {Math.abs(metrics.salesCountGrowth)}%
           </Badge>
         </div>
       </div>
-      {/* <!-- Metric Item End --> */}
 
-      {/* <!-- Metric Item Start --> */}
+      {/* <!-- Card 2: Avg. Order Value --> */}
       <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
         <div className="flex items-center justify-center w-12 h-12 bg-blue-600 rounded-xl dark:bg-gray-800">
-          <BoxIconLine className="ize-6 text-white" />
+          <CurrencyRupeeIcon className="w-6 h-6 text-white" />
         </div>
+
         <div className="flex items-end justify-between mt-5">
           <div>
             <span className="text-sm text-gray-500 dark:text-gray-400">
-              Orders
+              Avg. Order Value
             </span>
             <h4 className="mt-2 font-bold text-gray-800 text-title-sm dark:text-white/90">
-              {metrics.orders}
+              {formatINR(metrics.todayAov)}
             </h4>
           </div>
 
-          <Badge color={metrics.orderGrowth >= 0 ? "success" : "error"}>
-            {metrics.orderGrowth >= 0 ? <ArrowUpIcon /> : <ArrowDownIcon />}
-            {Math.abs(metrics.orderGrowth)}%
+          <Badge color={metrics.aovGrowth >= 0 ? "success" : "error"}>
+            {metrics.aovGrowth >= 0 ? <ArrowUpIcon /> : <ArrowDownIcon />}
+            {Math.abs(metrics.aovGrowth)}%
           </Badge>
         </div>
       </div>
-      {/* <!-- Metric Item End --> */}
     </div>
   );
 };

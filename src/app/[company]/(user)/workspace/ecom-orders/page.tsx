@@ -21,6 +21,7 @@ import {
   DocumentTextIcon,
   CheckCircleIcon,
   ExclamationTriangleIcon,
+  ArchiveBoxIcon,
 } from "@heroicons/react/24/outline";
 
 interface OrderSummaryItem {
@@ -205,6 +206,42 @@ export default function EcomOrdersListPage() {
     setSelectedOrderIds((prev) =>
       prev.includes(orderId) ? prev.filter((id) => id !== orderId) : [...prev, orderId]
     );
+  };
+
+  // Bulk Pack Action
+  const handleBulkPack = async (targetIds = selectedOrderIds) => {
+    if (targetIds.length === 0) return;
+    setBulkProcessing(true);
+    setBulkProgressText(`Packing ${targetIds.length} orders...`);
+
+    try {
+      const res = await apiFetch(`/api/${company}/ecom/orders/bulk-pack`, company, {
+        method: "POST",
+        body: JSON.stringify({ orderIds: targetIds }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setBulkResults({
+          total: data.total,
+          successful: data.successful,
+          failed: data.failed,
+          results: data.results || [],
+        });
+        fetchOrders();
+        const failedIds = (data.results || [])
+          .filter((r: any) => !r.success)
+          .map((r: any) => r.orderId);
+        setSelectedOrderIds(failedIds);
+      } else {
+        alert(data.error || "Failed to execute bulk pack");
+      }
+    } catch (err: any) {
+      alert(err.message || "Network error during bulk pack");
+    } finally {
+      setBulkProcessing(false);
+      setBulkProgressText("");
+    }
   };
 
   // Bulk Ship Action
@@ -841,6 +878,16 @@ export default function EcomOrdersListPage() {
               <XMarkIcon className="w-4 h-4" />
             </button>
           </div>
+
+          {/* Action: Bulk Pack */}
+          <button
+            onClick={() => handleBulkPack()}
+            disabled={bulkProcessing}
+            className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-4 py-2 rounded-xl shadow-sm transition-colors disabled:opacity-50"
+          >
+            <ArchiveBoxIcon className="w-4 h-4" />
+            Mark as Packed
+          </button>
 
           {/* Primary Action: Bulk Ship */}
           <button

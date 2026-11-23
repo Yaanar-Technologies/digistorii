@@ -5,15 +5,124 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ShoppingBagIcon,
-  TruckIcon,
   DocumentArrowDownIcon,
   ArrowPathIcon,
   EyeIcon,
   MagnifyingGlassIcon,
+  CheckIcon,
+  XMarkIcon,
+  ArrowUturnLeftIcon,
 } from "@heroicons/react/24/outline";
 import { useCustomerAuthStore } from "@/store/customerAuthStore";
 import { useCartStore } from "@/store/cartStore";
 import { formatPrice } from "@/lib/currency";
+
+interface StepperProps {
+  status: string;
+}
+
+function OrderHorizontalStepper({ status }: StepperProps) {
+  // If order is cancelled or payment failed
+  if (["cancelled", "payment_failed"].includes(status)) {
+    return (
+      <div className="flex items-center gap-2 py-1 px-2.5 rounded-lg bg-rose-50 border border-rose-200/80 text-rose-700 text-xs font-semibold w-fit">
+        <XMarkIcon className="h-4 w-4 text-rose-600" />
+        <span>Order Cancelled</span>
+      </div>
+    );
+  }
+
+  // If order is returned or refunded
+  if (["returned", "refunded"].includes(status)) {
+    return (
+      <div className="flex items-center gap-2 py-1 px-2.5 rounded-lg bg-amber-50 border border-amber-200/80 text-amber-700 text-xs font-semibold w-fit">
+        <ArrowUturnLeftIcon className="h-4 w-4 text-amber-600" />
+        <span>Order Returned / Refunded</span>
+      </div>
+    );
+  }
+
+  // Progression steps strictly based on existing database status values:
+  // 'placed' -> 'confirmed', 'packed' -> 'shipped', 'out_for_delivery' -> 'delivered'
+  const steps = [
+    { key: "placed", label: "Placed" },
+    { key: "confirmed", label: "Confirmed" },
+    { key: "shipped", label: "Shipped" },
+    { key: "delivered", label: "Delivered" },
+  ];
+
+  const getStepIndex = (st: string) => {
+    switch (st) {
+      case "placed":
+        return 0;
+      case "confirmed":
+      case "packed":
+        return 1;
+      case "shipped":
+      case "out_for_delivery":
+        return 2;
+      case "delivered":
+        return 3;
+      default:
+        return 0;
+    }
+  };
+
+  const currentIdx = getStepIndex(status);
+
+  return (
+    <div className="w-full max-w-sm sm:max-w-md py-1">
+      <div className="relative flex items-center justify-between">
+        {/* Background track line */}
+        <div className="absolute left-2.5 right-2.5 top-2.5 -translate-y-1/2 h-0.5 bg-slate-200 -z-0" />
+
+        {/* Completed active progress line */}
+        <div
+          className="absolute left-2.5 top-2.5 -translate-y-1/2 h-0.5 bg-emerald-600 transition-all duration-300 -z-0"
+          style={{ width: `${(currentIdx / (steps.length - 1)) * 95}%` }}
+        />
+
+        {steps.map((s, idx) => {
+          const isPassed = currentIdx > idx;
+          const isCurrent = currentIdx === idx;
+
+          return (
+            <div key={s.key} className="flex flex-col items-center relative z-10">
+              <div
+                className={`h-5 w-5 rounded-full flex items-center justify-center text-3xs font-bold transition-all ${
+                  isPassed
+                    ? "bg-emerald-600 text-white shadow-xs"
+                    : isCurrent
+                    ? "bg-emerald-600 ring-4 ring-emerald-100 text-white"
+                    : "bg-slate-200 text-slate-400"
+                }`}
+              >
+                {isPassed ? (
+                  <CheckIcon className="h-3 w-3 stroke-[3]" />
+                ) : isCurrent ? (
+                  <div className="h-2 w-2 rounded-full bg-white" />
+                ) : (
+                  <span>{idx + 1}</span>
+                )}
+              </div>
+              <span
+                className={`text-3xs sm:text-2xs mt-1 transition-colors ${
+                  isCurrent
+                    ? "font-bold text-slate-900"
+                    : isPassed
+                    ? "font-medium text-slate-700"
+                    : "text-slate-400"
+                }`}
+              >
+                {s.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export default function MyOrdersPage() {
   const params = useParams();
@@ -58,23 +167,6 @@ export default function MyOrdersPage() {
     }
   };
 
-  const getStatusBadgeClass = (status: string) => {
-    switch (status) {
-      case "delivered":
-        return "bg-emerald-50 text-emerald-700 border-emerald-200";
-      case "shipped":
-      case "out_for_delivery":
-        return "bg-blue-50 text-blue-700 border-blue-200";
-      case "packed":
-      case "confirmed":
-        return "bg-amber-50 text-amber-700 border-amber-200";
-      case "cancelled":
-        return "bg-rose-50 text-rose-700 border-rose-200";
-      default:
-        return "bg-slate-50 text-slate-700 border-slate-200";
-    }
-  };
-
   const filteredOrders = orders.filter((o) => {
     const matchesSearch =
       o.order_no.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -91,7 +183,7 @@ export default function MyOrdersPage() {
       );
     }
     if (statusFilter === "delivered") return o.order_status === "delivered";
-    if (statusFilter === "cancelled") return o.order_status === "cancelled";
+    if (statusFilter === "cancelled") return ["cancelled", "payment_failed"].includes(o.order_status);
     return true;
   });
 
@@ -121,7 +213,7 @@ export default function MyOrdersPage() {
         </div>
 
         {/* Tab Filters */}
-        <div className="flex items-center gap-2 border-t border-slate-100 pt-3">
+        <div className="flex items-center gap-2 border-t border-slate-100 pt-3 overflow-x-auto">
           {[
             { id: "all", label: "All Orders" },
             { id: "active", label: "In Transit & Processing" },
@@ -131,7 +223,7 @@ export default function MyOrdersPage() {
             <button
               key={tab.id}
               onClick={() => setStatusFilter(tab.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer ${
                 statusFilter === tab.id
                   ? "bg-slate-900 text-white shadow-2xs"
                   : "bg-slate-50 text-slate-600 hover:bg-slate-100"
@@ -168,97 +260,98 @@ export default function MyOrdersPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          {filteredOrders.map((order) => (
-            <div
-              key={order.id}
-              className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs space-y-4 hover:border-slate-300 transition-colors"
-            >
-              {/* Top Meta Bar */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-bold text-slate-900 font-mono">
-                    Order #{order.order_no}
-                  </span>
-                  <span
-                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-2xs font-semibold uppercase border ${getStatusBadgeClass(
-                      order.order_status
-                    )}`}
-                  >
-                    {order.order_status}
-                  </span>
-                  <span className="text-2xs font-medium text-slate-500">
-                    Payment: <strong className="uppercase text-slate-700">{order.payment_status}</strong>
-                  </span>
+          {filteredOrders.map((order) => {
+            const invoiceIdentifier = order.invoice_token || order.order_no || order.id;
+
+            return (
+              <div
+                key={order.id}
+                className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs space-y-4 hover:border-slate-300 transition-colors"
+              >
+                {/* Top Meta Bar */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-bold text-slate-900 font-mono">
+                      Order #{order.order_no}
+                    </span>
+                    <span className="text-2xs font-medium text-slate-500">
+                      Payment: <strong className="uppercase text-slate-700">{order.payment_status}</strong>
+                    </span>
+                  </div>
+
+                  <div className="text-2xs text-slate-400">
+                    Placed on {new Date(order.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                  </div>
                 </div>
 
-                <div className="text-2xs text-slate-400">
-                  Placed on {new Date(order.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                {/* Horizontal Stepper */}
+                <div className="py-1">
+                  <OrderHorizontalStepper status={order.order_status} />
                 </div>
-              </div>
 
-              {/* Items List */}
-              <div className="space-y-2">
-                {Array.isArray(order.items) &&
-                  order.items.map((item: any, idx: number) => (
-                    <div key={idx} className="flex items-center justify-between text-xs py-1">
-                      <div className="flex items-center gap-2">
-                        <div className="h-7 w-7 rounded-lg bg-slate-100 flex items-center justify-center text-2xs text-slate-400 font-bold">
-                          {idx + 1}
+                {/* Items List */}
+                <div className="space-y-2 pt-1 border-t border-slate-50">
+                  {Array.isArray(order.items) &&
+                    order.items.map((item: any, idx: number) => (
+                      <div key={idx} className="flex items-center justify-between text-xs py-1">
+                        <div className="flex items-center gap-2">
+                          <div className="h-7 w-7 rounded-lg bg-slate-100 flex items-center justify-center text-2xs text-slate-400 font-bold">
+                            {idx + 1}
+                          </div>
+                          <div>
+                            <span className="font-semibold text-slate-800">{item.product_name}</span>
+                            <span className="text-2xs text-slate-400 ml-2">Qty: {item.qty}</span>
+                          </div>
                         </div>
-                        <div>
-                          <span className="font-semibold text-slate-800">{item.product_name}</span>
-                          <span className="text-2xs text-slate-400 ml-2">Qty: {item.qty}</span>
+                        <div className="font-semibold text-slate-900 font-mono">
+                          {formatPrice(Number(item.line_total || item.rate * item.qty))}
                         </div>
                       </div>
-                      <div className="font-semibold text-slate-900">
-                        {formatPrice(Number(item.line_total || item.rate * item.qty))}
-                      </div>
-                    </div>
-                  ))}
-              </div>
-
-              {/* Footer Actions & Summary */}
-              <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-500">Grand Total:</span>
-                  <span className="text-sm font-bold text-slate-900 font-mono">
-                    {formatPrice(Number(order.total_amount))}
-                  </span>
+                    ))}
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <a
-                    href={`/api/${company}/ecom/orders/${order.id}/invoice`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
-                  >
-                    <DocumentArrowDownIcon className="h-3.5 w-3.5 text-slate-500" />
-                    <span>Download Invoice</span>
-                  </a>
+                {/* Footer Actions & Summary */}
+                <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500">Grand Total:</span>
+                    <span className="text-sm font-bold text-slate-900 font-mono">
+                      {formatPrice(Number(order.total_amount))}
+                    </span>
+                  </div>
 
-                  <button
-                    onClick={() => handleReorder(order)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-semibold transition-colors cursor-pointer"
-                  >
-                    <ArrowPathIcon className="h-3.5 w-3.5" />
-                    <span>Reorder</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={`/api/${company}/ecom/orders/${invoiceIdentifier}/invoice`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+                    >
+                      <DocumentArrowDownIcon className="h-3.5 w-3.5 text-slate-500" />
+                      <span>Download Invoice</span>
+                    </a>
 
-                  <Link
-                    href={`/${company}/account/orders/${order.id}`}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 text-white hover:bg-slate-800 text-xs font-semibold transition-colors"
-                  >
-                    <EyeIcon className="h-3.5 w-3.5" />
-                    <span>Details & Tracking</span>
-                  </Link>
+                    <button
+                      onClick={() => handleReorder(order)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-semibold transition-colors cursor-pointer"
+                    >
+                      <ArrowPathIcon className="h-3.5 w-3.5" />
+                      <span>Reorder</span>
+                    </button>
+
+                    <Link
+                      href={`/${company}/account/orders/${order.id}`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 text-white hover:bg-slate-800 text-xs font-semibold transition-colors"
+                    >
+                      <EyeIcon className="h-3.5 w-3.5" />
+                      <span>Details & Tracking</span>
+                    </Link>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
-

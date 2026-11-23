@@ -13,6 +13,7 @@ import {
 import { useTenant } from "@/context/TenantContext";
 import { apiFetch } from "@/lib/apiFetch";
 import { usePagination } from "@/hooks/usePagination";
+import { useConfirm } from "@/hooks/useConfirm";
 import ProductFilters from "./components/ProductFilters";
 
 type ProductRow = {
@@ -119,6 +120,7 @@ const IMPORT_FIELD_LABELS: Record<(typeof PRODUCT_IMPORT_FIELDS)[number], string
 
 export default function ProductsPage() {
   const { company } = useTenant();
+  const confirm = useConfirm();
 
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -279,7 +281,10 @@ export default function ProductsPage() {
   }, [company, search, category, source, status, type]);
 
   async function archiveProduct(productId: number) {
-    const ok = window.confirm("Archive this product?");
+    const ok = await confirm("Are you sure you want to archive this product?", {
+      type: "warning",
+      title: "Archive Product Confirmation",
+    });
     if (!ok) return;
 
     setMessage("");

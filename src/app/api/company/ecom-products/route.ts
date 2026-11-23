@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
     const { schema, companyId } = await getTenantSchema(req);
 
     // 1. Fetch products & variants with draft storefront selection & overrides
-    // We join product_variants, products, storefront_products, and ecom_price_overrides
+    // We join product_variants, products, product_categories, storefront_products, and ecom_price_overrides
     const variantsResult = await client.query(
       `SELECT
         pv.id AS variant_id,
@@ -16,7 +16,8 @@ export async function GET(req: NextRequest) {
         pv.size,
         p.name AS product_name,
         p.product_code,
-        p.category,
+        COALESCE(pcat.path_string, pcat.category_name, p.category, '') AS category,
+        COALESCE(pcat.category_name, pcat.path_string, p.category, '') AS category_name,
         pc.color_name,
         pc.hex_code AS color_hex,
         pf.fitting_name,
@@ -34,6 +35,7 @@ export async function GET(req: NextRequest) {
         COALESCE(epo.is_active, FALSE) AS ecom_price_override_active
        FROM "${schema}".product_variants pv
        INNER JOIN "${schema}".products p ON p.id = pv.product_id
+       LEFT JOIN "${schema}".product_categories pcat ON (pcat.id::text = p.category::text OR pcat.category_name = p.category)
        LEFT JOIN "${schema}".product_colors pc ON pc.id = pv.color_id
        LEFT JOIN "${schema}".product_fittings pf ON pf.id = pv.fitting_id
        LEFT JOIN "${schema}".storefront_products sp ON sp.variant_id = pv.id
@@ -50,10 +52,28 @@ export async function GET(req: NextRequest) {
        ORDER BY priority DESC, created_at DESC`
     );
 
+    // 3. Query company subscription for module access (pos_access, ecommerce_access)
+    const subResult = await client.query(
+      `SELECT ecommerce_access, COALESCE(pos_access, TRUE) AS pos_access
+       FROM public.company_subscriptions
+       WHERE company_id = $1
+       ORDER BY
+         CASE WHEN UPPER(COALESCE(status, '')) IN ('ACTIVE', 'TRIALING') THEN 0 ELSE 1 END,
+         updated_at DESC, id DESC
+       LIMIT 1`,
+      [companyId]
+    );
+
+    const subRow = subResult.rows[0];
+    const posAccess = subRow ? Boolean(subRow.pos_access) : true;
+    const ecommerceAccess = subRow ? Boolean(subRow.ecommerce_access) : true;
+
     return NextResponse.json({
       success: true,
       variants: variantsResult.rows,
       discounts: discountsResult.rows,
+      pos_access: posAccess,
+      ecommerce_access: ecommerceAccess,
     });
   } catch (err: any) {
     console.error("GET ecom-products error:", err);

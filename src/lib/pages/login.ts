@@ -78,7 +78,8 @@ export async function loginUser(company: string, email: string, password: string
        r.sales_billing_access,
        r.reports_access,
        r.settings_access,
-       r.ecommerce_access
+       r.ecommerce_access,
+       COALESCE(r.finance_access, FALSE) AS finance_access
      FROM public.company_user_map cum
      LEFT JOIN public.users u
        ON u.id = cum.user_id
@@ -103,7 +104,8 @@ export async function loginUser(company: string, email: string, password: string
          sales_billing_access,
          reports_access,
          settings_access,
-         ecommerce_access
+         ecommerce_access,
+         COALESCE(finance_access, FALSE) AS finance_access
        FROM public.user_responsibilities
        WHERE id = $1 AND company_id = $2
        LIMIT 1`,
@@ -203,6 +205,7 @@ export async function loginUser(company: string, email: string, password: string
           reports_access: Boolean(mappedUser.reports_access),
           settings_access: Boolean(mappedUser.settings_access),
           ecommerce_access: Boolean(mappedUser.ecommerce_access),
+          finance_access: Boolean(mappedUser.finance_access) || mappedUser.responsibility_name === "Admin" || mappedUser.responsibility_name === "finance_team",
         },
 
         // default_warehouse_id: settings.default_warehouse_id ?? null,

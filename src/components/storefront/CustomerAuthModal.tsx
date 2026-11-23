@@ -1,8 +1,10 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { EyeIcon, EyeSlashIcon } from "@heroicons/react/24/outline";
 import { StorefrontTheme } from "./types";
-import { useCustomerAuthStore } from "@/store/customerAuthStore";
+import { useCustomerAuthStore, CustomerProfile } from "@/store/customerAuthStore";
 
 export interface CustomerAuthModalProps {
   theme: StorefrontTheme;
@@ -19,9 +21,21 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
   onClose,
   onSuccessAuth,
 }) => {
-  const [viewMode, setViewMode] = useState<"signin" | "register">("signin");
+  const router = useRouter();
+  const [viewMode, setViewMode] = useState<"signin" | "register" | "forgot">("signin");
   const [signinMethod, setSigninMethod] = useState<"password" | "otp">("password");
   const [otpStep, setOtpStep] = useState<"send" | "verify">("send");
+
+  // Forgot password sub-flow state
+  const [forgotStep, setForgotStep] = useState<"send" | "verify">("send");
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotOtp, setForgotOtp] = useState(["", "", "", "", "", ""]);
+  const [forgotNewPassword, setForgotNewPassword] = useState("");
+
+  // Eye icon toggles
+  const [showPassword, setShowPassword] = useState(false);
+  const [showRegisterPassword, setShowRegisterPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -40,11 +54,11 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (otpStep === "verify" && resendTimer > 0) {
+    if ((otpStep === "verify" || forgotStep === "verify") && resendTimer > 0) {
       interval = setInterval(() => setResendTimer((t) => t - 1), 1000);
     }
     return () => clearInterval(interval);
-  }, [otpStep, resendTimer]);
+  }, [otpStep, forgotStep, resendTimer]);
 
   useEffect(() => {
     if (isOpen) {
@@ -78,9 +92,26 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
   };
 
   const handleAuthSuccess = (customerData: any) => {
-    setStoreCustomer(customerData);
+    const activeCompany = getActiveCompany();
+    const normalized: CustomerProfile = {
+      id: customerData.id || customerData.customerId,
+      name: customerData.name || customerData.cust_name || "Customer",
+      email: customerData.email || "",
+      phone: customerData.phone || "",
+      cust_code: customerData.cust_code || "",
+      cust_name: customerData.cust_name || customerData.name || "Customer",
+      channel: customerData.channel || "ecom",
+      addresses: customerData.addresses || [],
+    };
+
+    // Immediately update auth context & Zustand state
+    setStoreCustomer(normalized);
+
+    // Trigger instant router refresh for header / server components
+    router.refresh();
+
     if (onSuccessAuth) {
-      onSuccessAuth(customerData.name || customerData.email || customerData.phone, customerData);
+      onSuccessAuth(normalized.name || normalized.email || normalized.phone || "Customer", normalized);
     }
     onClose();
   };
@@ -101,12 +132,15 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
     }
 
     setLoading(true);
+    const compSlug = getActiveCompany();
+    const loginUrl = compSlug ? `/api/${compSlug}/storefront/auth/login` : "/api/ecom/auth/login";
+
     try {
-      const res = await fetch("/api/ecom/auth/login", {
+      const res = await fetch(loginUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          company: getActiveCompany(),
+          company: compSlug,
           identifier: identifier.trim(),
           password,
         }),
@@ -152,12 +186,15 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
     }
 
     setLoading(true);
+    const compSlug = getActiveCompany();
+    const registerUrl = compSlug ? `/api/${compSlug}/storefront/auth/register` : "/api/ecom/auth/register";
+
     try {
-      const res = await fetch("/api/ecom/auth/register", {
+      const res = await fetch(registerUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          company: getActiveCompany(),
+          company: compSlug,
           cust_name: name.trim(),
           phone: phone.trim(),
           email: email.trim().toLowerCase(),
@@ -178,7 +215,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
     }
   };
 
-  // 3. Send OTP Handler
+  // 3. Send Login Phone/Email OTP Handler
   const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage("");
@@ -190,12 +227,15 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
     }
 
     setLoading(true);
+    const compSlug = getActiveCompany();
+    const sendOtpUrl = compSlug ? `/api/${compSlug}/storefront/auth/send-otp` : "/api/storefront/auth/send-otp";
+
     try {
-      const res = await fetch("/api/storefront/auth/send-otp", {
+      const res = await fetch(sendOtpUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          company: getActiveCompany(),
+          company: compSlug,
           identifier: identifier.trim(),
         }),
       });
@@ -204,7 +244,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
       if (data.success) {
         setOtpStep("verify");
         setResendTimer(30);
-        setSuccessMessage(data.sample_text || data.message || `OTP sent to ${identifier}`);
+        setSuccessMessage(data.message || `OTP sent to ${identifier}`);
       } else {
         setErrorMessage(data.message || "Failed to send OTP.");
       }
@@ -215,7 +255,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
     }
   };
 
-  // 4. Verify OTP Handler
+  // 4. Verify Login OTP Handler
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage("");
@@ -226,12 +266,15 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
     }
 
     setLoading(true);
+    const compSlug = getActiveCompany();
+    const verifyOtpUrl = compSlug ? `/api/${compSlug}/storefront/auth/verify-otp` : "/api/storefront/auth/verify-otp";
+
     try {
-      const res = await fetch("/api/storefront/auth/verify-otp", {
+      const res = await fetch(verifyOtpUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          company: getActiveCompany(),
+          company: compSlug,
           identifier: identifier.trim(),
           otp: code,
         }),
@@ -250,6 +293,97 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
     }
   };
 
+  // 5. Send Email OTP for Forgot Password
+  const handleSendForgotEmailOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    if (!forgotEmail.trim() || !validateEmailFormat(forgotEmail.trim())) {
+      setErrorMessage("Please enter a valid registered email address");
+      return;
+    }
+
+    setLoading(true);
+    const compSlug = getActiveCompany();
+    const forgotUrl = `/api/${compSlug}/storefront/auth/forgot-password`;
+
+    try {
+      const res = await fetch(forgotUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: forgotEmail.trim() }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setForgotStep("verify");
+        setResendTimer(60);
+        setSuccessMessage(data.message || "A 6-digit verification code has been sent to your email.");
+      } else {
+        setErrorMessage(data.message || "Failed to dispatch password reset code.");
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || "Failed to dispatch code.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 6. Verify Email OTP & Set New Password
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    const code = forgotOtp.join("");
+    if (code.length < 6) {
+      setErrorMessage("Please enter the complete 6-digit code received on your email");
+      return;
+    }
+
+    if (!forgotNewPassword || forgotNewPassword.length < 6) {
+      setErrorMessage("New password must be at least 6 characters long");
+      return;
+    }
+
+    setLoading(true);
+    const compSlug = getActiveCompany();
+    const resetUrl = `/api/${compSlug}/storefront/auth/reset-password`;
+
+    try {
+      const res = await fetch(resetUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: forgotEmail.trim(),
+          otp: code,
+          password: forgotNewPassword,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setSuccessMessage("Password reset successfully! Please sign in with your new password.");
+        setTimeout(() => {
+          setViewMode("signin");
+          setSigninMethod("password");
+          setIdentifier(forgotEmail);
+          setPassword("");
+          setForgotOtp(["", "", "", "", "", ""]);
+          setForgotNewPassword("");
+          setErrorMessage("");
+        }, 1500);
+      } else {
+        setErrorMessage(data.message || "Invalid or expired verification code.");
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || "Failed to reset password.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleOtpChange = (index: number, val: string) => {
     if (val.length > 1) val = val[0];
     const newOtp = [...otp];
@@ -258,6 +392,18 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
 
     if (val && index < 5) {
       const nextInput = document.getElementById(`modal-otp-input-${index + 1}`);
+      nextInput?.focus();
+    }
+  };
+
+  const handleForgotOtpChange = (index: number, val: string) => {
+    if (val.length > 1) val = val[0];
+    const newOtp = [...forgotOtp];
+    newOtp[index] = val;
+    setForgotOtp(newOtp);
+
+    if (val && index < 5) {
+      const nextInput = document.getElementById(`modal-forgot-otp-input-${index + 1}`);
       nextInput?.focus();
     }
   };
@@ -288,16 +434,24 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
               ? signinMethod === "password"
                 ? "Customer Sign In"
                 : otpStep === "send"
-                ? "Sign In with One-Time Code"
-                : "Enter Verification Code"
-              : "Create Customer Account"}
+                  ? "Sign In with One-Time Code"
+                  : "Enter Verification Code"
+              : viewMode === "register"
+                ? "Create Customer Account"
+                : forgotStep === "send"
+                  ? "Reset Password"
+                  : "Verify Email & New Password"}
           </h2>
           <p className="text-xs text-gray-500">
             {viewMode === "signin"
               ? otpStep === "verify" && signinMethod === "otp"
                 ? `We sent a 6-digit verification code to ${identifier}`
                 : "Access saved addresses, track orders, and view purchases."
-              : "Register to save addresses and track your orders online."}
+              : viewMode === "register"
+                ? "Register to save addresses and track your orders online."
+                : forgotStep === "send"
+                  ? "Enter your registered email address to receive a 6-digit reset code."
+                  : `Enter the 6-digit code sent to ${forgotEmail}`}
           </p>
         </div>
 
@@ -319,7 +473,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
         {viewMode === "signin" && (
           <div className="space-y-4">
             {/* Method Toggle inside Card */}
-            <div className="flex justify-end">
+            {/* <div className="flex justify-end">
               {signinMethod === "password" ? (
                 <button
                   type="button"
@@ -344,7 +498,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
                   Use Password instead →
                 </button>
               )}
-            </div>
+            </div> */}
 
             {/* Sub-method A: Password Login Form */}
             {signinMethod === "password" && (
@@ -363,16 +517,41 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Password</label>
-                  <input
-                    type="password"
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter password"
-                    className="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2"
-                    style={{ "--tw-ring-color": theme.primaryColor } as React.CSSProperties}
-                  />
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-medium text-gray-700">Password</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setViewMode("forgot");
+                        setForgotStep("send");
+                        setErrorMessage("");
+                        setSuccessMessage("");
+                        setForgotEmail(identifier.includes("@") ? identifier : "");
+                      }}
+                      className="text-2xs font-semibold text-blue-600 hover:underline cursor-pointer"
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Enter password"
+                      className="w-full rounded-xl border border-gray-200 pl-3.5 pr-10 py-2.5 text-sm focus:outline-none focus:ring-2"
+                      style={{ "--tw-ring-color": theme.primaryColor } as React.CSSProperties}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none cursor-pointer"
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                    >
+                      {showPassword ? <EyeSlashIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
+                    </button>
+                  </div>
                 </div>
 
                 <button
@@ -495,7 +674,6 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
                   required
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="Ravi Sharma"
                   className="w-full rounded-xl border border-gray-200 px-3.5 py-2 text-sm focus:outline-none focus:ring-2"
                   style={{ "--tw-ring-color": theme.primaryColor } as React.CSSProperties}
                 />
@@ -508,7 +686,6 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
                   required
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  placeholder="9876543210"
                   className="w-full rounded-xl border border-gray-200 px-3.5 py-2 text-sm focus:outline-none focus:ring-2"
                   style={{ "--tw-ring-color": theme.primaryColor } as React.CSSProperties}
                 />
@@ -521,7 +698,6 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="ravi@example.com"
                   className="w-full rounded-xl border border-gray-200 px-3.5 py-2 text-sm focus:outline-none focus:ring-2"
                   style={{ "--tw-ring-color": theme.primaryColor } as React.CSSProperties}
                 />
@@ -529,15 +705,24 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
 
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Password (min 6 characters) *</label>
-                <input
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full rounded-xl border border-gray-200 px-3.5 py-2 text-sm focus:outline-none focus:ring-2"
-                  style={{ "--tw-ring-color": theme.primaryColor } as React.CSSProperties}
-                />
+                <div className="relative">
+                  <input
+                    type={showRegisterPassword ? "text" : "password"}
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 pl-3.5 pr-10 py-2 text-sm focus:outline-none focus:ring-2"
+                    style={{ "--tw-ring-color": theme.primaryColor } as React.CSSProperties}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowRegisterPassword(!showRegisterPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none cursor-pointer"
+                    aria-label={showRegisterPassword ? "Hide password" : "Show password"}
+                  >
+                    {showRegisterPassword ? <EyeSlashIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
+                  </button>
+                </div>
               </div>
 
               <button
@@ -562,6 +747,133 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
                 className="text-xs font-bold text-gray-900 hover:underline cursor-pointer"
               >
                 Sign in
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================= */}
+        {/* VIEW 3: FORGOT PASSWORD (EMAIL OTP) */}
+        {/* ========================================================= */}
+        {viewMode === "forgot" && (
+          <div className="space-y-4">
+            {forgotStep === "send" ? (
+              <form onSubmit={handleSendForgotEmailOtp} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Registered Email Address</label>
+                  <input
+                    type="email"
+                    required
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                    placeholder="your-registered-email@domain.com"
+                    className="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2"
+                    style={{ "--tw-ring-color": theme.primaryColor } as React.CSSProperties}
+                  />
+                  <p className="text-2xs text-gray-400 mt-1">
+                    We will send a secure 6-digit verification code to this email.
+                  </p>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading || !forgotEmail.trim()}
+                  className="w-full rounded-xl py-3 px-4 text-sm font-semibold text-white shadow-md transition-all disabled:opacity-50 cursor-pointer"
+                  style={{ backgroundColor: theme.primaryColor }}
+                >
+                  {loading ? "Sending Code..." : "Send Verification Code"}
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleResetPassword} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-2 text-center">
+                    Enter 6-Digit Email Code
+                  </label>
+                  <div className="flex justify-center gap-2">
+                    {forgotOtp.map((digit, idx) => (
+                      <input
+                        key={idx}
+                        id={`modal-forgot-otp-input-${idx}`}
+                        type="text"
+                        maxLength={1}
+                        value={digit}
+                        onChange={(e) => handleForgotOtpChange(idx, e.target.value)}
+                        className="h-12 w-11 rounded-xl border border-gray-200 text-center text-lg font-bold text-gray-900 focus:outline-none focus:ring-2"
+                        style={{ "--tw-ring-color": theme.primaryColor } as React.CSSProperties}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">New Password (min 6 characters)</label>
+                  <div className="relative">
+                    <input
+                      type={showNewPassword ? "text" : "password"}
+                      required
+                      value={forgotNewPassword}
+                      onChange={(e) => setForgotNewPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full rounded-xl border border-gray-200 pl-3.5 pr-10 py-2.5 text-sm focus:outline-none focus:ring-2"
+                      style={{ "--tw-ring-color": theme.primaryColor } as React.CSSProperties}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPassword(!showNewPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none cursor-pointer"
+                      aria-label={showNewPassword ? "Hide password" : "Show password"}
+                    >
+                      {showNewPassword ? <EyeSlashIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading || forgotOtp.join("").length < 6 || forgotNewPassword.length < 6}
+                  className="w-full rounded-xl py-3 px-4 text-sm font-semibold text-white shadow-md transition-all disabled:opacity-50 cursor-pointer"
+                  style={{ backgroundColor: theme.primaryColor }}
+                >
+                  {loading ? "Updating Password..." : "Reset Password & Continue"}
+                </button>
+
+                <div className="flex justify-between items-center text-xs text-gray-500 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setForgotStep("send")}
+                    className="hover:underline cursor-pointer"
+                  >
+                    ← Change Email
+                  </button>
+                  {resendTimer > 0 ? (
+                    <span>Resend in {resendTimer}s</span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleSendForgotEmailOtp}
+                      className="font-semibold hover:underline cursor-pointer"
+                      style={{ color: theme.primaryColor }}
+                    >
+                      Resend Code
+                    </button>
+                  )}
+                </div>
+              </form>
+            )}
+
+            {/* Back to Sign In */}
+            <div className="text-center pt-3 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setViewMode("signin");
+                  setErrorMessage("");
+                  setSuccessMessage("");
+                }}
+                className="text-xs font-semibold text-gray-700 hover:underline cursor-pointer"
+              >
+                ← Return to Sign In
               </button>
             </div>
           </div>

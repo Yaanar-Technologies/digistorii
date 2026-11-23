@@ -34,6 +34,9 @@ const nextConfig = {
     return config;
   },
   experimental: {
+    serverActions: {
+      bodySizeLimit: "50mb",
+    },
     optimizePackageImports: ['antd', '@ant-design/icons'],
   },
   turbopack: {

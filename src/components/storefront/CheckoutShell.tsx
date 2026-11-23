@@ -37,6 +37,7 @@ export interface CheckoutShellProps {
   onBackToCart?: () => void;
   savedAddresses?: any[];
   isLoading?: boolean;
+  paymentMode?: string;
   shippingFreeThreshold?: number;
   shippingFee?: number;
   initialCouponCode?: string;
@@ -53,6 +54,7 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
   onBackToCart,
   savedAddresses: propSavedAddresses = [],
   isLoading = false,
+  paymentMode = "both",
   shippingFreeThreshold = 500,
   shippingFee: propShippingFee = 49,
   initialCouponCode = "",
@@ -109,7 +111,19 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
       : [];
 
   // Payment Method Scaffolding - normalized values
-  const [paymentMethod, setPaymentMethod] = useState<CheckoutPaymentMethod>("cod");
+  const allowCod = paymentMode !== "prepaid_only";
+  const allowOnline = paymentMode !== "cod_only";
+  const [paymentMethod, setPaymentMethod] = useState<CheckoutPaymentMethod>(
+    paymentMode === "prepaid_only" ? "upi" : "cod"
+  );
+
+  useEffect(() => {
+    if (paymentMode === "cod_only" && paymentMethod !== "cod") {
+      setPaymentMethod("cod");
+    } else if (paymentMode === "prepaid_only" && paymentMethod === "cod") {
+      setPaymentMethod("upi");
+    }
+  }, [paymentMode]);
 
   // Fetch saved customer addresses on mount
   useEffect(() => {
@@ -186,7 +200,7 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
     setCouponError("");
     try {
       const res = await fetch(
-        `/api/discounts/validate?code=${encodeURIComponent(code)}&company=${encodeURIComponent(company)}`,
+        `/api/discounts/validate?code=${encodeURIComponent(code)}&company=${encodeURIComponent(company)}&channel=ecom`,
         {
           headers: { "x-tenant": company },
         }
@@ -763,47 +777,55 @@ export const CheckoutShell: React.FC<CheckoutShellProps> = ({
                 </h2>
 
                 <div className="space-y-3">
-                  <label
-                    className={`flex items-center justify-between rounded-xl border p-4 cursor-pointer transition-all ${paymentMethod === "cod"
-                      ? "border-blue-600 bg-blue-50/40 ring-1 ring-blue-600"
-                      : "border-gray-200 hover:bg-gray-50"
-                      }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="radio"
-                        name="payment"
-                        checked={paymentMethod === "cod"}
-                        onChange={() => setPaymentMethod("cod")}
-                      />
-                      <div>
-                        <div className="text-sm font-bold text-gray-900">Cash on Delivery (COD)</div>
-                        <div className="text-xs text-gray-500">Pay directly when your order arrives</div>
+                  {allowCod && (
+                    <label
+                      className={`flex items-center justify-between rounded-xl border p-4 cursor-pointer transition-all ${paymentMethod === "cod"
+                        ? "border-blue-600 bg-blue-50/40 ring-1 ring-blue-600"
+                        : "border-gray-200 hover:bg-gray-50"
+                        }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="radio"
+                          name="payment"
+                          checked={paymentMethod === "cod"}
+                          onChange={() => setPaymentMethod("cod")}
+                        />
+                        <div>
+                          <div className="text-sm font-bold text-gray-900">Cash on Delivery (COD)</div>
+                          <div className="text-xs text-gray-500">Pay directly when your order arrives</div>
+                        </div>
                       </div>
-                    </div>
-                  </label>
+                    </label>
+                  )}
 
-                  <label
-                    className={`flex items-center justify-between rounded-xl border p-4 cursor-pointer transition-all ${paymentMethod === "upi"
-                      ? "border-blue-600 bg-blue-50/40 ring-1 ring-blue-600"
-                      : "border-gray-200 hover:bg-gray-50"
-                      }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="radio"
-                        name="payment"
-                        checked={paymentMethod === "upi"}
-                        onChange={() => setPaymentMethod("upi")}
-                      />
-                      <div>
-                        <div className="text-sm font-bold text-gray-900">UPI / QR Code</div>
-                        <div className="text-xs text-gray-500">Google Pay, PhonePe, Paytm, BHIM UPI</div>
+                  {allowOnline && (
+                    <label
+                      className={`flex items-center justify-between rounded-xl border p-4 cursor-pointer transition-all ${paymentMethod === "upi"
+                        ? "border-blue-600 bg-blue-50/40 ring-1 ring-blue-600"
+                        : "border-gray-200 hover:bg-gray-50"
+                        }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="radio"
+                          name="payment"
+                          checked={paymentMethod === "upi"}
+                          onChange={() => setPaymentMethod("upi")}
+                        />
+                        <div>
+                          <div className="text-sm font-bold text-gray-900">UPI / QR Code</div>
+                          <div className="text-xs text-gray-500">Google Pay, PhonePe, Paytm, BHIM UPI</div>
+                        </div>
                       </div>
+                    </label>
+                  )}
+
+                  {!allowCod && !allowOnline && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs font-medium text-amber-800">
+                      No payment options are enabled for this store. Please contact the administrator.
                     </div>
-                  </label>
-
-
+                  )}
                 </div>
 
                 <div className="pt-4 flex justify-between">

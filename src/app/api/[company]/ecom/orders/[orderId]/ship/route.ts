@@ -233,7 +233,16 @@ COALESCE(ca.recipient_phone, c.phone, '0000000000') AS phone,
      order_id, courier_partner, awb_number, tracking_url, shipping_label_url,
      estimated_delivery_at, dispatched_at, pickup_scheduled_at, created_at, updated_at
    )
-   VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW(), NOW(), NOW())`,
+   VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW(), NOW(), NOW())
+   ON CONFLICT (order_id) DO UPDATE
+   SET courier_partner = EXCLUDED.courier_partner,
+       awb_number = EXCLUDED.awb_number,
+       tracking_url = EXCLUDED.tracking_url,
+       shipping_label_url = COALESCE(EXCLUDED.shipping_label_url, "${schema}".online_order_deliveries.shipping_label_url),
+       estimated_delivery_at = EXCLUDED.estimated_delivery_at,
+       dispatched_at = COALESCE("${schema}".online_order_deliveries.dispatched_at, NOW()),
+       pickup_scheduled_at = NOW(),
+       updated_at = NOW()`,
         [orderId, finalCourier, finalAwb, finalTrackingUrl, finalLabelUrl, finalEstimatedDelivery]
       );
 

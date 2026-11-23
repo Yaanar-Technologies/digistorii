@@ -38,17 +38,48 @@ BEGIN
                 ADD COLUMN IF NOT EXISTS manifest_id VARCHAR(100);
         ', schema_name);
 
-        -- 3. Drop rigid single-shipment constraint on order_id
+        -- 3. Ensure clean deduplication and restore UNIQUE constraint on order_id
         EXECUTE format('
-            ALTER TABLE %I.online_order_deliveries
-                DROP CONSTRAINT IF EXISTS online_order_deliveries_order_id_key;
-        ', schema_name);
+            DELETE FROM %I.online_order_deliveries
+            WHERE id IN (
+              SELECT id FROM (
+                SELECT id,
+                       ROW_NUMBER() OVER (
+                         PARTITION BY order_id
+                         ORDER BY
+                           CASE WHEN awb_number IS NOT NULL AND TRIM(awb_number) != '''' THEN 0 ELSE 1 END,
+                           updated_at DESC NULLS LAST,
+                           created_at DESC,
+                           id DESC
+                       ) as rnum
+                FROM %I.online_order_deliveries
+              ) duplicates
+              WHERE rnum > 1
+            );
+        ', schema_name, schema_name);
 
-        -- 4. Create composite unique index (order_id, awb_number)
         EXECUTE format('
-            CREATE UNIQUE INDEX IF NOT EXISTS uq_%I_deliveries_order_awb
-                ON %I.online_order_deliveries (order_id, awb_number)
-                WHERE awb_number IS NOT NULL;
+            DO $inner$
+            BEGIN
+              IF NOT EXISTS (
+                SELECT 1
+                FROM pg_constraint c
+                JOIN pg_class t ON c.conrelid = t.oid
+                JOIN pg_namespace n ON t.relnamespace = n.oid
+                WHERE n.nspname = %L
+                  AND t.relname = ''online_order_deliveries''
+                  AND c.contype = ''u''
+                  AND c.conkey = ARRAY[(
+                    SELECT attnum FROM pg_attribute
+                    WHERE attrelid = t.oid AND attname = ''order_id''
+                  )]
+              ) THEN
+                ALTER TABLE %I.online_order_deliveries
+                  ADD CONSTRAINT online_order_deliveries_order_id_key UNIQUE (order_id);
+              END IF;
+            EXCEPTION WHEN OTHERS THEN
+              NULL;
+            END $inner$;
         ', schema_name, schema_name);
 
         -- 5. Create index on manifest_id for bulk dispatch tracking

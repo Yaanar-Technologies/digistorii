@@ -2,11 +2,11 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-export default function useIdleLogout(company: string,type: string) {
+export default function useIdleLogout(company: string, type: string, skipIdleTimeout: boolean = false) {
     const router = useRouter();
  
     useEffect(() => {
-        if (!company || company === "default-tenant") return; // skip
+        if (!company || company === "default-tenant" || skipIdleTimeout) return; // skip
         let timeout: NodeJS.Timeout;
  
         const logout = async () => {
@@ -44,5 +44,5 @@ export default function useIdleLogout(company: string,type: string) {
                 window.removeEventListener(event, resetTimer)
             );
         };
-    }, [company, router]);
+    }, [company, router, type, skipIdleTimeout]);
 }

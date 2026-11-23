@@ -33,6 +33,7 @@ export interface StaffSessionPayload extends BaseSessionPayload {
   has_completed_guided_setup?: boolean;
   ecommerce_access?: boolean;
   pos_access?: boolean;
+  rememberMe?: boolean;
 }
 
 export const STAFF_COOKIE_NAME = "user";
@@ -48,6 +49,7 @@ export interface OnboardingSessionPayload extends BaseSessionPayload {
 export const ONBOARDING_SESSION_EXPIRY_SECONDS = 24 * 60 * 60; // 24 hours
 
 export const STAFF_SESSION_EXPIRY_SECONDS = 12 * 60 * 60; // 12 hours
+export const STAFF_REMEMBER_ME_EXPIRY_SECONDS = 30 * 24 * 60 * 60; // 30 days
 export const CUSTOMER_SESSION_EXPIRY_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
 export function getCookieOptions(maxAge: number) {

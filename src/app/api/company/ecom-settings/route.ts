@@ -61,9 +61,26 @@ export async function GET(req: NextRequest) {
       custom_domain_verified_at: domainInfo.custom_domain_verified_at || null,
     };
 
+    // Fetch subscription access flags for pos and ecommerce
+    const subResult = await client.query(
+      `SELECT ecommerce_access, COALESCE(pos_access, TRUE) AS pos_access
+       FROM public.company_subscriptions
+       WHERE company_id = $1
+       ORDER BY
+         CASE WHEN UPPER(COALESCE(status, '')) IN ('ACTIVE', 'TRIALING') THEN 0 ELSE 1 END,
+         updated_at DESC, id DESC
+       LIMIT 1`,
+      [companyId]
+    );
+    const subRow = subResult.rows[0];
+    const posAccess = subRow ? Boolean(subRow.pos_access) : true;
+    const ecommerceAccess = subRow ? Boolean(subRow.ecommerce_access) : true;
+
     return NextResponse.json({
       success: true,
       settings: sanitizedSettings,
+      pos_access: posAccess,
+      ecommerce_access: ecommerceAccess,
     });
   } catch (err: any) {
     console.error("GET ecom-settings error:", err);

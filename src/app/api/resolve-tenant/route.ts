@@ -8,6 +8,8 @@ type ResolvedTenant = {
   subdomain_url: string;
   subscription_state: SubscriptionTierState;
   days_remaining: number;
+  days_left_in_grace?: number;
+  grace_period_end_date: string | null;
   is_storefront_blocked: boolean;
   is_checkout_blocked: boolean;
   show_admin_warning: boolean;
@@ -48,6 +50,7 @@ export async function GET(req: NextRequest) {
         c.status as company_status,
         cs.ecommerce_access,
         cs.subscription_end,
+        cs.grace_period_end_date,
         cs.status as subscription_status,
         cs.payment_status
       FROM public.companies c
@@ -83,15 +86,11 @@ export async function GET(req: NextRequest) {
     }
 
     const row = result.rows[0];
-    if (!row.ecommerce_access) {
-      return NextResponse.json(
-        { success: false, error: "E-commerce access is not enabled for this tenant" },
-        { status: 403 }
-      );
-    }
+    const hasEcom = Boolean(row.ecommerce_access);
 
     const subEval = evaluateSubscriptionLifecycle({
       subscriptionEndDate: row.subscription_end,
+      gracePeriodEndDate: row.grace_period_end_date,
       subscriptionStatus: row.subscription_status || row.company_status,
       paymentStatus: row.payment_status,
     });
@@ -102,8 +101,10 @@ export async function GET(req: NextRequest) {
       subdomain_url: row.subdomain_url,
       subscription_state: subEval.state,
       days_remaining: subEval.daysRemaining === Infinity ? 9999 : subEval.daysRemaining,
-      is_storefront_blocked: subEval.isStorefrontBlocked,
-      is_checkout_blocked: subEval.isCheckoutBlocked,
+      days_left_in_grace: subEval.daysLeftInGrace,
+      grace_period_end_date: subEval.gracePeriodEndDate || (row.grace_period_end_date ? new Date(row.grace_period_end_date).toISOString() : null),
+      is_storefront_blocked: subEval.isStorefrontBlocked || !hasEcom,
+      is_checkout_blocked: subEval.isCheckoutBlocked || !hasEcom,
       show_admin_warning: subEval.showAdminWarning,
       warning_type: subEval.warningType,
       subscription_end: row.subscription_end ? new Date(row.subscription_end).toISOString() : null,

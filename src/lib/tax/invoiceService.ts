@@ -373,8 +373,8 @@ export function renderInvoiceHtml(
       </thead>
       <tbody>
         ${items
-          .map(
-            (it, idx) => `
+      .map(
+        (it, idx) => `
           <tr>
             <td class="text-center">${idx + 1}</td>
             <td><strong>${it.productName}</strong></td>
@@ -385,8 +385,8 @@ export function renderInvoiceHtml(
             <td class="text-right">${it.taxRatePercent}%</td>
             <td class="text-right font-weight: 700;">${it.lineTotal.toFixed(2)}</td>
           </tr>`
-          )
-          .join("")}
+      )
+      .join("")}
       </tbody>
     </table>
 
@@ -395,14 +395,13 @@ export function renderInvoiceHtml(
         <td>Taxable Amount:</td>
         <td class="text-right">₹${Number(invoice.subtotal).toFixed(2)}</td>
       </tr>
-      ${
-        invoice.is_interstate
-          ? `
+      ${invoice.is_interstate
+      ? `
       <tr>
         <td>Integrated Tax (IGST 5%):</td>
         <td class="text-right">₹${Number(invoice.igst_amount).toFixed(2)}</td>
       </tr>`
-          : `
+      : `
       <tr>
         <td>Central Tax (CGST 2.5%):</td>
         <td class="text-right">₹${Number(invoice.cgst_amount).toFixed(2)}</td>
@@ -411,7 +410,7 @@ export function renderInvoiceHtml(
         <td>State Tax (SGST 2.5%):</td>
         <td class="text-right">₹${Number(invoice.sgst_amount).toFixed(2)}</td>
       </tr>`
-      }
+    }
       <tr class="grand-total">
         <td>Total Invoice Value:</td>
         <td class="text-right">₹${Number(invoice.total_amount).toFixed(2)}</td>
@@ -423,7 +422,7 @@ export function renderInvoiceHtml(
     </div>
 
     <div class="footer">
-      This is a computer-generated statutory Tax Invoice and requires no physical signature under Indian GST Act.
+      This is a computer-generated bill.
     </div>
   </div>
 </body>

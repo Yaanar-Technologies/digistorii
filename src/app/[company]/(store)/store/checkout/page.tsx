@@ -70,6 +70,8 @@ export default function CheckoutPage() {
     serviceablePincodes: [],
   });
 
+  const [paymentMode, setPaymentMode] = useState<string>("both");
+
   const [customer, setCustomer] = useState<{
     id: number;
     name: string;
@@ -131,6 +133,7 @@ export default function CheckoutPage() {
         if (res.ok) {
           const data = await res.json();
           if (data.success && data.settings) {
+            setPaymentMode(data.settings.payment_mode || "both");
             setShippingSettings({
               freeThreshold: data.settings.shipping_free_threshold != null ? Number(data.settings.shipping_free_threshold) : 500,
               fee: data.settings.shipping_fee != null ? Number(data.settings.shipping_fee) : 49,
@@ -569,6 +572,7 @@ export default function CheckoutPage() {
                 onPlaceOrder={handlePlaceOrder}
                 savedAddresses={customer?.addresses}
                 isLoading={isPlacingOrder}
+                paymentMode={paymentMode}
                 shippingFreeThreshold={shippingSettings.freeThreshold}
                 shippingFee={shippingSettings.fee}
                 initialCouponCode={initialCoupon}

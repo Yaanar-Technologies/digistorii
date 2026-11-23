@@ -1207,8 +1207,8 @@ export default function PricingPage() {
       ) : null}
 
       {bulkModalOpen ? (
-        <div className="fixed inset-0 z-[100000] flex items-center justify-center bg-black/50 p-4">
-          <div className="relative w-full max-w-xl rounded-xl bg-white p-5 shadow-lg">
+        <div className="fixed inset-0 z-[100000] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="relative w-full max-w-md rounded-xl bg-white p-5 shadow-lg">
             <button
               onClick={() => setBulkModalOpen(false)}
               className="absolute right-3 top-3 text-lg text-gray-500 hover:text-gray-700"
@@ -1216,62 +1216,69 @@ export default function PricingPage() {
             >
               x
             </button>
-            <h2 className="text-sm font-semibold text-gray-900">Bulk Import via Excel</h2>
+            <div className="space-y-4">
+              <h2 className="text-sm font-semibold text-gray-900">Bulk Import via Excel</h2>
 
-            <div className="mt-3 space-y-2">
-              <label className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                Product Filter
-              </label>
-              <select
-                value={pricingFilter}
-                onChange={(e) => setPricingFilter(e.target.value as "priced" | "unpriced" | "both")}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-              >
-                <option value="priced">Priced</option>
-                <option value="unpriced">Unpriced</option>
-                <option value="both">Both</option>
-              </select>
-            </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                  Product Filter
+                </label>
+                <select
+                  value={pricingFilter}
+                  onChange={(e) => setPricingFilter(e.target.value as "priced" | "unpriced" | "both")}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                >
+                  <option value="priced">Priced</option>
+                  <option value="unpriced">Unpriced</option>
+                  <option value="both">Both</option>
+                </select>
+              </div>
 
-            <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 flex items-center justify-between gap-3">
-              <label
-                htmlFor="bulk-use-last-purchase-price"
-                className="text-sm font-medium text-gray-700 select-none cursor-pointer"
-              >
-                Prefill Base Cost with Last Purchase Price
-              </label>
-              <input
-                id="bulk-use-last-purchase-price"
-                type="checkbox"
-                checked={useLastPurchasePrice}
-                onChange={(e) => handleUseLastPurchasePriceToggle(e.target.checked)}
-                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-              />
-            </div>
+              <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 flex items-center justify-between gap-3">
+                <label
+                  htmlFor="bulk-use-last-purchase-price"
+                  className="text-sm font-medium text-gray-700 select-none cursor-pointer"
+                >
+                  Prefill Base Cost with Last Purchase Price
+                </label>
+                <input
+                  id="bulk-use-last-purchase-price"
+                  type="checkbox"
+                  checked={useLastPurchasePrice}
+                  onChange={(e) => handleUseLastPurchasePriceToggle(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                />
+              </div>
 
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <button
-                onClick={handleTemplateDownload}
-                disabled={downloading}
-                className="inline-flex text-xs text-gray-600 underline hover:text-gray-800 disabled:opacity-60"
-              >
-                {downloading ? "Preparing..." : "Download Excel Template"}
-              </button>
+              <div>
+                <button
+                  type="button"
+                  onClick={handleTemplateDownload}
+                  disabled={downloading}
+                  className="inline-flex text-xs text-gray-600 underline hover:text-gray-800 disabled:opacity-60"
+                >
+                  {downloading ? "Preparing..." : "Download Excel Template"}
+                </button>
+              </div>
 
               <input
                 ref={fileInputRef}
                 type="file"
                 accept=".xlsx"
                 onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
-                className="block w-64 rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                className="block w-full text-sm"
               />
+              <div className="text-xs text-gray-600">
+                Selected file: {selectedFile?.name || "No file selected"}
+              </div>
 
               <button
+                type="button"
                 onClick={handleUploadPricing}
-                disabled={uploading || previewing}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+                disabled={!selectedFile || uploading || previewing}
+                className="w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {previewing ? "Preparing Preview..." : "Upload"}
+                {previewing ? "Preparing Preview..." : uploading ? "Uploading..." : "Upload"}
               </button>
             </div>
           </div>

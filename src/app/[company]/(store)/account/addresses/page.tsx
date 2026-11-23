@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { City, Country, State } from "country-state-city";
 import {
   MapPinIcon,
   PlusIcon,
@@ -40,6 +41,19 @@ export default function AddressBookPage() {
     address_type: "Home",
     is_default: false,
   });
+
+  const countryOptions = Country.getAllCountries();
+  const selectedCountry =
+    countryOptions.find((c) => c.name.toLowerCase() === (formData.country || "India").toLowerCase()) ||
+    countryOptions.find((c) => c.isoCode === "IN");
+  const stateOptions = State.getStatesOfCountry(selectedCountry?.isoCode || "IN");
+  const selectedState = stateOptions.find(
+    (s) => s.name.toLowerCase() === (formData.state || "").trim().toLowerCase()
+  );
+  const cityOptions =
+    selectedCountry && selectedState
+      ? City.getCitiesOfState(selectedCountry.isoCode, selectedState.isoCode)
+      : [];
 
   const loadAddresses = async () => {
     setLoading(true);
@@ -129,22 +143,8 @@ export default function AddressBookPage() {
     }
   };
 
-  const handleDeleteAddress = async (id: number) => {
-    if (!window.confirm("Are you sure you want to remove this delivery address?")) return;
-    try {
-      const res = await fetch(`/api/${company}/ecom/customer/addresses?id=${id}`, {
-        method: "DELETE",
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || "Failed to delete address");
-      setSuccess("Address removed.");
-      await loadAddresses();
-      await checkSession(company);
-      setTimeout(() => setSuccess(null), 4000);
-    } catch (err: any) {
-      setError(err.message || "Failed to delete address.");
-    }
-  };
+
+
 
   return (
     <div className="space-y-6">
@@ -205,9 +205,8 @@ export default function AddressBookPage() {
           {addresses.map((addr) => (
             <div
               key={addr.id}
-              className={`bg-white rounded-2xl border p-5 shadow-xs space-y-3 relative transition-all ${
-                addr.is_default ? "border-indigo-300 ring-1 ring-indigo-200/60" : "border-slate-200/80"
-              }`}
+              className={`bg-white rounded-2xl border p-5 shadow-xs space-y-3 relative transition-all ${addr.is_default ? "border-indigo-300 ring-1 ring-indigo-200/60" : "border-slate-200/80"
+                }`}
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -229,13 +228,6 @@ export default function AddressBookPage() {
                     title="Edit Address"
                   >
                     <PencilSquareIcon className="h-4 w-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDeleteAddress(addr.id)}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                    title="Delete Address"
-                  >
-                    <TrashIcon className="h-4 w-4" />
                   </button>
                 </div>
               </div>
@@ -317,7 +309,60 @@ export default function AddressBookPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="text-2xs font-bold text-slate-700 uppercase">State</label>
+                  <select
+                    required
+                    value={formData.state}
+                    onChange={(e) => setFormData({ ...formData, state: e.target.value, city: "" })}
+                    className="w-full mt-1 px-3 py-1.5 rounded-xl border border-slate-200 text-xs focus:ring-1 focus:ring-indigo-500 bg-white"
+                  >
+                    <option value="">Select State</option>
+                    {formData.state && !stateOptions.some((s) => s.name.toLowerCase() === formData.state.toLowerCase()) && (
+                      <option value={formData.state}>{formData.state}</option>
+                    )}
+                    {stateOptions.map((s) => (
+                      <option key={s.isoCode} value={s.name}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-2xs font-bold text-slate-700 uppercase">City</label>
+                  {cityOptions.length > 0 ? (
+                    <select
+                      required
+                      disabled={!formData.state}
+                      value={formData.city}
+                      onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                      className="w-full mt-1 px-3 py-1.5 rounded-xl border border-slate-200 text-xs focus:ring-1 focus:ring-indigo-500 bg-white disabled:bg-slate-100 disabled:cursor-not-allowed"
+                    >
+                      <option value="">{formData.state ? "Select City" : "Select State first"}</option>
+                      {formData.city && !cityOptions.some((c) => c.name.toLowerCase() === formData.city.toLowerCase()) && (
+                        <option value={formData.city}>{formData.city}</option>
+                      )}
+                      {cityOptions.map((c, idx) => (
+                        <option key={`${c.name}-${idx}`} value={c.name}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      required
+                      disabled={!formData.state}
+                      placeholder={formData.state ? "Enter city" : "Select state first"}
+                      value={formData.city}
+                      onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                      className="w-full mt-1 px-3 py-1.5 rounded-xl border border-slate-200 text-xs focus:ring-1 focus:ring-indigo-500 bg-white disabled:bg-slate-100 disabled:cursor-not-allowed"
+                    />
+                  )}
+                </div>
+
                 <div>
                   <label className="text-2xs font-bold text-slate-700 uppercase">PIN Code</label>
                   <input
@@ -327,26 +372,6 @@ export default function AddressBookPage() {
                     value={formData.pincode}
                     onChange={(e) => setFormData({ ...formData, pincode: e.target.value })}
                     className="w-full mt-1 px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-mono focus:ring-1 focus:ring-indigo-500"
-                  />
-                </div>
-                <div>
-                  <label className="text-2xs font-bold text-slate-700 uppercase">City</label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.city}
-                    onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                    className="w-full mt-1 px-3 py-1.5 rounded-xl border border-slate-200 text-xs focus:ring-1 focus:ring-indigo-500"
-                  />
-                </div>
-                <div>
-                  <label className="text-2xs font-bold text-slate-700 uppercase">State</label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.state}
-                    onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-                    className="w-full mt-1 px-3 py-1.5 rounded-xl border border-slate-200 text-xs focus:ring-1 focus:ring-indigo-500"
                   />
                 </div>
               </div>

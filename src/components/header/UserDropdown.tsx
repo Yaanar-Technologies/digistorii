@@ -17,7 +17,7 @@ interface User {
 export default function UserDropdown() {
   const [isOpen, setIsOpen] = useState(false);
   //  const [user, setUser] = useState<User | null>(null);
-  const { user } = useUser();
+  const { user, setUser } = useUser();
   const router = useRouter();
   const pathname = usePathname();
   const company = pathname.split("/")[1] || "";
@@ -27,6 +27,9 @@ export default function UserDropdown() {
     await fetch("/api/auth/logout", {
       method: "POST",
     });
+    if (setUser) {
+      setUser(null);
+    }
     localStorage.removeItem("user");
     localStorage.clear();
     localStorage.removeItem("user");

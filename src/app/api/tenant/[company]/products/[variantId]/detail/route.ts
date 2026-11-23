@@ -101,7 +101,7 @@ export async function GET(
     const imagesRes = await client.query(
       `SELECT id, variant_id, image_url, is_primary, sort_order
        FROM "${schema}".product_images
-       WHERE product_id = $1
+       WHERE product_id = $1 AND is_published = TRUE
        ORDER BY is_primary DESC, sort_order ASC, id ASC`,
       [productId]
     );

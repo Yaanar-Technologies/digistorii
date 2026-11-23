@@ -1,50 +1,16 @@
-Implement functional discount badges, price strike-through, and dynamic discount pricing across the e-commerce storefront (Product Catalog/Grid and PDP) using existing database records without modifying POS behavior.
+Update the Discount Scheme creation/edit UI {src\app\[company]\(user)\workspace\inventory\discounts\page.tsx} and API to support plan-based channel selection (`pos`, `ecom`, `both`) matching our subscription plan gating logic used in the Product Catalog:
 
-PRE-REQUISITE — DO NOT BREAK POS:
-- POS billing calculates discounts dynamically and relies on `channel IN ('pos', 'both')`.
-- Do not create any static "discounted_price" tables or overwrite `product_pricing`.
-- All e-commerce discount calculations must be computed on the read path.
+1. **Plan-Based Channel Gating (Frontend UI):**
+   - Check the tenant's active subscription plan flags (whether POS is enabled and whether E-Commerce is enabled, using the exact same plan check pattern used in the Product Catalog).
+   - **If BOTH POS and E-Commerce are enabled on the plan:** Render two toggle switches/checkboxes in the Discount Create/Edit modal/form: **"Apply to POS"** and **"Apply to E-Commerce"** (default both to `true`, which maps to `channel = 'both'`).
+     - Validation: Do not allow saving if both toggles are turned off (show an inline error: "Select at least one channel").
+     - Mapping: Both ON -> `'both'`, only POS ON -> `'pos'`, only E-Commerce ON -> `'ecom'`.
+   - **If ONLY E-Commerce is enabled (no POS):** Hide or lock the POS toggle, auto-set `channel = 'ecom'`, and show a compact read-only badge/note: "Applies to E-Commerce (POS not included in current plan)".
+   - **If ONLY POS is enabled (no E-Commerce):** Hide or lock the E-Commerce toggle, auto-set `channel = 'pos'`, and show a compact read-only badge/note: "Applies to POS (E-Commerce not included in current plan)".
 
-WORKFLOW TO IMPLEMENT:
+2. **Discount List / Table Display:**
+   - Display a compact channel badge (`POS`, `E-Com`, or `POS & E-Com`) on each row in the Discounts table so admins can immediately see where each discount applies.
 
-1. Storefront Query / View Update:
-   - In the API routes or SQL views powering public product listings (`ProductGrid.tsx`) and the Product Detail Page (`ProductDetail.tsx`), add a join to `discount_variants` and `discounts`:
-     * Condition: `dv.variant_id = v.id` AND `d.is_active = true` AND `d.channel IN ('ecom', 'both')` AND `NOW() BETWEEN d.starts_at AND d.ends_at` AND `d.coupon_code IS NULL`
-     * If multiple discounts apply to the same variant, pick the one with highest `d.priority` (or highest `d.value`).
-   - Pricing Precedence:
-     * Base pre-discount price = `COALESCE(ecom_price_overrides.ecom_price, product_pricing.final_selling_price)`.
-     * Pre-tax unit base = `product_pricing.unit_price`.
-   - Calculate `effective_price` matching the POS tax logic:
-     * If percentage discount: Taxable amount = `unit_price * (1 - (d.value / 100))`; Effective price = `ROUND(taxable * (1 + (tax_percent / 100)), 2)`.
-     * If fixed discount: Taxable amount = `GREATEST(0, unit_price - d.value)`; Effective price = `ROUND(taxable * (1 + (tax_percent / 100)), 2)`.
-     * If no active discount: Effective price = `product_pricing.final_selling_price`.
-   - Return payload fields per variant:
-     * `original_price` (number)
-     * `effective_price` (number)
-     * `is_on_sale` (boolean: true when `effective_price < original_price`)
-     * `discount_value` (number)
-     * `discount_type` ('percentage' | 'fixed')
-     * `discount_badge_text` (e.g., `"{value}% OFF"` or discount `name`)
-
-2. Product Grid / Card Component (`ProductGrid.tsx`):
-   - Render a Sale Badge on the product card thumbnail if `is_on_sale === true`.
-   - In the pricing area:
-     * Always display `effective_price` formatted with the store currency symbol.
-     * If `is_on_sale === true`, display `original_price` alongside it with a strikethrough styling (`line-through text-gray-400`).
-
-3. Product Detail Page (ProductDetail.tsx) Component:
-   - Update variant selection handler to read the selected variant's `effective_price`, `original_price`, and `is_on_sale` status.
-   - Display the active `effective_price` prominently.
-   - If `is_on_sale === true`:
-     * Display `original_price` with strikethrough styling.
-     * Render the discount badge (e.g. `<Badge color="error">{discount_badge_text}</Badge>`).
-     * Calculate and display total savings amount: `original_price - effective_price`.
-
-4. Cart Sync Check:
-   - Ensure the "Add to Cart" action adds the item at the verified `effective_price` (re-validated server-side, not trusted from client state).
-
-VERIFICATION TESTS:
-- Verify a variant mapped to an active discount with channel 'ecom' shows the badge and strike-through on storefront.
-- Verify a variant mapped to a discount with channel 'pos' does NOT show a badge or discount on storefront.
-- Verify that expired discounts (`ends_at < NOW()`) immediately revert storefront display to `original_price` with no badge.
-- Verify that POS fast-billing calculations remain completely unaffected.
+3. **Backend API Validation & Checkout Enforcement:**
+   - In `POST /api/discounts` and `PUT /api/discounts/[id]`: Validate the incoming `channel` value against the tenant's active plan entitlements. If a tenant without POS tries to submit `'pos'` or `'both'`, either reject with `403` or force-clamp it to `'ecom'` (and vice versa if no E-Com).
+   - Ensure POS billing discount lookup queries filter by `channel IN ('pos', 'both')` and E-Commerce storefront/checkout discount queries filter by `channel IN ('ecom', 'both')`.

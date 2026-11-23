@@ -33,21 +33,7 @@ export async function POST(
       return NextResponse.json({ success: false, message: "Company parameter is required" }, { status: 400 });
     }
 
-    if (!name) {
-      return NextResponse.json({ success: false, message: "Full Name is required" }, { status: 400 });
-    }
 
-    if (!validateIndianPhone(phone)) {
-      return NextResponse.json({ success: false, message: "Valid 10-digit Indian phone number is required" }, { status: 400 });
-    }
-
-    if (email && !validateEmail(email)) {
-      return NextResponse.json({ success: false, message: "Valid email address is required" }, { status: 400 });
-    }
-
-    if (!password || password.length < 6) {
-      return NextResponse.json({ success: false, message: "Password must be at least 6 characters" }, { status: 400 });
-    }
 
     const { schema } = await getTenantSchemaByCompany(companySlug);
     await ensureCustomerSchema(client, schema);
@@ -101,6 +87,7 @@ export async function POST(
     }
 
     const sessionData = {
+      id: customerId,
       customerId,
       channel: "ecom",
       email: email || "",

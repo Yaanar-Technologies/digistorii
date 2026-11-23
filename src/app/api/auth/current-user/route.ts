@@ -52,7 +52,7 @@ export async function GET() {
     const tenant = user.company_name;
 
     const companyCheck = await client.query(
-      `SELECT c.status AS company_status, cs.subscription_end, cs.status AS sub_status
+      `SELECT c.status AS company_status, cs.subscription_end, cs.grace_period_end_date, cs.status AS sub_status
        FROM public.companies c
        LEFT JOIN public.company_subscriptions cs ON cs.company_id = c.id
        WHERE c.subdomain_url = $1
@@ -60,14 +60,23 @@ export async function GET() {
       [tenant]
     );
 
-    const isExpired = companyCheck.rows[0]?.company_status === 'EXPIRED' || 
-                      (companyCheck.rows[0]?.subscription_end && new Date() > new Date(companyCheck.rows[0].subscription_end));
+    const row = companyCheck.rows[0];
+    const subEnd = row?.subscription_end ? new Date(row.subscription_end) : null;
+    const graceEnd = row?.grace_period_end_date
+      ? new Date(row.grace_period_end_date)
+      : subEnd
+      ? new Date(subEnd.getTime() + 3 * 24 * 60 * 60 * 1000)
+      : null;
 
-    if (isExpired) {
+    // Hard lockout ONLY when past the 3-day grace period
+    const isPastGrace = graceEnd ? new Date() > graceEnd : false;
+    const isExplicitlySuspended = row?.company_status === "SUSPENDED" || row?.sub_status === "suspended";
+
+    if (isPastGrace || isExplicitlySuspended) {
       return NextResponse.json(
         { 
           success: false, 
-          message: "Subscription expired please contact administrator" 
+          message: "Subscription and grace period have expired. Please contact administrator to renew." 
         },
         { status: 403 }
       );
@@ -75,7 +84,10 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      user
+      user: {
+        ...user,
+        rememberMe: Boolean(parsedCookie?.rememberMe),
+      }
     });
   } catch (error: any) {
     return NextResponse.json({

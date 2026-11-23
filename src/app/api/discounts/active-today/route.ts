@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
         INNER JOIN "${schema}".discount_variants dv
           ON dv.discount_id = d.id
         WHERE d.is_active = TRUE
+          AND COALESCE(d.channel, 'both') IN ('pos', 'both')
           AND (d.starts_at IS NULL OR d.starts_at <= NOW())
           AND (d.ends_at IS NULL OR d.ends_at >= NOW())
       `

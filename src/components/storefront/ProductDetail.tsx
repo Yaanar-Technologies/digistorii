@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { StorefrontTheme, StorefrontProduct, SiblingVariant, FooterSettings } from "./types";
 import { formatPrice } from "@/lib/currency";
 import { useWishlistStore } from "@/store/wishlistStore";
+import { ChevronDown } from "lucide-react";
 
 export interface ProductDetailProps {
   theme: StorefrontTheme;
@@ -253,7 +254,7 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
           if (data.stats) setReviewStats(data.stats);
         }
       })
-      .catch(() => {});
+      .catch(() => { });
 
     fetch(`/api/tenant/${company}/products/${currentVariantId}/related`)
       .then((res) => (res.ok ? res.json() : null))
@@ -262,7 +263,7 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
           setRelatedProducts(data.products);
         }
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [company, currentVariantId]);
 
   const handleSubmitReview = async (e: React.FormEvent) => {
@@ -429,7 +430,7 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
 
           {/* Left Column: Image Gallery (Span 7) */}
           <div className="lg:col-span-7 space-y-4">
-            <div 
+            <div
               onClick={() => setIsLightboxOpen(true)}
               className="aspect-[4/3] sm:aspect-[1/1] w-full overflow-hidden rounded-md bg-gray-100 relative group border border-gray-200 shadow-sm cursor-zoom-in"
             >
@@ -793,11 +794,10 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
               <button
                 type="button"
                 onClick={handleToggleWishlist}
-                className={`p-3.5 rounded-xl border transition-all flex items-center justify-center cursor-pointer ${
-                  isWishlisted
-                    ? "bg-red-50 border-red-200 text-red-500 shadow-sm"
-                    : "border-gray-300 bg-white text-gray-600 hover:border-gray-900 hover:text-red-500"
-                }`}
+                className={`p-3.5 rounded-xl border transition-all flex items-center justify-center cursor-pointer ${isWishlisted
+                  ? "bg-red-50 border-red-200 text-red-500 shadow-sm"
+                  : "border-gray-300 bg-white text-gray-600 hover:border-gray-900 hover:text-red-500"
+                  }`}
                 title={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
                 aria-label="Wishlist"
               >
@@ -874,7 +874,10 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                   className="w-full flex items-center justify-between py-1 text-left text-sm font-semibold text-gray-800 hover:text-gray-900"
                 >
                   <span>Product Details</span>
-                  <span className="text-gray-500 text-base">{accordionOpen.details ? "▲" : "▼"}</span>
+                  <ChevronDown
+                    className={`w-5 h-5 text-gray-500 transition-transform duration-200 ease-in-out ${accordionOpen.details ? "rotate-180" : ""
+                      }`}
+                  />
                 </button>
 
                 {accordionOpen.details && (
@@ -909,11 +912,15 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                   className="w-full flex items-center justify-between py-1 text-left text-sm font-semibold text-gray-800 hover:text-gray-900"
                 >
                   <span>Product Description</span>
-                  <span className="text-gray-500 text-base">{accordionOpen.description ? "▲" : "▼"}</span>
+                  <ChevronDown
+                    className={`w-5 h-5 text-gray-500 transition-transform duration-200 ease-in-out ${accordionOpen.description ? "rotate-180" : ""
+                      }`}
+                  />
                 </button>
 
                 {accordionOpen.description && (
                   <div className="mt-3 space-y-2 text-xs text-gray-600 leading-relaxed">
+
                     <p>{product.description || "High-quality saree crafted with traditional motifs and fine materials."}</p>
                     {/* <p className="italic text-gray-400">Note: Slight colour variation of product images due to digital photography or settings on your device</p> */}
                   </div>
@@ -928,7 +935,10 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                   className="w-full flex items-center justify-between py-1 text-left text-sm font-semibold text-gray-800 hover:text-gray-900"
                 >
                   <span>Delivery & Returns</span>
-                  <span className="text-gray-500 text-base">{accordionOpen.delivery ? "▲" : "▼"}</span>
+                  <ChevronDown
+                    className={`w-5 h-5 text-gray-500 transition-transform duration-200 ease-in-out ${accordionOpen.delivery ? "rotate-180" : ""
+                      }`}
+                  />
                 </button>
 
                 {accordionOpen.delivery && (
@@ -967,7 +977,10 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                       ({reviewStats.totalReviews})
                     </span>
                   </span>
-                  <span className="text-gray-500 text-base">{accordionOpen.reviews ? "▲" : "▼"}</span>
+                  <ChevronDown
+                    className={`w-5 h-5 text-gray-500 transition-transform duration-200 ease-in-out ${accordionOpen.reviews ? "rotate-180" : ""
+                      }`}
+                  />
                 </button>
 
                 {accordionOpen.reviews && (
@@ -1262,11 +1275,10 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                       type="button"
                       onClick={() => setSelectedImage(img)}
                       style={{ width: "64px", height: "80px", minWidth: "64px", minHeight: "80px" }}
-                      className={`relative flex-none flex-shrink-0 overflow-hidden rounded-md border-2 transition-all cursor-pointer ${
-                        isSelected
-                          ? "border-white ring-2 ring-white/50 opacity-100 scale-105"
-                          : "border-white/20 hover:border-white/60 opacity-60 hover:opacity-90"
-                      }`}
+                      className={`relative flex-none flex-shrink-0 overflow-hidden rounded-md border-2 transition-all cursor-pointer ${isSelected
+                        ? "border-white ring-2 ring-white/50 opacity-100 scale-105"
+                        : "border-white/20 hover:border-white/60 opacity-60 hover:opacity-90"
+                        }`}
                     >
                       <img src={img} alt={`Thumbnail ${idx + 1}`} className="h-full w-full object-cover" />
                     </button>
@@ -1339,9 +1351,8 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                     type="button"
                     onClick={() => setSelectedImage(img)}
                     style={{ width: "48px", height: "56px", minWidth: "48px", minHeight: "56px" }}
-                    className={`relative flex-none flex-shrink-0 overflow-hidden rounded border-2 transition-all cursor-pointer ${
-                      isSelected ? "border-white ring-1 ring-white opacity-100" : "border-white/20 opacity-60"
-                    }`}
+                    className={`relative flex-none flex-shrink-0 overflow-hidden rounded border-2 transition-all cursor-pointer ${isSelected ? "border-white ring-1 ring-white opacity-100" : "border-white/20 opacity-60"
+                      }`}
                   >
                     <img src={img} alt={`Thumbnail ${idx + 1}`} className="h-full w-full object-cover" />
                   </button>

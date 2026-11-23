@@ -123,6 +123,19 @@ export async function autoFulfillOrder(
       [orderId]
     );
 
+    // For COD orders placed at checkout, do NOT auto-pack. Stop at 'confirmed'!
+    // COD orders require manual verification or batch packing by store staff.
+    if (trigger === "checkout:cod" || (order.payment_method === "cod" && trigger.startsWith("checkout"))) {
+      await client.query("COMMIT");
+      return {
+        success: true,
+        orderId,
+        orderNo,
+        orderStatus: "confirmed",
+        deliveryStatus: order.delivery_status,
+      };
+    }
+
     // 4. Advance confirmed -> packed
     const currentOrderRes = await client.query(
       `SELECT order_status FROM "${schema}".online_orders WHERE id = $1`,

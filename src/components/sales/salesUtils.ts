@@ -61,8 +61,8 @@ export const parseUserSessionCookie = () => {
 };
 
 export const calculatePaymentStatus = (totalAmount: number, paidAmount: number) => {
-  if (paidAmount <= 0) return "unpaid";
-  if (paidAmount >= totalAmount) return "paid";
+  if (paidAmount <= 0 && totalAmount > 0) return "unpaid";
+  if (totalAmount - paidAmount < 1) return "paid";
   return "partial";
 };
 

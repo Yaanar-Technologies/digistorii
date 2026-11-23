@@ -285,8 +285,9 @@ export async function POST(
                  is_active, created_at, updated_at
                )
                VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW(), $7, $8, $9, $10, $11, true, NOW(), NOW())
-               ON CONFLICT (order_id, awb_number) DO UPDATE
+               ON CONFLICT (order_id) DO UPDATE
                SET courier_partner = EXCLUDED.courier_partner,
+                   awb_number = EXCLUDED.awb_number,
                    tracking_url = EXCLUDED.tracking_url,
                    shipping_label_url = COALESCE(EXCLUDED.shipping_label_url, "${schema}".online_order_deliveries.shipping_label_url),
                    estimated_delivery_at = EXCLUDED.estimated_delivery_at,

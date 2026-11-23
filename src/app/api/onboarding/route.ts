@@ -387,12 +387,13 @@ export async function POST(req: NextRequest) {
            razorpay_order_id,
            subscription_start,
            subscription_end,
+           grace_period_end_date,
           status,
            current_period_start,
            current_period_end,
            updated_at
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'ACTIVE', $13, $14, NOW())
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14::timestamp + INTERVAL '3 days', 'ACTIVE', $13, $14, NOW())
          ON CONFLICT (company_id) DO UPDATE
          SET
            plan_id = EXCLUDED.plan_id,
@@ -408,6 +409,7 @@ export async function POST(req: NextRequest) {
            razorpay_order_id = EXCLUDED.razorpay_order_id,
            subscription_start = EXCLUDED.subscription_start,
            subscription_end = EXCLUDED.subscription_end,
+           grace_period_end_date = EXCLUDED.grace_period_end_date,
            current_period_start = EXCLUDED.current_period_start,
            current_period_end = EXCLUDED.current_period_end,
            status = 'ACTIVE',

@@ -12,12 +12,12 @@ export async function GET(
   const client = await pool.connect();
 
   try {
-    const { company, orderId: rawOrderId } = await params;
-    const orderId = Number(rawOrderId);
+    const { company, orderId: rawIdentifier } = await params;
+    const identifier = String(rawIdentifier || "").trim();
 
-    if (!orderId || isNaN(orderId)) {
+    if (!identifier) {
       return NextResponse.json(
-        { success: false, error: "Invalid order ID." },
+        { success: false, error: "Order identifier is required." },
         { status: 400 }
       );
     }
@@ -33,39 +33,59 @@ export async function GET(
       );
     }
 
+    // Ensure invoice_token exists
+    await client.query(`
+      ALTER TABLE "${schema}".online_orders ADD COLUMN IF NOT EXISTS invoice_token UUID DEFAULT gen_random_uuid();
+      UPDATE "${schema}".online_orders SET invoice_token = gen_random_uuid() WHERE invoice_token IS NULL;
+    `);
+
+    // Check if identifier is a UUID (direct invoice_token link)
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
+
     // Auth check: Customer or Staff
     const customerSession = await getStorefrontCustomerSession(req, company);
     const staffGuard = await requireStaff(req, company, { permission: "ecommerce_access", requireEcom: false });
     const isStaff = staffGuard.ok;
 
-    if (!customerSession && !isStaff) {
+    // If not accessing via a secure UUID invoice token, require customer or staff authentication
+    if (!isUuid && !customerSession && !isStaff) {
       return NextResponse.json(
         { success: false, error: "Authentication required to view tax invoice." },
         { status: 401 }
       );
     }
 
-    // Verify order ownership if customer
+    const isNumeric = /^\d+$/.test(identifier);
+
+    // Fetch order by invoice_token, order_no, or numeric id
     const orderRes = await client.query(
-      `SELECT id, customer_id, company_id, order_status, payment_status
+      `SELECT id, customer_id, company_id, order_no, invoice_token, order_status, payment_status
        FROM "${schema}".online_orders
-       WHERE id = $1`,
-      [orderId]
+       WHERE invoice_token::text = $1
+          OR order_no = $1
+          OR (id::text = $1 AND $2::boolean = TRUE)
+       LIMIT 1`,
+      [identifier, isNumeric]
     );
 
     if (orderRes.rowCount === 0) {
       return NextResponse.json(
-        { success: false, error: `Order #${orderId} not found.` },
+        { success: false, error: "Invoice not found or access denied." },
         { status: 404 }
       );
     }
 
     const order = orderRes.rows[0];
+    const orderId = Number(order.id);
 
-    if (!isStaff && customerSession) {
-      if (Number(order.customer_id) !== Number(customerSession.customerId)) {
+    // Ownership verification:
+    // If accessing via UUID, verify invoice_token matches order.
+    // Otherwise, ensure logged-in customer owns this order (or user is staff).
+    const isTokenMatch = isUuid && order.invoice_token && String(order.invoice_token).toLowerCase() === identifier.toLowerCase();
+    if (!isStaff && !isTokenMatch) {
+      if (!customerSession || Number(order.customer_id) !== Number(customerSession.customerId)) {
         return NextResponse.json(
-          { success: false, error: "Access denied." },
+          { success: false, error: "Access denied. You do not own this order." },
           { status: 403 }
         );
       }

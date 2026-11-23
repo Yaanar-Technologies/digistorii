@@ -63,7 +63,8 @@ export async function POST(req: NextRequest) {
          r.sales_billing_access,
          r.reports_access,
          r.settings_access,
-         r.ecommerce_access
+         r.ecommerce_access,
+         COALESCE(r.finance_access, FALSE) AS finance_access
        FROM public.users u
        LEFT JOIN public.company_user_map cum
          ON cum.user_id = u.id
@@ -117,6 +118,7 @@ export async function POST(req: NextRequest) {
           reports_access: Boolean(user.reports_access),
           settings_access: Boolean(user.settings_access),
           ecommerce_access: Boolean(user.ecommerce_access),
+          finance_access: Boolean(user.finance_access) || user.responsibility_name === "Admin" || user.responsibility_name === "finance_team",
         },
       }
     });
@@ -138,6 +140,7 @@ export async function POST(req: NextRequest) {
         reports_access: Boolean(user.reports_access),
         settings_access: Boolean(user.settings_access),
         ecommerce_access: Boolean(user.ecommerce_access),
+        finance_access: Boolean(user.finance_access) || user.responsibility_name === "Admin" || user.responsibility_name === "finance_team",
       },
     };
 

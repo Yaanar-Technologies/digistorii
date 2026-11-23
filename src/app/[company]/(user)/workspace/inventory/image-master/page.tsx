@@ -57,6 +57,13 @@ export default function ImageMasterPage() {
   const [uoms, setUoms] = useState<UomOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{
+    currentBatch: number;
+    totalBatches: number;
+    uploadedCount: number;
+    totalFiles: number;
+    percent: number;
+  } | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [rowErrors, setRowErrors] = useState<RowErrors>({});
@@ -127,37 +134,70 @@ export default function ImageMasterPage() {
     if (!company || !selectedFiles.length) return;
     setUploading(true);
     setMessage("");
+    const BATCH_SIZE = 4;
+    const totalFiles = selectedFiles.length;
+    const totalBatches = Math.ceil(totalFiles / BATCH_SIZE);
+    const allStagedRows: StagedImage[] = [];
+    const errors: string[] = [];
+
     try {
-      const form = new FormData();
-      selectedFiles.forEach((file) => form.append("files", file));
+      for (let b = 0; b < totalBatches; b++) {
+        const batchFiles = selectedFiles.slice(b * BATCH_SIZE, (b + 1) * BATCH_SIZE);
+        setUploadProgress({
+          currentBatch: b + 1,
+          totalBatches,
+          uploadedCount: allStagedRows.length,
+          totalFiles,
+          percent: Math.round((b / totalBatches) * 100),
+        });
 
-      const res = await apiFetch("/api/image-master/upload", company, {
-        method: "POST",
-        body: form,
+        const form = new FormData();
+        batchFiles.forEach((file) => form.append("files", file));
+
+        const res = await apiFetch("/api/image-master/upload", company, {
+          method: "POST",
+          body: form,
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          errors.push(data.message || `Batch ${b + 1} failed`);
+          continue;
+        }
+
+        const uploaded: UploadResponse[] = Array.isArray(data) ? data : data.files || [];
+        const stagedRows: StagedImage[] = uploaded.map((item) => ({
+          id: item.file_path,
+          filename: item.filename,
+          file_path: item.file_path,
+          category_id: "",
+          material_id: "",
+          uom_id: "",
+          source: "",
+          selected: true,
+        }));
+        allStagedRows.push(...stagedRows);
+      }
+
+      setUploadProgress({
+        currentBatch: totalBatches,
+        totalBatches,
+        uploadedCount: allStagedRows.length,
+        totalFiles,
+        percent: 100,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Upload failed");
 
-      const uploaded: UploadResponse[] = Array.isArray(data) ? data : data.files || [];
-
-      const stagedRows: StagedImage[] = uploaded.map((item) => ({
-        id: item.file_path,
-        filename: item.filename,
-        file_path: item.file_path,
-        category_id: "",
-        material_id: "",
-        uom_id: "",
-        source: "",
-        selected: true,
-      }));
-
-      setStaged((prev) => [...prev, ...stagedRows]);
+      setStaged((prev) => [...prev, ...allStagedRows]);
       setSelectedFiles([]);
-      setMessage(`Uploaded ${uploaded.length} image(s) to staging.`);
+      if (errors.length > 0) {
+        setMessage(`Uploaded ${allStagedRows.length} image(s) with errors: ${errors.join("; ")}`);
+      } else {
+        setMessage(`Uploaded ${allStagedRows.length} image(s) to staging.`);
+      }
     } catch (error: any) {
       setMessage(error.message || "Upload failed");
     } finally {
       setUploading(false);
+      setUploadProgress(null);
     }
   }
 
@@ -402,7 +442,23 @@ export default function ImageMasterPage() {
             </div>
           )}
 
-          <div className="border-t border-gray-100 pt-6">
+          <div className="border-t border-gray-100 pt-6 space-y-3">
+            {uploadProgress ? (
+              <div className="space-y-1.5 rounded-lg border border-blue-100 bg-blue-50/50 p-3 max-w-md">
+                <div className="flex justify-between text-xs text-blue-900 font-medium">
+                  <span>
+                    Batch {uploadProgress.currentBatch} of {uploadProgress.totalBatches} ({uploadProgress.uploadedCount}/{uploadProgress.totalFiles} images uploaded)
+                  </span>
+                  <span>{uploadProgress.percent}%</span>
+                </div>
+                <div className="h-2 w-full overflow-hidden rounded-full bg-blue-200">
+                  <div
+                    className="h-full bg-blue-600 transition-all duration-300 rounded-full"
+                    style={{ width: `${uploadProgress.percent}%` }}
+                  />
+                </div>
+              </div>
+            ) : null}
             <button
               onClick={uploadImages}
               disabled={!selectedFiles.length || uploading}
@@ -719,99 +775,103 @@ export default function ImageMasterPage() {
       </div>
 
       {templateOpen ? (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-2xl rounded-xl bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b px-6 py-4">
+        <div className="fixed inset-0 z-[100000] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="relative w-full max-w-lg rounded-xl bg-white p-5 shadow-lg">
+            <button
+              onClick={() => setTemplateOpen(false)}
+              className="absolute right-3 top-3 text-lg text-gray-500 hover:text-gray-700"
+              aria-label="Close"
+            >
+              x
+            </button>
+            <div className="space-y-4">
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">Download Product Template</h3>
-                <p className="text-sm text-gray-500">Filter image master rows for template prefill.</p>
+                <h3 className="text-sm font-semibold text-gray-900">Download Product Template</h3>
+                <p className="text-xs text-gray-600">Filter image master rows for template prefill.</p>
               </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium uppercase tracking-wide text-gray-500">Category</label>
+                  <select
+                    multiple
+                    value={filterCategories}
+                    onChange={(e) => handleMultiSelect(e, setFilterCategories)}
+                    className="h-32 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  >
+                    {flatCategories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.path}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-medium uppercase tracking-wide text-gray-500">Material</label>
+                  <select
+                    multiple
+                    value={filterMaterials}
+                    onChange={(e) => handleMultiSelect(e, setFilterMaterials)}
+                    className="h-32 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  >
+                    {materials.map((mat) => (
+                      <option key={mat.id} value={mat.id}>
+                        {mat.material_code} - {mat.material_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-medium uppercase tracking-wide text-gray-500">UOM</label>
+                  <select
+                    multiple
+                    value={filterUoms}
+                    onChange={(e) => handleMultiSelect(e, setFilterUoms)}
+                    className="h-32 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  >
+                    {uoms.map((uom) => (
+                      <option key={uom.id} value={uom.id}>
+                        {uom.uom_code} - {uom.uom_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-medium uppercase tracking-wide text-gray-500">Source</label>
+                  <select
+                    multiple
+                    value={filterSources}
+                    onChange={(e) => handleMultiSelect(e, setFilterSources)}
+                    className="h-32 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  >
+                    <option value="vendor">Vendor</option>
+                    <option value="own">Own</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterCategories([]);
+                    setFilterMaterials([]);
+                    setFilterUoms([]);
+                    setFilterSources([]);
+                  }}
+                  className="inline-flex text-xs text-gray-600 underline hover:text-gray-800"
+                >
+                  Clear Filters
+                </button>
+              </div>
+
               <button
-                onClick={() => setTemplateOpen(false)}
-                className="text-sm font-semibold text-gray-500 hover:text-gray-700"
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="grid gap-4 px-6 py-5 md:grid-cols-2">
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-gray-700">Category</label>
-                <select
-                  multiple
-                  value={filterCategories}
-                  onChange={(e) => handleMultiSelect(e, setFilterCategories)}
-                  className="h-36 w-full rounded-md border border-gray-200 px-2 py-1 text-sm"
-                >
-                  {flatCategories.map((cat) => (
-                    <option key={cat.id} value={cat.id}>
-                      {cat.path}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-gray-700">Material</label>
-                <select
-                  multiple
-                  value={filterMaterials}
-                  onChange={(e) => handleMultiSelect(e, setFilterMaterials)}
-                  className="h-36 w-full rounded-md border border-gray-200 px-2 py-1 text-sm"
-                >
-                  {materials.map((mat) => (
-                    <option key={mat.id} value={mat.id}>
-                      {mat.material_code} - {mat.material_name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-gray-700">UOM</label>
-                <select
-                  multiple
-                  value={filterUoms}
-                  onChange={(e) => handleMultiSelect(e, setFilterUoms)}
-                  className="h-36 w-full rounded-md border border-gray-200 px-2 py-1 text-sm"
-                >
-                  {uoms.map((uom) => (
-                    <option key={uom.id} value={uom.id}>
-                      {uom.uom_code} - {uom.uom_name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-gray-700">Source</label>
-                <select
-                  multiple
-                  value={filterSources}
-                  onChange={(e) => handleMultiSelect(e, setFilterSources)}
-                  className="h-36 w-full rounded-md border border-gray-200 px-2 py-1 text-sm"
-                >
-                  <option value="vendor">Vendor</option>
-                  <option value="own">Own</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between border-t px-6 py-4">
-              <button
-                onClick={() => {
-                  setFilterCategories([]);
-                  setFilterMaterials([]);
-                  setFilterUoms([]);
-                  setFilterSources([]);
-                }}
-                className="text-sm font-semibold text-gray-500 hover:text-gray-700"
-              >
-                Clear Filters
-              </button>
-              <button
+                type="button"
                 onClick={downloadTemplate}
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                className="w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Download Template
               </button>

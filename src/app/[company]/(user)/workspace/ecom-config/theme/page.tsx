@@ -1,7 +1,7 @@
 // src/app/[company]/(user)/workspace/ecom-config/theme/page.tsx
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useParams } from "next/navigation";
 import { apiFetch } from "@/lib/apiFetch";
 import Badge from "@/components/ui/badge/Badge";
@@ -180,6 +180,40 @@ export default function ThemeCustomizationPage() {
   const [workspaceOffers, setWorkspaceOffers] = useState<TenantOffer[]>([]);
   const [workspaceProducts, setWorkspaceProducts] = useState<StorefrontProduct[]>([]);
   const [imagesById, setImagesById] = useState<Record<number, string>>({});
+
+  // Pending unsaved media files (kept in component memory until user clicks "Save Draft" or "Publish")
+  const pendingUploadsRef = useRef<
+    Map<
+      string,
+      {
+        file: File;
+        assetType: string;
+        source?: string;
+        colorId?: number;
+        materialId?: number;
+      }
+    >
+  >(new Map());
+
+  const registerPendingMedia = (
+    url: string,
+    pendingFile?: File,
+    opts?: {
+      assetType?: string;
+      source?: string;
+      colorId?: number;
+      materialId?: number;
+    }
+  ) => {
+    if (!pendingFile) return;
+    pendingUploadsRef.current.set(url, {
+      file: pendingFile,
+      assetType: opts?.assetType || "ecom",
+      source: opts?.source || "theme",
+      colorId: opts?.colorId,
+      materialId: opts?.materialId,
+    });
+  };
 
   // Viewport mode for live preview frame
   const [viewportMode, setViewportMode] = useState<"desktop" | "mobile">("desktop");
@@ -444,19 +478,159 @@ export default function ThemeCustomizationPage() {
 
   const liveStorefrontTheme: StorefrontTheme = toStorefrontTheme(getThemePayload(), imagesById);
 
+  // Upload pending media files atomically and map returned URLs and IDs
+  const uploadPendingMedia = async (): Promise<Map<string, { url: string; imageId?: number }>> => {
+    const replacements = new Map<string, { url: string; imageId?: number }>();
+    if (pendingUploadsRef.current.size === 0) return replacements;
+
+    const entries = Array.from(pendingUploadsRef.current.entries()) as [string, { file: File; assetType: string; source?: string; colorId?: number; materialId?: number }][];
+    for (const [previewUrl, item] of entries) {
+      try {
+        const formData = new FormData();
+        formData.append("file", item.file);
+        formData.append("asset_type", item.assetType);
+        if (item.source) formData.append("source", item.source);
+        if (item.colorId) formData.append("color_id", String(item.colorId));
+        if (item.materialId) formData.append("material_id", String(item.materialId));
+
+        const targetCompany = company || "default";
+        const res = await fetch(`/api/${targetCompany}/upload`, {
+          method: "POST",
+          body: formData,
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.url) {
+            replacements.set(previewUrl, {
+              url: data.url,
+              imageId: data.id || data.imageId,
+            });
+          }
+        }
+      } catch (uploadErr) {
+        console.error("Failed to commit pending media asset:", uploadErr);
+      }
+    }
+
+    pendingUploadsRef.current.clear();
+    return replacements;
+  };
+
+  const applyUrlReplacements = (
+    replacements: Map<string, { url: string; imageId?: number }>,
+    basePayload: ThemeConfig
+  ): ThemeConfig => {
+    if (replacements.size === 0) return basePayload;
+
+    let nextLogoUrl = basePayload.logo_url;
+    let nextLogoId = basePayload.logo_image_id;
+    if (nextLogoUrl && replacements.has(nextLogoUrl)) {
+      const match = replacements.get(nextLogoUrl)!;
+      nextLogoUrl = match.url;
+      nextLogoId = match.imageId || nextLogoId;
+      setLogoUrl(nextLogoUrl);
+      if (nextLogoId) setLogoImageId(nextLogoId);
+    }
+
+    let nextHeroBannerUrl = basePayload.hero_banner_url;
+    let nextHeroBannerId = basePayload.hero_banner_image_id;
+    if (nextHeroBannerUrl && replacements.has(nextHeroBannerUrl)) {
+      const match = replacements.get(nextHeroBannerUrl)!;
+      nextHeroBannerUrl = match.url;
+      nextHeroBannerId = match.imageId || nextHeroBannerId;
+      setHeroBannerUrl(nextHeroBannerUrl);
+      if (nextHeroBannerId) setHeroBannerImageId(nextHeroBannerId);
+    }
+
+    const nextSections = (basePayload.home_sections || []).map((sec) => {
+      if (sec.type === "hero_carousel") {
+        return {
+          ...sec,
+          slides: sec.slides.map((s) => {
+            if (s.imageUrl && replacements.has(s.imageUrl)) {
+              const match = replacements.get(s.imageUrl)!;
+              return { ...s, imageUrl: match.url, imageId: match.imageId || s.imageId };
+            }
+            return s;
+          }),
+        };
+      }
+      if (sec.type === "shop_by_color") {
+        return {
+          ...sec,
+          items: sec.items.map((i) => {
+            if (i.imageUrl && replacements.has(i.imageUrl)) {
+              const match = replacements.get(i.imageUrl)!;
+              return { ...i, imageUrl: match.url, imageId: match.imageId || i.imageId };
+            }
+            return i;
+          }),
+        };
+      }
+      if (sec.type === "shop_by_material") {
+        return {
+          ...sec,
+          items: sec.items.map((i) => {
+            if (i.imageUrl && replacements.has(i.imageUrl)) {
+              const match = replacements.get(i.imageUrl)!;
+              return { ...i, imageUrl: match.url, imageId: match.imageId || i.imageId };
+            }
+            return i;
+          }),
+        };
+      }
+      if (sec.type === "offers") {
+        if (sec.bannerImageUrl && replacements.has(sec.bannerImageUrl)) {
+          const match = replacements.get(sec.bannerImageUrl)!;
+          return { ...sec, bannerImageUrl: match.url, bannerImageId: match.imageId || sec.bannerImageId };
+        }
+      }
+      if (sec.type === "about") {
+        return {
+          ...sec,
+          blocks: sec.blocks.map((b) => {
+            if (b.imageUrl && replacements.has(b.imageUrl)) {
+              const match = replacements.get(b.imageUrl)!;
+              return { ...b, imageUrl: match.url, imageId: match.imageId || b.imageId };
+            }
+            return b;
+          }),
+        };
+      }
+      return sec;
+    });
+
+    setHomeSections(nextSections);
+
+    return {
+      ...basePayload,
+      logo_url: nextLogoUrl,
+      logo_image_id: nextLogoId,
+      hero_banner_url: nextHeroBannerUrl,
+      hero_banner_image_id: nextHeroBannerId,
+      home_sections: nextSections,
+    };
+  };
+
   const handleSaveDraft = async () => {
     setSaving(true);
     setMessage(null);
     try {
+      // 1. Commit all pending media files first to get persistent URLs
+      const replacements = await uploadPendingMedia();
+      const payload = applyUrlReplacements(replacements, getThemePayload());
+
+      // 2. Persist draft theme atomically
       const res = await apiFetch("/api/company/ecom-theme", company, {
         method: "POST",
         body: JSON.stringify({
-          draft_theme: getThemePayload(),
+          draft_theme: payload,
         }),
       });
 
       if (res.ok) {
-        setMessage({ type: "success", text: "Draft storefront appearance saved successfully!" });
+        setMessage({ type: "success", text: "Draft storefront appearance and media saved successfully!" });
       } else {
         const errorData = await res.json();
         setMessage({ type: "error", text: errorData.message || "Failed to save draft theme config." });
@@ -480,13 +654,19 @@ export default function ThemeCustomizationPage() {
     setPublishing(true);
     setMessage(null);
     try {
+      // 1. Commit all pending media files first
+      const replacements = await uploadPendingMedia();
+      const payload = applyUrlReplacements(replacements, getThemePayload());
+
+      // 2. Save draft with all media URLs
       await apiFetch("/api/company/ecom-theme", company, {
         method: "POST",
         body: JSON.stringify({
-          draft_theme: getThemePayload(),
+          draft_theme: payload,
         }),
       });
 
+      // 3. Publish to live storefront
       const res = await apiFetch("/api/company/ecom-theme?action=publish", company, {
         method: "POST",
         body: JSON.stringify({
@@ -1172,7 +1352,8 @@ export default function ThemeCustomizationPage() {
                             <ImageUploadInput
                               label="Slide Background Image"
                               value={(slide.imageId && imagesById[slide.imageId]) || slide.imageUrl || ""}
-                              onChange={(url, imageId) => {
+                              onChange={(url, imageId, pendingFile) => {
+                                if (pendingFile) registerPendingMedia(url, pendingFile, { assetType: "hero_slide", source: "hero_slide" });
                                 if (imageId) setImagesById((prev) => ({ ...prev, [imageId]: url }));
                                 const updated = homeSections.map((s) =>
                                   s.id === sec.id && s.type === "hero_carousel"
@@ -1379,7 +1560,8 @@ export default function ThemeCustomizationPage() {
                                     <ImageUploadInput
                                       label=""
                                       value={(existing?.imageId && imagesById[existing.imageId]) || existing?.imageUrl || ""}
-                                      onChange={(url, imageId) => {
+                                      onChange={(url, imageId, pendingFile) => {
+                                        if (pendingFile) registerPendingMedia(url, pendingFile, { assetType: "color_thumbnail", source: "shop_by_color_thumbnail", colorId: color.id });
                                         if (imageId) setImagesById((prev) => ({ ...prev, [imageId]: url }));
                                         const newItems: ShopByColorItem[] = (sec.items || []).map((i) =>
                                           i.colorId === color.id
@@ -1463,7 +1645,8 @@ export default function ThemeCustomizationPage() {
                                     <ImageUploadInput
                                       label=""
                                       value={(existing?.imageId && imagesById[existing.imageId]) || existing?.imageUrl || ""}
-                                      onChange={(url, imageId) => {
+                                      onChange={(url, imageId, pendingFile) => {
+                                        if (pendingFile) registerPendingMedia(url, pendingFile, { assetType: "material_thumbnail", source: "shop_by_material_thumbnail", materialId: mat.id });
                                         if (imageId) setImagesById((prev) => ({ ...prev, [imageId]: url }));
                                         const newItems: ShopByMaterialItem[] = (sec.items || []).map((i) =>
                                           i.materialId === mat.id
@@ -1606,7 +1789,8 @@ export default function ThemeCustomizationPage() {
                         <ImageUploadInput
                           label="Optional Promo Banner Image"
                           value={(sec.bannerImageId && imagesById[sec.bannerImageId]) || sec.bannerImageUrl || ""}
-                          onChange={(url, imageId) => {
+                          onChange={(url, imageId, pendingFile) => {
+                            if (pendingFile) registerPendingMedia(url, pendingFile, { assetType: "banner", source: "offer_banner" });
                             if (imageId) setImagesById((prev) => ({ ...prev, [imageId]: url }));
                             setHomeSections(
                               homeSections.map((s) =>
@@ -1869,7 +2053,8 @@ export default function ThemeCustomizationPage() {
                               <ImageUploadInput
                                 label="Story Image"
                                 value={(b.imageId && imagesById[b.imageId]) || b.imageUrl || ""}
-                                onChange={(url, imageId) => {
+                                onChange={(url, imageId, pendingFile) => {
+                                  if (pendingFile) registerPendingMedia(url, pendingFile, { assetType: "about", source: "about_block" });
                                   if (imageId) setImagesById((prev) => ({ ...prev, [imageId]: url }));
                                   const updated = homeSections.map((s) =>
                                     s.id === sec.id && s.type === "about"
@@ -2127,7 +2312,8 @@ export default function ThemeCustomizationPage() {
                 <ImageUploadInput
                   label="Store Logo Image"
                   value={logoUrl}
-                  onChange={(url, imageId) => {
+                  onChange={(url, imageId, pendingFile) => {
+                    if (pendingFile) registerPendingMedia(url, pendingFile, { assetType: "logo", source: "logo" });
                     setLogoUrl(url);
                     setLogoImageId(imageId);
                   }}

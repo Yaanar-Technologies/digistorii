@@ -66,11 +66,13 @@ export async function POST(
     }
 
     const sessionData = {
+      id: record.id,
       customerId: record.id,
       channel: record.channel || "ecom",
       email: record.email || "",
       phone: record.phone || "",
       name: record.name || record.cust_name || "Customer",
+      cust_name: record.cust_name || record.name || "Customer",
       company: companySlug,
     };
 

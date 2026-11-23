@@ -35,9 +35,18 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
       isLoading: false,
 
       setCustomer: (customer) => {
+        if (!customer) {
+          set({ customer: null, isAuthenticated: false });
+          return;
+        }
+        const normalized: CustomerProfile = {
+          ...customer,
+          id: customer.id || (customer as any).customerId,
+          name: customer.name || customer.cust_name || "Customer",
+        };
         set({
-          customer,
-          isAuthenticated: !!customer && !!customer.id,
+          customer: normalized,
+          isAuthenticated: !!normalized.id,
         });
       },
 

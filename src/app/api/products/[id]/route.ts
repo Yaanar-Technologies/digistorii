@@ -524,7 +524,8 @@ export async function PUT(
                 image_url = $3,
                 alt_text = $4,
                 is_primary = $5,
-                sort_order = $6
+                sort_order = $6,
+                is_published = FALSE
             WHERE id = $7
           `,
           [
@@ -543,8 +544,8 @@ export async function PUT(
         const insertedImage = await client.query(
           `
             INSERT INTO "${schema}".product_images
-              (product_id, variant_id, image_id, image_url, alt_text, is_primary, sort_order)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+              (product_id, variant_id, image_id, image_url, alt_text, is_primary, sort_order, is_published)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE)
             RETURNING id
           `,
           [

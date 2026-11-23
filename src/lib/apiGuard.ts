@@ -32,7 +32,12 @@ export async function requireStaff(
     return deny(403, "Forbidden: company mismatch.");
   }
   if (options.permission && !canAccess(staff.permissions, options.permission)) {
-    return deny(403, "Forbidden: missing permission.");
+    const isSpecialFinance =
+      options.permission === "finance_access" &&
+      (staff.responsibility_name === "Admin" || staff.responsibility_name === "finance_team");
+    if (!isSpecialFinance) {
+      return deny(403, "Forbidden: missing permission.");
+    }
   }
 
   const companyRow = await pool.query(

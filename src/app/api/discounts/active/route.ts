@@ -44,6 +44,7 @@ export async function POST(req: NextRequest) {
         INNER JOIN "${schema}".discount_variants dv
           ON dv.discount_id = d.id
         WHERE d.is_active = TRUE
+          AND COALESCE(d.channel, 'both') IN ('pos', 'both')
           AND dv.variant_id = ANY($1::bigint[])
           AND (d.starts_at IS NULL OR d.starts_at <= $2)
           AND (d.ends_at IS NULL OR d.ends_at >= $2)

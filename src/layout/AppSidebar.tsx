@@ -108,10 +108,17 @@ const navItems: NavItem[] = [
     ],
   },
   {
+    name: "Finance",
+    icon: <BanknotesIcon className="w-5 h-5" />,
+    permission: "finance_access",
+    path: "/workspace/finance",
+  },
+  {
     name: "Reports",
     icon: <TableIcon />,
     permission: "reports_access",
     subItems: [
+      { name: "Product Variant Report", path: "/workspace/reports/product-variants", pro: false },
       { name: "Stock Ledger", path: "/workspace/reports/stock-ledger-report", pro: false },
       { name: "PO Summary Report", path: "/workspace/reports/po-summary-report", pro: false },
       { name: "PO Items Report", path: "/workspace/reports/po-items-report", pro: false },
@@ -140,7 +147,7 @@ const AppSidebar: React.FC = () => {
 
   // Replace the pathname.split logic with useParams
   const params = useParams();
-  const company = params.company as string || "";
+  const company = (params?.company as string) || user?.company_name || "";
 
   const [openSubmenu, setOpenSubmenu] = useState<{
     // type: "main" | "others";
@@ -207,6 +214,14 @@ const AppSidebar: React.FC = () => {
   }, [openSubmenu]);
 
   const allowedNavItems = navItems.filter((item) => {
+    if (item.name === "Finance") {
+      const isPrivileged =
+        user?.responsibility_name === "Admin" ||
+        user?.responsibility_name === "finance_team" ||
+        canAccess(user?.permissions, "finance_access");
+      if (!isPrivileged) return false;
+      return true;
+    }
     if (item.permission && !canAccess(user?.permissions, item.permission)) {
       return false;
     }

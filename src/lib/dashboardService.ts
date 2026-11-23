@@ -3,74 +3,110 @@ import { pool } from "@/lib/db";
  
 export const getDashboardMetrics = async (schema: string) => {
   try {
-    console.log("Dashboard Metrics Fetch Start");
-    console.log("Tenant Schema:", schema);
- 
-    const result = await pool.query(`
+    // 1. Plan-agnostic check for table existence
+    const tableCheck = await pool.query(`
       SELECT
-        (SELECT COUNT(*)::int FROM ${schema}.customers) AS customers,
-        (SELECT COUNT(*)::int FROM ${schema}.sales_header) AS orders,
- 
-        /* customer growth */
-        (SELECT COUNT(*) FROM ${schema}.customers
-         WHERE created_at >= NOW() - INTERVAL '30 days') AS customer_current,
- 
-        (SELECT COUNT(*) FROM ${schema}.customers
-         WHERE created_at >= NOW() - INTERVAL '60 days'
-         AND created_at < NOW() - INTERVAL '30 days') AS customer_previous,
- 
-        /* order growth */
-        (SELECT COUNT(*) FROM ${schema}.sales_header
-         WHERE created_at >= NOW() - INTERVAL '30 days') AS order_current,
- 
-        (SELECT COUNT(*) FROM ${schema}.sales_header
-         WHERE created_at >= NOW() - INTERVAL '60 days'
-         AND created_at < NOW() - INTERVAL '30 days') AS order_previous
+        to_regclass('${schema}.sales_header') IS NOT NULL AS has_pos,
+        to_regclass('${schema}.online_orders') IS NOT NULL AS has_ecom
     `);
- 
-    const row = result.rows[0];
- 
-    const customers = Number(row.customers || 0);
-    const orders = Number(row.orders || 0);
- 
-    const customerCurrent = Number(row.customer_current || 0);
-    const customerPrevious = Number(row.customer_previous || 0);
- 
-    const orderCurrent = Number(row.order_current || 0);
-    const orderPrevious = Number(row.order_previous || 0);
- 
-    // console.log("Customers:", customers);
-    // console.log("Orders:", orders);
-    // console.log("Customer Current:", customerCurrent);
-    // console.log("Customer Previous:", customerPrevious);
-    // console.log("Order Current:", orderCurrent);
-    // console.log("Order Previous:", orderPrevious);
- 
-    const customerGrowth =
-      customerPrevious === 0
-        ? 0
-        : Number((((customerCurrent - customerPrevious) / customerPrevious) * 100).toFixed(2));
- 
-    const orderGrowth =
-      orderPrevious === 0
-        ? 0
-        : Number((((orderCurrent - orderPrevious) / orderPrevious) * 100).toFixed(2));
- 
+
+    const hasPos = Boolean(tableCheck.rows[0]?.has_pos);
+    const hasEcom = Boolean(tableCheck.rows[0]?.has_ecom);
+
+    // 2. Fetch POS & Online Order sales metrics in parallel
+    const [posRes, ecomRes] = await Promise.all([
+      hasPos
+        ? pool.query(`
+            SELECT
+              COUNT(*) FILTER (
+                WHERE COALESCE(sales_date, created_at::date) = CURRENT_DATE
+              )::int AS today_count,
+              COALESCE(SUM(total_amount) FILTER (
+                WHERE COALESCE(sales_date, created_at::date) = CURRENT_DATE
+              ), 0)::numeric AS today_revenue,
+              COUNT(*) FILTER (
+                WHERE COALESCE(sales_date, created_at::date) = CURRENT_DATE - 1
+              )::int AS yesterday_count,
+              COALESCE(SUM(total_amount) FILTER (
+                WHERE COALESCE(sales_date, created_at::date) = CURRENT_DATE - 1
+              ), 0)::numeric AS yesterday_revenue
+            FROM "${schema}".sales_header
+          `)
+        : Promise.resolve({ rows: [{ today_count: 0, today_revenue: 0, yesterday_count: 0, yesterday_revenue: 0 }] }),
+
+      hasEcom
+        ? pool.query(`
+            SELECT
+              COUNT(*) FILTER (
+                WHERE order_status != 'cancelled'
+                  AND created_at::date = CURRENT_DATE
+              )::int AS today_count,
+              COALESCE(SUM(total_amount) FILTER (
+                WHERE order_status != 'cancelled'
+                  AND created_at::date = CURRENT_DATE
+              ), 0)::numeric AS today_revenue,
+              COUNT(*) FILTER (
+                WHERE order_status != 'cancelled'
+                  AND created_at::date = CURRENT_DATE - 1
+              )::int AS yesterday_count,
+              COALESCE(SUM(total_amount) FILTER (
+                WHERE order_status != 'cancelled'
+                  AND created_at::date = CURRENT_DATE - 1
+              ), 0)::numeric AS yesterday_revenue
+            FROM "${schema}".online_orders
+          `)
+        : Promise.resolve({ rows: [{ today_count: 0, today_revenue: 0, yesterday_count: 0, yesterday_revenue: 0 }] }),
+    ]);
+
+    const posRow = posRes.rows[0] || {};
+    const ecomRow = ecomRes.rows[0] || {};
+
+    const todaySalesCount = Number(posRow.today_count || 0) + Number(ecomRow.today_count || 0);
+    const todayRevenue = Number(posRow.today_revenue || 0) + Number(ecomRow.today_revenue || 0);
+
+    const yesterdaySalesCount = Number(posRow.yesterday_count || 0) + Number(ecomRow.yesterday_count || 0);
+    const yesterdayRevenue = Number(posRow.yesterday_revenue || 0) + Number(ecomRow.yesterday_revenue || 0);
+
+    // Card 2: Today AOV = today_revenue / today_count (0 if count is 0)
+    const todayAov = todaySalesCount > 0 ? Number((todayRevenue / todaySalesCount).toFixed(2)) : 0;
+    const yesterdayAov = yesterdaySalesCount > 0 ? Number((yesterdayRevenue / yesterdaySalesCount).toFixed(2)) : 0;
+
+    // Card 1 Trend: Today's sales count vs Yesterday's sales count
+    let salesCountGrowth = 0;
+    if (yesterdaySalesCount === 0) {
+      salesCountGrowth = todaySalesCount > 0 ? 100 : 0;
+    } else {
+      salesCountGrowth = Number((((todaySalesCount - yesterdaySalesCount) / yesterdaySalesCount) * 100).toFixed(2));
+    }
+
+    // Card 2 Trend: Today's AOV vs Yesterday's AOV
+    let aovGrowth = 0;
+    if (yesterdayAov === 0) {
+      aovGrowth = todayAov > 0 ? 100 : 0;
+    } else {
+      aovGrowth = Number((((todayAov - yesterdayAov) / yesterdayAov) * 100).toFixed(2));
+    }
+
     const metrics = {
-      customers,
-      orders,
-      customerGrowth,
-      orderGrowth,
+      todaySalesCount,
+      salesCountGrowth,
+      todayAov,
+      aovGrowth,
+      todayRevenue,
+      yesterdaySalesCount,
+      yesterdayRevenue,
+      yesterdayAov,
+
+      // Legacy fallback keys
+      customers: 0,
+      orders: todaySalesCount,
+      customerGrowth: salesCountGrowth,
+      orderGrowth: aovGrowth,
     };
-    // console.log("Dashboard Metrics Result:", metrics);
+
     return metrics;
   } catch (error: any) {
-    /* DB Error Logging */
-    console.error("Dashboard Metrics DB Error");
-    console.error("Message:", error.message);
-    console.error("Code:", error.code);
-    console.error("Detail:", error.detail);
-    console.error("Stack:", error.stack);
+    console.error("Dashboard Metrics DB Error:", error);
     throw new Error("Database error while fetching dashboard metrics");
   }
 };

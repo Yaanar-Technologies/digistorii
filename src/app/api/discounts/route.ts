@@ -8,6 +8,7 @@ type DiscountPayload = {
   discount_type?: "percentage" | "fixed";
   value?: number | string;
   coupon_code?: string | null;
+  channel?: "pos" | "ecom" | "both";
   applies_to?: "specific_variants" | "entire_order";
   priority?: number | string;
   min_order_value?: number | string;
@@ -34,7 +35,24 @@ function toNumber(value: unknown, fallback = 0): number {
 export async function GET(req: NextRequest) {
   const client = await pool.connect();
   try {
-    const { schema } = await getTenantSchema(req);
+    const { schema, companyId } = await getTenantSchema(req);
+
+    // Query company subscription for module access (pos_access, ecommerce_access)
+    const subResult = await client.query(
+      `SELECT ecommerce_access, COALESCE(pos_access, TRUE) AS pos_access
+       FROM public.company_subscriptions
+       WHERE company_id = $1
+       ORDER BY
+         CASE WHEN UPPER(COALESCE(status, '')) IN ('ACTIVE', 'TRIALING') THEN 0 ELSE 1 END,
+         updated_at DESC, id DESC
+       LIMIT 1`,
+      [companyId]
+    );
+
+    const subRow = subResult.rows[0];
+    const posAccess = subRow ? Boolean(subRow.pos_access) : true;
+    const ecommerceAccess = subRow ? Boolean(subRow.ecommerce_access) : false;
+
     const result = await client.query(
       `
         SELECT
@@ -43,6 +61,7 @@ export async function GET(req: NextRequest) {
           d.description,
           d.discount_type,
           d.value,
+          COALESCE(d.channel, 'both') AS channel,
           d.coupon_code,
           d.applies_to,
           d.priority,
@@ -78,7 +97,12 @@ export async function GET(req: NextRequest) {
           d.priority ASC
       `
     );
-    return NextResponse.json({ success: true, data: result.rows });
+    return NextResponse.json({
+      success: true,
+      data: result.rows,
+      pos_access: posAccess,
+      ecommerce_access: ecommerceAccess,
+    });
   } catch (error: any) {
     return NextResponse.json(
       { success: false, error: error.message || "Failed to fetch discounts" },
@@ -92,8 +116,34 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const client = await pool.connect();
   try {
-    const { schema } = await getTenantSchema(req);
+    const { schema, companyId } = await getTenantSchema(req);
     const body = (await req.json()) as DiscountPayload;
+
+    // Check entitlements
+    const subResult = await client.query(
+      `SELECT ecommerce_access, COALESCE(pos_access, TRUE) AS pos_access
+       FROM public.company_subscriptions
+       WHERE company_id = $1
+       ORDER BY
+         CASE WHEN UPPER(COALESCE(status, '')) IN ('ACTIVE', 'TRIALING') THEN 0 ELSE 1 END,
+         updated_at DESC, id DESC
+       LIMIT 1`,
+      [companyId]
+    );
+    const subRow = subResult.rows[0];
+    const posAccess = subRow ? Boolean(subRow.pos_access) : true;
+    const ecommerceAccess = subRow ? Boolean(subRow.ecommerce_access) : false;
+
+    let channel: "pos" | "ecom" | "both" = (body.channel as any) || "both";
+    if (!posAccess && ecommerceAccess) {
+      channel = "ecom";
+    } else if (posAccess && !ecommerceAccess) {
+      channel = "pos";
+    } else {
+      if (!["pos", "ecom", "both"].includes(channel)) {
+        channel = "both";
+      }
+    }
 
     const name = asText(body.name);
     const discountType = asText(body.discount_type || "").toLowerCase();
@@ -137,9 +187,9 @@ export async function POST(req: NextRequest) {
     const insertRes = await client.query(
       `
         INSERT INTO "${schema}".discounts
-          (name, description, discount_type, value, coupon_code, applies_to, priority, min_order_value, total_usage_limit, per_customer_limit, total_used_count, starts_at, ends_at, is_active)
+          (name, description, discount_type, value, coupon_code, applies_to, priority, min_order_value, total_usage_limit, per_customer_limit, total_used_count, starts_at, ends_at, is_active, channel)
         VALUES
-          ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, $11, $12, $13)
+          ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, $11, $12, $13, $14)
         RETURNING *
       `,
       [
@@ -156,6 +206,7 @@ export async function POST(req: NextRequest) {
         startsAt,
         endsAt,
         body.is_active ?? true,
+        channel,
       ]
     );
 

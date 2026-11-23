@@ -31,6 +31,7 @@ type User = {
   has_completed_guided_setup?: boolean;
   ecommerce_access?: boolean;
   pos_access?: boolean;
+  rememberMe?: boolean;
 };
 
 

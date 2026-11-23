@@ -84,7 +84,8 @@ export const StorefrontHeader: React.FC<StorefrontHeaderProps> = ({
     setUserDropdownOpen(false);
     setMobileMenuOpen(false);
     const slug = getCompanySlug();
-    const path = slug ? `/${slug}/store/account${tab ? `?tab=${tab}` : ""}` : `/store/account${tab ? `?tab=${tab}` : ""}`;
+    const subPath = tab === "orders" ? "/orders" : "";
+    const path = slug ? `/${slug}/account${subPath}` : `/account${subPath}`;
     router.push(path);
   };
 
@@ -204,10 +205,9 @@ export const StorefrontHeader: React.FC<StorefrontHeaderProps> = ({
     >
       {/* Top Banner / Announcement */}
       <div
-        className="px-4 py-1.5 text-center text-xs font-medium text-white transition-colors"
+        className="px-4 py-2.5 text-center text-xs font-medium text-white transition-colors"
         style={{ backgroundColor: theme.primaryColor }}
       >
-        <span>Free shipping on orders over ₹500 | 100% Secure Checkout</span>
       </div>
 
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -534,19 +534,19 @@ export const StorefrontHeader: React.FC<StorefrontHeaderProps> = ({
                   Logged in as {customer?.name || "Customer"}
                 </div>
                 <button
+                  onClick={() => navigateToAccount()}
+                  className="flex items-center gap-2 w-full text-left rounded-lg px-3 py-2 text-sm font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 transition-colors"
+                >
+                  <MapPinIcon className="h-4 w-4 text-gray-500 shrink-0" />
+                  <span>My Profile & Address</span>
+                </button>
+
+                <button
                   onClick={() => navigateToAccount("orders")}
                   className="flex items-center gap-2 w-full text-left rounded-lg px-3 py-2 text-sm font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 transition-colors"
                 >
                   <ArchiveBoxIcon className="h-4 w-4 text-gray-500 shrink-0" />
-                  <span>My Orders (Online & POS)</span>
-                </button>
-
-                <button
-                  onClick={() => navigateToAccount("addresses")}
-                  className="flex items-center gap-2 w-full text-left rounded-lg px-3 py-2 text-sm font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 transition-colors"
-                >
-                  <MapPinIcon className="h-4 w-4 text-gray-500 shrink-0" />
-                  <span>Saved Addresses</span>
+                  <span>My Orders</span>
                 </button>
                 <button
                   onClick={handleLogout}

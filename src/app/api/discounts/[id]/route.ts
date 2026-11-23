@@ -17,13 +17,29 @@ function toNumber(value: unknown, fallback = 0): number {
 export async function GET(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   const client = await pool.connect();
   try {
-    const { schema } = await getTenantSchema(req);
+    const { schema, companyId } = await getTenantSchema(req);
     const { id } = await context.params;
+
+    const subResult = await client.query(
+      `SELECT ecommerce_access, COALESCE(pos_access, TRUE) AS pos_access
+       FROM public.company_subscriptions
+       WHERE company_id = $1
+       ORDER BY
+         CASE WHEN UPPER(COALESCE(status, '')) IN ('ACTIVE', 'TRIALING') THEN 0 ELSE 1 END,
+         updated_at DESC, id DESC
+       LIMIT 1`,
+      [companyId]
+    );
+
+    const subRow = subResult.rows[0];
+    const posAccess = subRow ? Boolean(subRow.pos_access) : true;
+    const ecommerceAccess = subRow ? Boolean(subRow.ecommerce_access) : false;
 
     const discountRes = await client.query(
       `
         SELECT
           d.*,
+          COALESCE(d.channel, 'both') AS channel,
           CASE 
             WHEN d.is_active = TRUE 
               AND (d.starts_at IS NULL OR d.starts_at <= NOW()) 
@@ -66,6 +82,8 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
         variant_ids: variantsRes.rows.map((row) => Number(row.variant_id)),
         variants: variantsRes.rows,
       },
+      pos_access: posAccess,
+      ecommerce_access: ecommerceAccess,
     });
   } catch (error: any) {
     return NextResponse.json(
@@ -80,9 +98,34 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
 export async function PUT(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   const client = await pool.connect();
   try {
-    const { schema } = await getTenantSchema(req);
+    const { schema, companyId } = await getTenantSchema(req);
     const { id } = await context.params;
     const body = await req.json();
+
+    const subResult = await client.query(
+      `SELECT ecommerce_access, COALESCE(pos_access, TRUE) AS pos_access
+       FROM public.company_subscriptions
+       WHERE company_id = $1
+       ORDER BY
+         CASE WHEN UPPER(COALESCE(status, '')) IN ('ACTIVE', 'TRIALING') THEN 0 ELSE 1 END,
+         updated_at DESC, id DESC
+       LIMIT 1`,
+      [companyId]
+    );
+    const subRow = subResult.rows[0];
+    const posAccess = subRow ? Boolean(subRow.pos_access) : true;
+    const ecommerceAccess = subRow ? Boolean(subRow.ecommerce_access) : false;
+
+    let channel: "pos" | "ecom" | "both" = (body.channel as any) || "both";
+    if (!posAccess && ecommerceAccess) {
+      channel = "ecom";
+    } else if (posAccess && !ecommerceAccess) {
+      channel = "pos";
+    } else {
+      if (!["pos", "ecom", "both"].includes(channel)) {
+        channel = "both";
+      }
+    }
 
     const name = asText(body.name);
     const discountType = asText(body.discount_type || "").toLowerCase();
@@ -143,8 +186,9 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
           per_customer_limit = $10,
           starts_at = $11,
           ends_at = $12,
-          is_active = $13
-        WHERE id = $14
+          is_active = $13,
+          channel = $14
+        WHERE id = $15
         RETURNING *
       `,
       [
@@ -161,6 +205,7 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
         startsAt,
         endsAt,
         body.is_active ?? true,
+        channel,
         id,
       ]
     );

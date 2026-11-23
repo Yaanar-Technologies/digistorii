@@ -397,8 +397,8 @@ export async function POST(req: NextRequest) {
       await client.query(
         `
           INSERT INTO "${schema}".product_images
-            (product_id, variant_id, image_id, image_url, alt_text, is_primary, sort_order)
-          VALUES ($1, $2, $3, $4, $5, $6, $7)
+            (product_id, variant_id, image_id, image_url, alt_text, is_primary, sort_order, is_published)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE)
         `,
         [
           item.product_id,

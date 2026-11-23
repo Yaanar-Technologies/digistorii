@@ -22,7 +22,7 @@ export const StorefrontFooter: React.FC<StorefrontFooterProps> = ({
     <footer className="bg-gray-900 text-gray-300 border-t border-gray-800" style={{ fontFamily: theme.fontFamily }}>
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 gap-8 md:grid-cols-4">
-          
+
           {/* Col 1: Brand Info & Socials */}
           <div className="space-y-4 md:col-span-1">
             {theme.logoUrl ? (
@@ -103,44 +103,7 @@ export const StorefrontFooter: React.FC<StorefrontFooterProps> = ({
             </ul>
           </div>
 
-          {/* Col 3: Legal & Store Policies */}
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold text-white uppercase tracking-wider">Store Policies</h3>
-            <ul className="space-y-2 text-xs">
-              <li>
-                <Link
-                  href={company ? `/${company}/policies/terms` : "#"}
-                  className="text-gray-400 hover:text-white transition-colors"
-                >
-                  Terms & Conditions
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href={company ? `/${company}/policies/privacy` : "#"}
-                  className="text-gray-400 hover:text-white transition-colors"
-                >
-                  Privacy Policy
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href={company ? `/${company}/policies/returns` : "#"}
-                  className="text-gray-400 hover:text-white transition-colors"
-                >
-                  Return & Refund Policy
-                </Link>
-              </li>
-            </ul>
-          </div>
 
-          {/* Col 4: Payment Badges */}
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold text-white uppercase tracking-wider">Secure Payment</h3>
-            <p className="text-xs text-gray-400">
-              We accept all major credit cards, UPI, and cash payments on delivery.
-            </p>
-          </div>
         </div>
 
         <div className="mt-12 pt-6 border-t border-gray-800 text-center text-xs text-gray-500">

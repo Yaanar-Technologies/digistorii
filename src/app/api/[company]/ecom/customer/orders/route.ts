@@ -17,6 +17,7 @@ export async function GET(
     const ordersRes = await client.query(
       `SELECT 
          o.id,
+         o.invoice_token,
          o.order_no,
          o.created_at,
          o.currency,

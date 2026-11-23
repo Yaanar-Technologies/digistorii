@@ -53,7 +53,7 @@ export default function CartPage() {
     setCouponError("");
     try {
       const res = await fetch(
-        `/api/discounts/validate?code=${encodeURIComponent(code)}&company=${encodeURIComponent(company)}`,
+        `/api/discounts/validate?code=${encodeURIComponent(code)}&company=${encodeURIComponent(company)}&channel=ecom`,
         {
           headers: { "x-tenant": company },
         }

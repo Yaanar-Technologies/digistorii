@@ -28,12 +28,48 @@ export async function ensureLogisticsSchema(client: Queryable, schema: string): 
       ADD COLUMN IF NOT EXISTS volumetric_weight_grams NUMERIC(10,2),
       ADD COLUMN IF NOT EXISTS manifest_id VARCHAR(100);
 
-    -- Relax single delivery per order constraint to allow re-shipments and returns
-    ALTER TABLE "${schema}".online_order_deliveries
-      DROP CONSTRAINT IF EXISTS online_order_deliveries_order_id_key;
+    -- Safe deduplication before restoring UNIQUE constraint on order_id
+    DELETE FROM "${schema}".online_order_deliveries
+    WHERE id IN (
+      SELECT id FROM (
+        SELECT id,
+               ROW_NUMBER() OVER (
+                 PARTITION BY order_id
+                 ORDER BY
+                   CASE WHEN awb_number IS NOT NULL AND TRIM(awb_number) != '' THEN 0 ELSE 1 END,
+                   updated_at DESC NULLS LAST,
+                   created_at DESC,
+                   id DESC
+               ) as rnum
+        FROM "${schema}".online_order_deliveries
+      ) duplicates
+      WHERE rnum > 1
+    );
 
-    CREATE UNIQUE INDEX IF NOT EXISTS uq_${schema}_deliveries_order_awb
-      ON "${schema}".online_order_deliveries (order_id, awb_number)
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint c
+        JOIN pg_class t ON c.conrelid = t.oid
+        JOIN pg_namespace n ON t.relnamespace = n.oid
+        WHERE n.nspname = '${schema}'
+          AND t.relname = 'online_order_deliveries'
+          AND c.contype = 'u'
+          AND c.conkey = ARRAY[(
+            SELECT attnum FROM pg_attribute
+            WHERE attrelid = t.oid AND attname = 'order_id'
+          )]
+      ) THEN
+        ALTER TABLE "${schema}".online_order_deliveries
+          ADD CONSTRAINT online_order_deliveries_order_id_key UNIQUE (order_id);
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      NULL;
+    END $$;
+
+    CREATE INDEX IF NOT EXISTS idx_${schema}_deliveries_awb
+      ON "${schema}".online_order_deliveries (awb_number)
       WHERE awb_number IS NOT NULL;
   `);
 

@@ -99,14 +99,15 @@ export async function PUT(
          sales_billing_access = $8,
          reports_access = $9,
          settings_access = $10,
-      ecommerce_access = $11,
-      is_system = $12,
+         ecommerce_access = $11,
+         finance_access = $12,
+         is_system = $13,
          updated_at = NOW()
        WHERE company_id = $1 AND id = $2
        RETURNING
          id, company_id, responsibility_name, dashboard_access, purchase_access,
          inventory_access, sales_access, sales_billing_access, reports_access,
-         settings_access, ecommerce_access, is_system`,
+         settings_access, ecommerce_access, finance_access, is_system`,
       [companyId, responsibilityId, responsibilityName, ...updateValues, normalizeBool(body?.is_system)]
     );
 

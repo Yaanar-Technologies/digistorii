@@ -211,6 +211,9 @@ export default function SalesForm() {
     const [activeLineIndex, setActiveLineIndex] = useState<number | null>(null);
     const [billsSearch, setBillsSearch] = useState("");
     const [searchFocused, setSearchFocused] = useState(false);
+    const [searchDropdownIndex, setSearchDropdownIndex] = useState<number>(-1);
+    const dropdownListRef = useRef<HTMLDivElement | null>(null);
+    const isSearchDropdownOpenRef = useRef(false);
 
     const { header, details, payments, couponCode, barcodeValue, barcodeMessage } = formState;
     const {
@@ -263,6 +266,42 @@ export default function SalesForm() {
         Map<string, { history: PurchaseHistoryRow[]; monthly: MonthlySpendRow[] }>
     >(new Map());
     const salesDetailCountCache = useRef<Map<number, number>>(new Map());
+
+    const searchDropdownResults = useMemo(() => {
+        if (!barcodeValue) return [];
+        const query = barcodeValue.toLowerCase().trim();
+        if (!query) return [];
+        return allProducts.filter((p) =>
+            p.product_name?.toLowerCase().includes(query) ||
+            p.product_code?.toLowerCase().includes(query) ||
+            p.barcode?.toLowerCase().includes(query)
+        );
+    }, [allProducts, barcodeValue]);
+
+    const isSearchDropdownOpen = searchFocused && searchDropdownResults.length > 0;
+
+    useEffect(() => {
+        isSearchDropdownOpenRef.current = isSearchDropdownOpen;
+    }, [isSearchDropdownOpen]);
+
+    useEffect(() => {
+        setSearchDropdownIndex(-1);
+    }, [barcodeValue]);
+
+    useEffect(() => {
+        if (!searchFocused) {
+            setSearchDropdownIndex(-1);
+        }
+    }, [searchFocused]);
+
+    useEffect(() => {
+        if (searchDropdownIndex >= 0 && dropdownListRef.current) {
+            const itemEl = dropdownListRef.current.children[searchDropdownIndex] as HTMLElement;
+            if (itemEl?.scrollIntoView) {
+                itemEl.scrollIntoView({ block: "nearest" });
+            }
+        }
+    }, [searchDropdownIndex]);
 
     const updateMasterData = useCallback(
         (patch: Partial<typeof masterData>) => {
@@ -499,7 +538,7 @@ export default function SalesForm() {
             try {
                 const checkDate = header.sales_date || new Date().toISOString().split("T")[0];
                 const res = await fetch(
-                    `/api/discounts/validate?code=${encodeURIComponent(code)}&date=${encodeURIComponent(checkDate)}`,
+                    `/api/discounts/validate?code=${encodeURIComponent(code)}&date=${encodeURIComponent(checkDate)}&channel=pos`,
                     {
                         headers: { "x-tenant": company },
                     }
@@ -913,12 +952,28 @@ export default function SalesForm() {
                 barcodeMessage: found ? "" : `Barcode "${input}" not found.`,
                 barcodeValue: "",
             }));
+            setSearchFocused(false);
+            setSearchDropdownIndex(-1);
             setTimeout(() => {
                 qtyInputRef.current?.focus();
                 qtyInputRef.current?.select();
             }, 50);
         },
         [addOrIncrementByBarcode, barcodeValue]
+    );
+
+    const handleSelectDropdownItem = useCallback(
+        (item: (typeof allProducts)[0]) => {
+            const matchStr = item.barcode || item.product_code;
+            if (matchStr) {
+                addOrIncrementByBarcode(matchStr);
+            }
+            setFormState((prev) => ({ ...prev, barcodeValue: "" }));
+            setSearchFocused(false);
+            setSearchDropdownIndex(-1);
+            barcodeInputRef.current?.focus();
+        },
+        [addOrIncrementByBarcode]
     );
 
     useEffect(() => {
@@ -1891,6 +1946,12 @@ export default function SalesForm() {
 
     const handleBarcodeChange = (e: ChangeEvent<HTMLInputElement>) => {
         const nextValue = e.target.value;
+        if (nextValue.trim()) {
+            setSearchFocused(true);
+        } else {
+            setSearchFocused(false);
+        }
+        setSearchDropdownIndex(-1);
         setFormState((prev) => ({
             ...prev,
             barcodeValue: nextValue,
@@ -1899,6 +1960,41 @@ export default function SalesForm() {
     };
 
     const handleBarcodeKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+        if (isSearchDropdownOpen) {
+            if (e.key === "ArrowDown") {
+                e.preventDefault();
+                e.stopPropagation();
+                setSearchDropdownIndex((prev) =>
+                    prev + 1 >= searchDropdownResults.length ? 0 : prev + 1
+                );
+                return;
+            }
+            if (e.key === "ArrowUp") {
+                e.preventDefault();
+                e.stopPropagation();
+                setSearchDropdownIndex((prev) =>
+                    prev <= 0 ? searchDropdownResults.length - 1 : prev - 1
+                );
+                return;
+            }
+            if (e.key === "Enter" && searchDropdownIndex >= 0) {
+                e.preventDefault();
+                e.stopPropagation();
+                const selected = searchDropdownResults[searchDropdownIndex];
+                if (selected) {
+                    handleSelectDropdownItem(selected);
+                }
+                return;
+            }
+            if (e.key === "Escape") {
+                e.preventDefault();
+                e.stopPropagation();
+                setSearchFocused(false);
+                setSearchDropdownIndex(-1);
+                return;
+            }
+        }
+
         if (e.key === "Enter") {
             e.preventDefault();
             handleBarcodeSubmit();
@@ -1947,6 +2043,12 @@ export default function SalesForm() {
 
             // F8 / Esc: Quick Focus Barcode/Search Field
             if (e.key === "F8" || e.key === "Escape") {
+                if (e.key === "Escape" && isSearchDropdownOpenRef.current) {
+                    e.preventDefault();
+                    setSearchFocused(false);
+                    setSearchDropdownIndex(-1);
+                    return;
+                }
                 e.preventDefault();
                 barcodeInputRef.current?.focus();
                 return;
@@ -1987,7 +2089,7 @@ export default function SalesForm() {
             const isInput = targetTag === "input" || targetTag === "select" || targetTag === "textarea";
 
             if (e.key === "ArrowDown") {
-                if (!isInput || e.target === barcodeInputRef.current) {
+                if (!isSearchDropdownOpenRef.current && (!isInput || e.target === barcodeInputRef.current)) {
                     e.preventDefault();
                     setActiveLineIndex((prev) => {
                         if (prev === null) return 0;
@@ -1995,7 +2097,7 @@ export default function SalesForm() {
                     });
                 }
             } else if (e.key === "ArrowUp") {
-                if (!isInput || e.target === barcodeInputRef.current) {
+                if (!isSearchDropdownOpenRef.current && (!isInput || e.target === barcodeInputRef.current)) {
                     e.preventDefault();
                     setActiveLineIndex((prev) => {
                         if (prev === null || prev <= 0) return 0;
@@ -2126,45 +2228,45 @@ export default function SalesForm() {
                                         />
                                     </div>
 
-                                    {searchFocused && barcodeValue && allProducts.filter((p) =>
-                                        p.product_name?.toLowerCase().includes(barcodeValue.toLowerCase()) ||
-                                        p.product_code?.toLowerCase().includes(barcodeValue.toLowerCase()) ||
-                                        p.barcode?.toLowerCase().includes(barcodeValue.toLowerCase())
-                                    ).length > 0 && (
-                                        <div className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto border bg-white rounded-lg shadow-xl divide-y">
-                                            {allProducts.filter((p) =>
-                                                p.product_name?.toLowerCase().includes(barcodeValue.toLowerCase()) ||
-                                                p.product_code?.toLowerCase().includes(barcodeValue.toLowerCase()) ||
-                                                p.barcode?.toLowerCase().includes(barcodeValue.toLowerCase())
-                                            ).map((item) => (
-                                                <div
-                                                    key={item.id}
-                                                    onMouseDown={() => {
-                                                        const matchStr = item.barcode || item.product_code;
-                                                        if (matchStr) {
-                                                            setFormState((prev) => ({ ...prev, barcodeValue: matchStr }));
-                                                            setTimeout(() => {
-                                                                addOrIncrementByBarcode(matchStr);
-                                                                setFormState((prev) => ({ ...prev, barcodeValue: "" }));
-                                                            }, 0);
-                                                        }
-                                                        setSearchFocused(false);
-                                                    }}
-                                                    className="p-3 hover:bg-indigo-50 cursor-pointer flex justify-between items-center text-sm"
-                                                >
-                                                    <div>
-                                                        <span className="font-semibold block text-gray-800">{item.product_name}</span>
-                                                        <span className="text-xs text-gray-500 font-mono">
-                                                            SKU: {item.product_code}
-                                                        </span>
+                                    {isSearchDropdownOpen && (
+                                        <div
+                                            ref={dropdownListRef}
+                                            className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto border bg-white rounded-lg shadow-xl divide-y"
+                                        >
+                                            {searchDropdownResults.map((item, index) => {
+                                                const isHighlighted = index === searchDropdownIndex;
+                                                return (
+                                                    <div
+                                                        key={item.id}
+                                                        onMouseDown={(e) => {
+                                                            e.preventDefault();
+                                                            handleSelectDropdownItem(item);
+                                                        }}
+                                                        onMouseEnter={() => setSearchDropdownIndex(index)}
+                                                        className={`p-3 cursor-pointer flex justify-between items-center text-sm transition-colors ${
+                                                            isHighlighted
+                                                                ? "bg-indigo-50 border-l-4 border-indigo-600 pl-2 text-indigo-900"
+                                                                : "hover:bg-indigo-50/50 text-gray-800"
+                                                        }`}
+                                                    >
+                                                        <div>
+                                                            <span className={`font-semibold block ${isHighlighted ? "text-indigo-900" : "text-gray-800"}`}>
+                                                                {item.product_name}
+                                                            </span>
+                                                            <span className="text-xs text-gray-500 font-mono">
+                                                                SKU: {item.product_code}
+                                                            </span>
+                                                        </div>
+                                                        {item.barcode && (
+                                                            <span className={`text-xs px-2 py-1 rounded font-mono ${
+                                                                isHighlighted ? "bg-indigo-100 text-indigo-700 font-semibold" : "bg-gray-100 text-gray-600"
+                                                            }`}>
+                                                                {item.barcode}
+                                                            </span>
+                                                        )}
                                                     </div>
-                                                    {item.barcode && (
-                                                        <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-600 font-mono">
-                                                            {item.barcode}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            ))}
+                                                );
+                                            })}
                                         </div>
                                     )}
                                 </div>

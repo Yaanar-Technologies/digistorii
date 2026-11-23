@@ -12,7 +12,9 @@ export async function getStorefrontCustomerSession(
   req: NextRequest,
   companyParam?: string
 ): Promise<StorefrontCustomerSession | null> {
-  const sessionCookie = req.cookies.get(CUSTOMER_COOKIE_NAME)?.value;
+  const sessionCookie =
+    req.cookies.get(CUSTOMER_COOKIE_NAME)?.value ||
+    req.cookies.get("storefront_customer_token")?.value;
   if (!sessionCookie) return null;
 
   try {

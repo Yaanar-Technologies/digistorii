@@ -27,8 +27,87 @@ export default function LoginForm({ company }: Props) {
   const [showPassword, setShowPassword] = useState(false);
   const [realCompanyName, setRealCompanyName] = useState<string>("");
   const [isForgotPassword, setIsForgotPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
 
-  const { setUser } = useUser();
+  const { user, setUser } = useUser();
+
+  // Auto-redirect if an active session already exists for this company
+  useEffect(() => {
+    let isCancelled = false;
+
+    const checkExistingSession = async () => {
+      if (!company) {
+        setCheckingSession(false);
+        return;
+      }
+
+      try {
+        let activeUser = user;
+        const normalizedCompany = company.toLowerCase();
+
+        // If user not yet in context or belongs to different company, verify via /api/auth/current-user
+        if (
+          !activeUser ||
+          (activeUser.company_name?.toLowerCase() !== normalizedCompany &&
+            activeUser.subdomain_url?.toLowerCase() !== normalizedCompany)
+        ) {
+          const res = await fetch("/api/auth/current-user");
+          if (res.ok) {
+            const data = await res.json();
+            if (data?.success && data?.user) {
+              activeUser = data.user;
+              setUser(data.user);
+            }
+          }
+        }
+
+        // If active session matches this company, proceed to auto-redirect
+        if (
+          activeUser &&
+          (activeUser.company_name?.toLowerCase() === normalizedCompany ||
+            activeUser.subdomain_url?.toLowerCase() === normalizedCompany)
+        ) {
+          try {
+            const onboardingRes = await fetch(
+              `/api/onboarding?company=${encodeURIComponent(company)}`
+            );
+            const onboardingData = await onboardingRes.json();
+            if (
+              onboardingRes.ok &&
+              onboardingData?.success &&
+              onboardingData?.company?.setup_stage &&
+              onboardingData.company.setup_stage !== "LIVE"
+            ) {
+              if (!isCancelled) {
+                router.replace(`/setup?company=${encodeURIComponent(company)}`);
+              }
+              return;
+            }
+          } catch {
+            // Fall through to workspace
+          }
+
+          if (!isCancelled) {
+            router.replace(`/${company}/workspace`);
+          }
+          return;
+        }
+      } catch (err) {
+        console.error("Session auto-redirect verification error:", err);
+      } finally {
+        if (!isCancelled) {
+          setCheckingSession(false);
+        }
+      }
+    };
+
+    checkExistingSession();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [company, router, user, setUser]);
 
   useEffect(() => {
     setMounted(true);
@@ -106,7 +185,7 @@ export default function LoginForm({ company }: Props) {
       const res = await fetch(`/api/auth/login?company=${company}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, rememberMe }),
       });
 
       const data = await res.json();
@@ -139,6 +218,14 @@ export default function LoginForm({ company }: Props) {
       setLoading(false);
     }
   };
+
+  if (checkingSession) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-100 via-gray-50 to-blue-50">
+        <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-100 via-gray-50 to-blue-50 px-4 relative overflow-hidden">
@@ -251,7 +338,16 @@ export default function LoginForm({ company }: Props) {
                   </button>
                 </div>
 
-                <div className="flex justify-end">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={rememberMe}
+                      onChange={(e) => setRememberMe(e.target.checked)}
+                      className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer"
+                    />
+                    <span className="text-xs text-gray-600 font-medium">Keep me signed in</span>
+                  </label>
                   <button
                     type="button"
                     onClick={() => {

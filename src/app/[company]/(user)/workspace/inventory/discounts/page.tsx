@@ -32,6 +32,7 @@ type Discount = {
   discount_type: "percentage" | "fixed";
   value: number;
   coupon_code?: string | null;
+  channel?: "pos" | "ecom" | "both";
   applies_to?: "specific_variants" | "entire_order";
   priority: number;
   starts_at?: string | null;
@@ -57,6 +58,7 @@ const initialForm: Discount = {
   discount_type: "percentage",
   value: 0,
   coupon_code: "",
+  channel: "both",
   applies_to: "specific_variants",
   priority: 1,
   starts_at: "",
@@ -89,6 +91,10 @@ export default function DiscountSchemesPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [search, setSearch] = useState("");
   const [duplicatedFromId, setDuplicatedFromId] = useState<string | null>(null);
+  const [hasPosAccess, setHasPosAccess] = useState(true);
+  const [hasEcomAccess, setHasEcomAccess] = useState(false);
+  const [applyToPos, setApplyToPos] = useState(true);
+  const [applyToEcom, setApplyToEcom] = useState(true);
   const [preloadedVariantInfo, setPreloadedVariantInfo] = useState<
     Record<
       string,
@@ -121,6 +127,8 @@ export default function DiscountSchemesPage() {
       const data = await res.json();
       if (data?.success) {
         setDiscounts(data.data || []);
+        if (data.pos_access !== undefined) setHasPosAccess(Boolean(data.pos_access));
+        if (data.ecommerce_access !== undefined) setHasEcomAccess(Boolean(data.ecommerce_access));
       }
     } catch (err) {
       console.error("Failed to load discounts", err);
@@ -265,11 +273,21 @@ export default function DiscountSchemesPage() {
     setDuplicatedFromId(null);
     setPreloadedVariantInfo({});
     resetLookupFilters();
+    if (!hasPosAccess && hasEcomAccess) {
+      setApplyToPos(false);
+      setApplyToEcom(true);
+    } else if (hasPosAccess && !hasEcomAccess) {
+      setApplyToPos(true);
+      setApplyToEcom(false);
+    } else {
+      setApplyToPos(true);
+      setApplyToEcom(true);
+    }
   };
 
   const openCreate = () => {
-    setShowForm(true);
     resetForm();
+    setShowForm(true);
   };
 
   const openEdit = async (discount: Discount) => {
@@ -283,7 +301,11 @@ export default function DiscountSchemesPage() {
       if (!data?.success) {
         throw new Error(data?.error || "Failed to load discount");
       }
+      if (data.pos_access !== undefined) setHasPosAccess(Boolean(data.pos_access));
+      if (data.ecommerce_access !== undefined) setHasEcomAccess(Boolean(data.ecommerce_access));
+
       const row = data.data;
+      const ch = (row.channel as "pos" | "ecom" | "both") || "both";
       setForm({
         id: row.id,
         name: row.name || "",
@@ -291,12 +313,28 @@ export default function DiscountSchemesPage() {
         discount_type: row.discount_type,
         value: Number(row.value || 0),
         coupon_code: row.coupon_code || "",
+        channel: ch,
         applies_to: row.applies_to || "specific_variants",
         priority: Number(row.priority || 1),
         starts_at: row.starts_at ? String(row.starts_at).slice(0, 10) : "",
         ends_at: row.ends_at ? String(row.ends_at).slice(0, 10) : "",
         is_active: Boolean(row.is_active),
       });
+
+      const effectivePos = data.pos_access !== undefined ? Boolean(data.pos_access) : hasPosAccess;
+      const effectiveEcom = data.ecommerce_access !== undefined ? Boolean(data.ecommerce_access) : hasEcomAccess;
+
+      if (effectivePos && effectiveEcom) {
+        setApplyToPos(ch === "both" || ch === "pos");
+        setApplyToEcom(ch === "both" || ch === "ecom");
+      } else if (effectiveEcom) {
+        setApplyToPos(false);
+        setApplyToEcom(true);
+      } else {
+        setApplyToPos(true);
+        setApplyToEcom(false);
+      }
+
       setDuplicatedFromId(null);
       const map: Record<string, boolean> = {};
       (row.variant_ids || []).forEach((id: number) => {
@@ -364,6 +402,13 @@ export default function DiscountSchemesPage() {
     if (form.applies_to === "specific_variants" && selectedVariantIds.length === 0) {
       next.variants = "Select at least one variant or switch discount scope to 'Entire Order'";
     }
+
+    if (hasPosAccess && hasEcomAccess) {
+      if (!applyToPos && !applyToEcom) {
+        next.channel = "Select at least one channel";
+      }
+    }
+
     setErrors(next);
     return Object.keys(next).length === 0;
   };
@@ -372,12 +417,24 @@ export default function DiscountSchemesPage() {
     if (!validate()) return;
     try {
       setSaving(true);
+      let channel: "pos" | "ecom" | "both" = "both";
+      if (hasPosAccess && hasEcomAccess) {
+        if (applyToPos && applyToEcom) channel = "both";
+        else if (applyToPos) channel = "pos";
+        else channel = "ecom";
+      } else if (hasEcomAccess && !hasPosAccess) {
+        channel = "ecom";
+      } else {
+        channel = "pos";
+      }
+
       const payload = {
         name: form.name,
         description: form.description,
         discount_type: form.discount_type,
         value: form.value,
         coupon_code: form.coupon_code || null,
+        channel,
         applies_to: form.applies_to || "specific_variants",
         priority: form.priority,
         starts_at: form.starts_at || null,
@@ -488,18 +545,31 @@ export default function DiscountSchemesPage() {
       if (!data?.success) throw new Error(data?.error || "Failed to load discount");
 
       const row = data.data;
+      const ch = (row.channel as "pos" | "ecom" | "both") || "both";
       setForm({
         name: row.name || "",
         description: row.description || "",
         discount_type: row.discount_type,
         value: Number(row.value || 0),
         coupon_code: "",
+        channel: ch,
         applies_to: row.applies_to || "specific_variants",
         priority: Number(row.priority || 1),
         starts_at: row.starts_at ? String(row.starts_at).slice(0, 10) : "",
         ends_at: row.ends_at ? String(row.ends_at).slice(0, 10) : "",
         is_active: true,
       });
+
+      if (hasPosAccess && hasEcomAccess) {
+        setApplyToPos(ch === "both" || ch === "pos");
+        setApplyToEcom(ch === "both" || ch === "ecom");
+      } else if (hasEcomAccess) {
+        setApplyToPos(false);
+        setApplyToEcom(true);
+      } else {
+        setApplyToPos(true);
+        setApplyToEcom(false);
+      }
       const map: Record<string, boolean> = {};
       (row.variant_ids || []).forEach((id: number) => {
         map[String(id)] = true;
@@ -591,6 +661,7 @@ export default function DiscountSchemesPage() {
                     <th>Type</th>
                     <th>Value</th>
                     <th>Scope</th>
+                    <th>Channel</th>
                     <th>Coupon</th>
                     <th>Start Date</th>
                     <th>End Date</th>
@@ -602,7 +673,7 @@ export default function DiscountSchemesPage() {
                 <tbody>
                   {loading ? (
                     <tr className="ui-table-row">
-                      <td colSpan={10} className="ui-loading-row">
+                      <td colSpan={11} className="ui-loading-row">
                         Loading...
                       </td>
                     </tr>
@@ -618,6 +689,21 @@ export default function DiscountSchemesPage() {
                           }`}>
                             {d.applies_to === "entire_order" ? "Entire Order" : "Specific Items"}
                           </span>
+                        </td>
+                        <td className="ui-table-td-center">
+                          {d.channel === "pos" ? (
+                            <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                              POS
+                            </span>
+                          ) : d.channel === "ecom" ? (
+                            <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                              E-Com
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              POS & E-Com
+                            </span>
+                          )}
                         </td>
                         <td className="ui-table-td-center">{d.coupon_code || "-"}</td>
                         <td className="ui-table-td-center">{d.starts_at ? String(d.starts_at).slice(0, 10) : "-"}</td>
@@ -653,7 +739,7 @@ export default function DiscountSchemesPage() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={10} className="ui-loading-row">
+                      <td colSpan={11} className="ui-loading-row">
                         No records found.
                       </td>
                     </tr>
@@ -901,6 +987,70 @@ export default function DiscountSchemesPage() {
                 </label>
               </div>
             </div>
+          </section>
+
+          <section className="rounded-xl border border-gray-200 p-5 space-y-4">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-600">Sales Channels</h3>
+            {hasPosAccess && hasEcomAccess ? (
+              <div>
+                <p className="text-xs text-gray-500 mb-3">
+                  Choose which sales channels this discount scheme should be available on:
+                </p>
+                <div className="flex flex-wrap items-center gap-6">
+                  <label className="inline-flex items-center gap-2 text-sm font-medium cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={applyToPos}
+                      onChange={(e) => {
+                        setApplyToPos(e.target.checked);
+                        if (errors.channel) {
+                          setErrors((prev) => {
+                            const next = { ...prev };
+                            delete next.channel;
+                            return next;
+                          });
+                        }
+                      }}
+                      className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span>Apply to POS</span>
+                  </label>
+                  <label className="inline-flex items-center gap-2 text-sm font-medium cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={applyToEcom}
+                      onChange={(e) => {
+                        setApplyToEcom(e.target.checked);
+                        if (errors.channel) {
+                          setErrors((prev) => {
+                            const next = { ...prev };
+                            delete next.channel;
+                            return next;
+                          });
+                        }
+                      }}
+                      className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span>Apply to E-Commerce</span>
+                  </label>
+                </div>
+                {errors.channel && (
+                  <p className="text-red-500 text-sm mt-2">{errors.channel}</p>
+                )}
+              </div>
+            ) : hasEcomAccess ? (
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
+                  Applies to E-Commerce (POS not included in current plan)
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
+                  Applies to POS (E-Commerce not included in current plan)
+                </span>
+              </div>
+            )}
           </section>
 
           <section className="rounded-xl border border-gray-200 p-5 space-y-4">

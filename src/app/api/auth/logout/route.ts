@@ -3,8 +3,10 @@ import { STAFF_COOKIE_NAME, getCookieOptions } from "@/lib/session";
  
 export async function POST() {
   const response = NextResponse.json({ success: true });
- 
+
   response.cookies.set(STAFF_COOKIE_NAME, "", getCookieOptions(0));
- 
+  response.cookies.set("admin_user", "", getCookieOptions(0));
+  response.cookies.set("tenant", "", getCookieOptions(0));
+
   return response;
 }

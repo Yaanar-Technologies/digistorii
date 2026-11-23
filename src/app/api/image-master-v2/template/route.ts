@@ -95,21 +95,33 @@ async function generateTemplate(
   );
 
     if (purpose === "link") {
-      const variantsRes = await client.query<{
-        sku: string;
-        barcode: string | null;
-        product_name: string;
-      }>(
-        `
-          SELECT
-            pv.sku,
-            pv.barcode,
-            p.name AS product_name
-          FROM "${schema}".product_variants pv
-          JOIN "${schema}".products p ON p.id = pv.product_id
-          ORDER BY pv.sku ASC
-        `
-      );
+      const [variantsRes, parentsRes] = await Promise.all([
+        client.query<{
+          sku: string;
+          barcode: string | null;
+          product_name: string;
+        }>(
+          `
+            SELECT
+              pv.sku,
+              pv.barcode,
+              p.name AS product_name
+            FROM "${schema}".product_variants pv
+            JOIN "${schema}".products p ON p.id = pv.product_id
+            ORDER BY pv.sku ASC
+          `
+        ),
+        client.query<{
+          product_code: string;
+          name: string;
+        }>(
+          `
+            SELECT product_code, name
+            FROM "${schema}".products
+            ORDER BY product_code ASC
+          `
+        ),
+      ]);
 
       const targetSkuOptions = variantsRes.rows
         .map((row) => {
@@ -118,6 +130,15 @@ async function generateTemplate(
           const barcode = String(row.barcode || "").trim();
           if (!sku) return "";
           return barcode ? `${sku} - ${name} [${barcode}]` : `${sku} - ${name}`;
+        })
+        .filter(Boolean);
+
+      const parentSkuOptions = parentsRes.rows
+        .map((row) => {
+          const code = String(row.product_code || "").trim();
+          const name = String(row.name || "").trim();
+          if (!code) return "";
+          return name ? `${code} - ${name}` : code;
         })
         .filter(Boolean);
 
@@ -130,12 +151,18 @@ async function generateTemplate(
         listsSheet.getCell(index + 2, 1).value = value;
       });
 
+      listsSheet.getCell(1, 2).value = "ParentSKUs";
+      parentSkuOptions.forEach((value, index) => {
+        listsSheet.getCell(index + 2, 2).value = value;
+      });
+
       worksheet.columns = [
         { header: "Image_id", key: "image_id", width: 12 },
         { header: "Filename", key: "filename", width: 32 },
         { header: "Image_url", key: "image_url", width: 45 },
         { header: "Tag_info", key: "tag_info", width: 42 },
-        { header: "Target SKU", key: "target_sku", width: 48 },
+        { header: "Parent SKU", key: "parent_sku", width: 30 },
+        { header: "SKU", key: "target_sku", width: 48 },
       ];
 
       const headerRow = worksheet.getRow(1);
@@ -169,12 +196,14 @@ async function generateTemplate(
           filename: row.filename,
           image_url: row.file_path,
           tag_info: tagInfo,
+          parent_sku: "",
           target_sku: "",
         });
       });
 
+      const dataRows = Math.max(worksheet.rowCount, 2);
+
       if (targetSkuOptions.length > 0) {
-        const dataRows = Math.max(worksheet.rowCount, 2);
         const lastListRow = targetSkuOptions.length + 1;
         const targetCol = worksheet.getColumn("target_sku");
         const range = `${targetCol.letter}2:${targetCol.letter}${dataRows}`;
@@ -185,6 +214,20 @@ async function generateTemplate(
           showErrorMessage: true,
           errorTitle: "Invalid Target SKU",
           error: "Please select an existing SKU from the dropdown list.",
+        });
+      }
+
+      if (parentSkuOptions.length > 0) {
+        const lastListRow = parentSkuOptions.length + 1;
+        const parentCol = worksheet.getColumn("parent_sku");
+        const range = `${parentCol.letter}2:${parentCol.letter}${dataRows}`;
+        (worksheet as any).dataValidations.add(range, {
+          type: "list",
+          allowBlank: true,
+          formulae: [`'_lists'!$B$2:$B$${lastListRow}`],
+          showErrorMessage: true,
+          errorTitle: "Invalid Parent SKU",
+          error: "Please select an existing Parent SKU from the dropdown list.",
         });
       }
 
@@ -200,7 +243,7 @@ async function generateTemplate(
       });
     }
 
-    const [categoriesRes, materialsRes, uomsRes, colorsRes, fittingsRes] = await Promise.all([
+    const [categoriesRes, materialsRes, uomsRes, colorsRes, fittingsRes, warehousesRes, locatorsRes] = await Promise.all([
       client.query(
         `
           SELECT path_string, category_name
@@ -234,6 +277,24 @@ async function generateTemplate(
           SELECT id, fitting_name
           FROM "${schema}".product_fittings
           ORDER BY fitting_name ASC
+        `
+      ),
+      client.query(
+        `
+          SELECT id, code, name
+          FROM "${schema}".warehouses
+          WHERE effective_to IS NULL OR effective_to >= CURRENT_DATE
+          ORDER BY name ASC
+        `
+      ),
+      client.query(
+        `
+          SELECT l.id, l.locator_name, w.name AS warehouse_name
+          FROM "${schema}".locators l
+          INNER JOIN "${schema}".warehouses w ON w.id = l.warehouse_id
+          WHERE (l.effective_to IS NULL OR l.effective_to >= CURRENT_DATE)
+            AND (w.effective_to IS NULL OR w.effective_to >= CURRENT_DATE)
+          ORDER BY w.name ASC, l.locator_name ASC
         `
       ),
     ]);
@@ -270,6 +331,22 @@ async function generateTemplate(
       .map((row: { fitting_name: string | null }) => String(row.fitting_name || "").trim())
       .filter(Boolean);
 
+    const warehouseOptions = warehousesRes.rows
+      .map((row: { code: string; name: string }) => {
+        const code = String(row.code || "").trim();
+        const name = String(row.name || "").trim();
+        return code && name ? `${code} - ${name}` : name || code;
+      })
+      .filter(Boolean);
+
+    const locatorOptions = locatorsRes.rows
+      .map((row: { locator_name: string; warehouse_name: string }) => {
+        const loc = String(row.locator_name || "").trim();
+        const wh = String(row.warehouse_name || "").trim();
+        return wh ? `${loc} (${wh})` : loc;
+      })
+      .filter(Boolean);
+
     const genderOptions = ["Male", "Female", "Transgender", "Not Specified"];
 
     const workbook = new ExcelJS.Workbook();
@@ -290,6 +367,8 @@ async function generateTemplate(
     writeList(5, colorOptions, "Colors");
     writeList(6, fittingOptions, "Fittings");
     writeList(7, genderOptions, "Genders");
+    writeList(8, warehouseOptions, "Warehouses");
+    writeList(9, locatorOptions, "Locators");
 
     worksheet.columns = [
       { header: "Image_id", key: "image_id", width: 12 },
@@ -298,11 +377,11 @@ async function generateTemplate(
       { header: "Material", key: "material", width: 30 },
       { header: "UOM", key: "uom", width: 16 },
       { header: "Source", key: "source", width: 12 },
-      { header: "SKU", key: "sku", width: 20 },
+      { header: "Parent SKU", key: "parent_sku", width: 20 },
+      { header: "SKU", key: "sku", width: 22 },
       { header: "Product_name", key: "product_name", width: 30 },
       { header: "Description", key: "description", width: 40 },
       { header: "HSN", key: "hsn", width: 16 },
-      { header: "Parent SKU", key: "parent_sku", width: 20 },
       { header: "Color", key: "color", width: 16 },
       { header: "Size", key: "size", width: 16 },
       { header: "Fitting", key: "fitting", width: 16 },
@@ -314,16 +393,21 @@ async function generateTemplate(
       { header: "Low stock amount", key: "low_stock_amount", width: 18 },
       { header: "Backorders allowed", key: "backorders_allowed", width: 20 },
       { header: "Barcode", key: "barcode", width: 20 },
+      { header: "Quantity (OPS - New Products Only)", key: "qty", width: 30 },
+      { header: "Warehouse (OPS - New Products Only)", key: "warehouse", width: 32 },
+      { header: "Locator (OPS - New Products Only)", key: "locator", width: 32 },
     ];
 
     const headerRow = worksheet.getRow(1);
     headerRow.font = { bold: true };
     headerRow.alignment = { vertical: "middle", horizontal: "center" };
-    headerRow.eachCell((cell) => {
+    headerRow.eachCell((cell, colNumber) => {
+      // Highlight OPS columns in light orange/amber
+      const isOps = colNumber >= 23;
       cell.fill = {
         type: "pattern",
         pattern: "solid",
-        fgColor: { argb: "FFEFF6FF" },
+        fgColor: { argb: isOps ? "FFFFFBEB" : "FFEFF6FF" },
       };
       cell.border = {
         top: { style: "thin" },
@@ -342,9 +426,9 @@ async function generateTemplate(
         uom: row.uom_label || "",
         source: row.source || "",
         parent_sku: "",
+        sku: "",
         product_name: "",
         description: "",
-        sku: "",
         hsn: "",
         color: "",
         size: "",
@@ -357,6 +441,9 @@ async function generateTemplate(
         low_stock_amount: "",
         backorders_allowed: "",
         barcode: "",
+        qty: "",
+        warehouse: "",
+        locator: "",
       });
     });
 
@@ -389,6 +476,8 @@ async function generateTemplate(
     applyValidation("color", 5);
     applyValidation("fitting", 6);
     applyValidation("gender", 7);
+    applyValidation("warehouse", 8);
+    applyValidation("locator", 9);
 
     const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
     return new NextResponse(buffer, {

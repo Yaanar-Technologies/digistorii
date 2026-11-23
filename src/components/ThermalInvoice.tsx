@@ -325,7 +325,7 @@ const ThermalInvoice = forwardRef<HTMLDivElement, Props>(({ header, details, onD
             </div>
             {discount > 0 ? (
               <div style={{ ...keyRowStyle, fontSize: "10px" }}>
-                <span style={labelStyle}>Disc: {currency(discount)}</span>
+                <span style={labelStyle}>Disc: ₹{currency(discount)}</span>
                 <span style={valueStyle}></span>
               </div>
             ) : null}

@@ -8,6 +8,10 @@ import {
   normalizeBarcode,
   validateBarcodeOrThrow,
 } from "@/lib/product-barcode";
+import {
+  getNextOpeningStockDocNo,
+  postOpeningStockToLedger,
+} from "@/lib/stockLedger";
 type VariantInput = {
   color_id?: number | null;
   color?: string;
@@ -16,6 +20,7 @@ type VariantInput = {
   size?: string;
   sku?: string;
   qty?: number;
+  opening_stock?: number;
   status?: string;
   low_stock_threshold?: any;
   backorders_allowed?: any;
@@ -345,7 +350,7 @@ export async function POST(req: NextRequest) {
       const gender = row.gender || null;
       const fittingId = row.fitting_id || null;
       const size = String(row.size || "").trim();
-      const qty = Number(row.qty ?? 0);
+      const qty = Number(row.opening_stock ?? row.qty ?? 0);
       if (!Number.isFinite(qty)) {
         throw new Error("Variant qty must be a number");
       }
@@ -429,6 +434,98 @@ export async function POST(req: NextRequest) {
       console.log("inserted variants pro 290", insertedVariants);
     }
 
+    // Check if any opening stock should be initialized into the inventory ledger
+    const openingStockItems: Array<{ product_id: number; sku: string; qty: number }> = [];
+    for (let i = 0; i < variantsToInsert.length; i++) {
+      const row = variantsToInsert[i];
+      const inserted = insertedVariants[i];
+      if (!inserted) continue;
+
+      let openingQty = Number((row as any).opening_stock ?? row.qty ?? 0);
+      if (!Number.isFinite(openingQty) || openingQty < 0) {
+        openingQty = 0;
+      }
+      if (openingQty === 0 && Number(productPayload.opening_stock) > 0 && variantsToInsert.length === 1) {
+        openingQty = Number(productPayload.opening_stock);
+      }
+
+      if (openingQty > 0) {
+        openingStockItems.push({
+          product_id: inserted.id,
+          sku: inserted.sku,
+          qty: openingQty,
+        });
+      }
+    }
+
+    if (openingStockItems.length > 0) {
+      let warehouseId: number | null = null;
+      let locatorId: number | null = null;
+
+      const whLocatorRes = await client.query(`
+        SELECT w.id AS warehouse_id, l.id AS locator_id
+        FROM "${schema}".warehouses w
+        LEFT JOIN "${schema}".locators l ON l.warehouse_id = w.id
+        ORDER BY w.is_default DESC NULLS LAST, w.id ASC, l.id ASC
+        LIMIT 1
+      `);
+
+      if (whLocatorRes.rowCount && whLocatorRes.rows[0].warehouse_id) {
+        warehouseId = Number(whLocatorRes.rows[0].warehouse_id);
+        locatorId = whLocatorRes.rows[0].locator_id ? Number(whLocatorRes.rows[0].locator_id) : null;
+      }
+
+      if (!warehouseId) {
+        let locationId: number | null = null;
+        const locRes = await client.query(`SELECT id FROM "${schema}".locations ORDER BY id ASC LIMIT 1`);
+        if (locRes.rowCount) {
+          locationId = Number(locRes.rows[0].id);
+        } else {
+          const newLoc = await client.query(`INSERT INTO "${schema}".locations (name, code) VALUES ('Main Location', 'LOC-01') RETURNING id`);
+          locationId = Number(newLoc.rows[0].id);
+        }
+        const newWh = await client.query(`
+          INSERT INTO "${schema}".warehouses (code, name, location_id, type, is_default)
+          VALUES ('WH-01', 'Main Warehouse', $1, 'local', TRUE)
+          RETURNING id
+        `, [locationId]);
+        warehouseId = Number(newWh.rows[0].id);
+      }
+
+      if (!locatorId) {
+        const newLoc = await client.query(`
+          INSERT INTO "${schema}".locators (warehouse_id, locator_name, rack_no)
+          VALUES ($1, 'Default', 'A-01')
+          RETURNING id
+        `, [warehouseId]);
+        locatorId = Number(newLoc.rows[0].id);
+      }
+
+      const docNo = await getNextOpeningStockDocNo(client, schema);
+      const headerRes = await client.query(`
+        INSERT INTO "${schema}".opening_stock
+          (doc_no, date, description, warehouse_id, locator_id, status, created_at, updated_at)
+        VALUES ($1, CURRENT_DATE, 'Initial opening stock on product creation', $2, $3, 'Approved', NOW(), NOW())
+        RETURNING id
+      `, [docNo, warehouseId, locatorId]);
+      const openingStockId = Number(headerRes.rows[0].id);
+
+      const itemValues: Array<number | string> = [openingStockId, warehouseId, locatorId];
+      const itemPlaceholders = openingStockItems.map((item, idx) => {
+        const base = idx * 3;
+        itemValues.push(item.product_id, item.sku, item.qty);
+        return `($1, $2, $3, $${base + 4}, $${base + 5}, $${base + 6}, NOW())`;
+      });
+
+      await client.query(`
+        INSERT INTO "${schema}".opening_stock_items
+          (opening_stock_id, warehouse_id, locator_id, product_id, sku, qty, created_at)
+        VALUES ${itemPlaceholders.join(", ")}
+      `, itemValues);
+
+      await postOpeningStockToLedger(client, schema, company, openingStockId);
+    }
+
 
     const normalizeImageInput = (value: string) => {
       let path = String(value || "").trim();
@@ -479,8 +576,8 @@ export async function POST(req: NextRequest) {
       await client.query(
         `
           INSERT INTO "${schema}".product_images
-            (product_id, variant_id, image_id, image_url, alt_text, is_primary, sort_order)
-          VALUES ($1, $2, $3, $4, $5, $6, $7)
+            (product_id, variant_id, image_id, image_url, alt_text, is_primary, sort_order, is_published)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE)
         `,
         [
           productId,

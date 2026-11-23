@@ -597,6 +597,7 @@ export async function POST(
           FROM "${schema}".discounts d
           LEFT JOIN "${schema}".discount_variants dv ON d.id = dv.discount_id
           WHERE d.is_active = TRUE
+            AND COALESCE(d.channel, 'both') IN ('ecom', 'both')
             AND LOWER(d.coupon_code) = LOWER($1)
             AND (d.starts_at IS NULL OR d.starts_at <= NOW())
             AND (d.ends_at IS NULL OR d.ends_at >= NOW())
@@ -771,13 +772,22 @@ export async function POST(
         }
       }
 
+      // Advance COD order to 'confirmed' (stops at confirmed; does NOT auto-pack)
+      await transitionOrderStatus(client, schema, orderId, "confirmed", {
+        changedBy: "checkout:cod",
+        note: "COD order placed and confirmed. Awaiting packing.",
+      });
+
+      // Allocate line items for fulfillment
+      await client.query(
+        `UPDATE "${schema}".online_order_items
+         SET fulfillment_status = 'allocated'
+         WHERE order_id = $1 AND fulfillment_status IN ('pending', 'reserved')`,
+        [orderId]
+      );
+
       await client.query("COMMIT");
       inTransaction = false;
-
-      // Trigger Asynchronous Zero-Touch Fulfillment Pipeline for valid COD order (Phase B)
-      autoFulfillOrder(schema, orderId, { trigger: "checkout:cod" }).catch((fErr) => {
-        console.warn(`[Checkout COD] Auto-fulfillment notice for order #${orderId}:`, fErr?.message);
-      });
 
       return NextResponse.json({
         success: true,
@@ -789,6 +799,9 @@ export async function POST(
         discount_amount: discountAmount,
         total_amount: Number(orderRow.total_amount),
         currency: orderRow.currency || "INR",
+        order_status: "confirmed",
+        payment_status: "pending",
+        delivery_status: "not_shipped",
         message: "Order placed successfully with Cash on Delivery.",
       });
     }

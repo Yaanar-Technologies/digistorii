@@ -40,7 +40,7 @@ export default function CustomerSupportPage() {
             setOrders(data.orders);
           }
         })
-        .catch(() => {});
+        .catch(() => { });
     }
   }, [company, customer]);
 
@@ -173,7 +173,7 @@ export default function CustomerSupportPage() {
         </div>
 
         {/* Right: Contact Support Ticket Form */}
-        <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs space-y-4">
+        {/* <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs space-y-4">
           <div className="pb-3 border-b border-slate-100">
             <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
               <EnvelopeIcon className="h-4 w-4 text-indigo-600" />
@@ -261,7 +261,7 @@ export default function CustomerSupportPage() {
               {submitting ? "Sending..." : "Submit Ticket"}
             </button>
           </form>
-        </div>
+        </div> */}
       </div>
     </div>
   );

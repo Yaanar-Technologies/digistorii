@@ -3,6 +3,7 @@ import { ensureResponsibilitySchema } from "./userResponsibilities";
 import { ensureTenantLookupDataSeeded } from "./tenantLookupSeed";
 import { ensureLogisticsSchema } from "./logisticsSchema";
 import { ensurePaymentsSchema } from "./paymentsSchema";
+import { ensureFinanceSchema } from "./financeSchema";
 
 declare global {
   var dbInitialized: boolean | undefined;
@@ -53,7 +54,16 @@ export async function initializeDatabase() {
         custom_domain VARCHAR(255) UNIQUE,
         custom_domain_status VARCHAR(20) NOT NULL DEFAULT 'not_configured'
           CHECK (custom_domain_status IN ('not_configured','pending_dns','verified','failed')),
-        custom_domain_verified_at TIMESTAMP
+        custom_domain_verified_at TIMESTAMP,
+        CONSTRAINT chk_companies_reserved_subdomain CHECK (
+          LOWER(TRIM(subdomain_url)) NOT IN (
+            'api', 'admin', 'app', 'auth', 'dashboard', 'settings', 'store', 'setup',
+            'billing', 'login', 'register', 'checkout', 'cart', 'webhook', 'webhooks', 'public',
+            'static', 'assets', 'terms', 'privacy', 'policies', 'store-suspended', 'digistorii',
+            'account', 'orders', 'support', 'help', 'faq', 'ws', 'internal', 'health', 'cdn',
+            'mail', 'email', 'root', 'system', 'null', 'undefined'
+          )
+        )
       );
 
       CREATE TABLE IF NOT EXISTS tenant_domains (
@@ -67,31 +77,7 @@ export async function initializeDatabase() {
       );
 
       CREATE INDEX IF NOT EXISTS idx_tenant_domains_lookup ON tenant_domains(LOWER(domain));
- 
     `);
-
-    // ===============================
-    // RESERVED SLUGS CONSTRAINT
-    // ===============================
-    await client.query(`
-      DO $$
-      BEGIN
-        IF NOT EXISTS (
-          SELECT 1 FROM pg_constraint WHERE conname = 'chk_companies_reserved_subdomain'
-        ) THEN
-          ALTER TABLE companies
-          ADD CONSTRAINT chk_companies_reserved_subdomain
-          CHECK (LOWER(TRIM(subdomain_url)) NOT IN (
-            'api', 'admin', 'app', 'auth', 'dashboard', 'settings', 'store', 'setup',
-            'billing', 'login', 'register', 'checkout', 'cart', 'webhook', 'webhooks', 'public',
-            'static', 'assets', 'terms', 'privacy', 'policies', 'store-suspended', 'digistorii',
-            'account', 'orders', 'support', 'help', 'faq', 'ws', 'internal', 'health', 'cdn',
-            'mail', 'email', 'root', 'system', 'null', 'undefined'
-          ));
-        END IF;
-      END $$;
-    `);
-
 
     // ===============================
     // USERS TABLE
@@ -99,8 +85,7 @@ export async function initializeDatabase() {
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
-        company_id INTEGER NOT NULL
-          REFERENCES companies(id) ON DELETE CASCADE,
+        company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
         name VARCHAR(200) NOT NULL,
         email VARCHAR(200) NOT NULL UNIQUE,
         phone VARCHAR(20) NOT NULL UNIQUE,
@@ -115,223 +100,227 @@ export async function initializeDatabase() {
         UNIQUE(company_id, email)
       );
     `);
-    await client.query(`
-  CREATE TABLE IF NOT EXISTS plans (
-  id             SERIAL PRIMARY KEY,
-  name           VARCHAR(50) NOT NULL UNIQUE,  -- 'STARTER',  'ENTERPRISE'
-  price_monthly  INTEGER NOT NULL DEFAULT 0,   -- in paise (INR smallest unit)
-  price_yearly   INTEGER NOT NULL DEFAULT 0,
-  billing_period  VARCHAR(50) DEFAULT 'Monthly / Yearly',
-  features        JSONB NOT NULL DEFAULT '[]'::jsonb,
-  display_order   INTEGER DEFAULT 0,
-  is_active      BOOLEAN DEFAULT TRUE,
-  created_at     TIMESTAMP DEFAULT NOW()
-);
-`);
 
+    // ===============================
+    // PLANS TABLE
+    // ===============================
     await client.query(`
-  CREATE TABLE IF NOT EXISTS company_subscriptions (
-  id                    SERIAL PRIMARY KEY,
-  company_id            INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-  plan_id               INTEGER NOT NULL REFERENCES plans(id),
-  plan_code             VARCHAR(50),
-  ecommerce_access      BOOLEAN DEFAULT FALSE,
-  pos_access            BOOLEAN DEFAULT TRUE,
-  max_users             INTEGER DEFAULT 5,
-  max_warehouses        INTEGER DEFAULT 1,
-  max_locations         INTEGER DEFAULT 1,
-  billing_interval      VARCHAR(20) DEFAULT 'monthly',
-  amount                INTEGER DEFAULT 0,
-  payment_status        VARCHAR(20) DEFAULT 'created',
-  razorpay_order_id     TEXT,
-  subscription_start    TIMESTAMP,
-  subscription_end      TIMESTAMP,
-  status                VARCHAR(20) DEFAULT 'TRIALING',  -- 'TRIALING', 'ACTIVE', 'PAST_DUE', 'CANCELLED'
-  trial_ends_at         TIMESTAMP,
-  current_period_start  TIMESTAMP,
-  current_period_end    TIMESTAMP,
-  cancelled_at          TIMESTAMP,
-  created_at            TIMESTAMP DEFAULT NOW(),
-  updated_at            TIMESTAMP DEFAULT NOW()
-);`);
-    await client.query(`
-      ALTER TABLE company_subscriptions
-      ADD COLUMN IF NOT EXISTS pos_access BOOLEAN DEFAULT TRUE;
+      CREATE TABLE IF NOT EXISTS plans (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(50) NOT NULL UNIQUE,
+        price_monthly INTEGER NOT NULL DEFAULT 0,
+        price_yearly INTEGER NOT NULL DEFAULT 0,
+        billing_period VARCHAR(50) DEFAULT 'Monthly / Yearly',
+        features JSONB NOT NULL DEFAULT '[]'::jsonb,
+        display_order INTEGER DEFAULT 0,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
     `);
+
+    // ===============================
+    // COMPANY SUBSCRIPTIONS TABLE
+    // ===============================
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS company_subscriptions (
+        id SERIAL PRIMARY KEY,
+        company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        plan_id INTEGER NOT NULL REFERENCES plans(id),
+        plan_code VARCHAR(50),
+        ecommerce_access BOOLEAN DEFAULT FALSE,
+        pos_access BOOLEAN DEFAULT TRUE,
+        max_users INTEGER DEFAULT 5,
+        max_warehouses INTEGER DEFAULT 1,
+        max_locations INTEGER DEFAULT 1,
+        billing_interval VARCHAR(20) DEFAULT 'monthly',
+        amount INTEGER DEFAULT 0,
+        payment_status VARCHAR(20) DEFAULT 'created',
+        razorpay_order_id TEXT,
+        subscription_start TIMESTAMP,
+        subscription_end TIMESTAMP,
+        grace_period_end_date TIMESTAMP,
+        status VARCHAR(20) DEFAULT 'TRIALING',
+        trial_ends_at TIMESTAMP,
+        current_period_start TIMESTAMP,
+        current_period_end TIMESTAMP,
+        cancelled_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_company_subscriptions_company
+        ON company_subscriptions(company_id);
+    `);
+
+    // ===============================
+    // PAYMENTS TABLE
+    // ===============================
     await client.query(`
       CREATE TABLE IF NOT EXISTS payments (
-        id                    SERIAL PRIMARY KEY,
-        company_id            INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-        subscription_id       INTEGER REFERENCES company_subscriptions(id),
-        plan_name             TEXT NOT NULL,
-        plan_price            INTEGER NOT NULL,
-        payment_type          VARCHAR(50) DEFAULT 'SUBSCRIPTION_NEW',
-        billing_interval      VARCHAR(20) DEFAULT 'monthly',
-        razorpay_order_id     TEXT,
-        razorpay_payment_id   TEXT,
-        razorpay_signature    TEXT,
-        amount                INTEGER NOT NULL,
-        currency              TEXT DEFAULT 'INR',
-        status                TEXT DEFAULT 'created',
-        payment_status        TEXT DEFAULT 'created',
-        subscription_start    TIMESTAMP,
-        subscription_end      TIMESTAMP,
-         metadata JSONB DEFAULT '{}'::jsonb,
-        created_at            TIMESTAMP DEFAULT NOW(),
-        updated_at            TIMESTAMP DEFAULT NOW()
+        id SERIAL PRIMARY KEY,
+        company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        subscription_id INTEGER REFERENCES company_subscriptions(id),
+        plan_name TEXT NOT NULL,
+        plan_price INTEGER NOT NULL,
+        payment_type VARCHAR(50) DEFAULT 'SUBSCRIPTION_NEW',
+        billing_interval VARCHAR(20) DEFAULT 'monthly',
+        razorpay_order_id TEXT,
+        razorpay_payment_id TEXT,
+        razorpay_signature TEXT,
+        amount INTEGER NOT NULL,
+        currency TEXT DEFAULT 'INR',
+        status TEXT DEFAULT 'created',
+        payment_status TEXT DEFAULT 'created',
+        subscription_start TIMESTAMP,
+        subscription_end TIMESTAMP,
+        metadata JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
       );
-`);
+    `);
 
-
-
+    // ===============================
+    // PLAN FEATURES TABLE
+    // ===============================
     await client.query(`
-  CREATE TABLE IF NOT EXISTS plan_features (
-  id           SERIAL PRIMARY KEY,
-  plan_id      INTEGER NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
-  feature_key  VARCHAR(100) NOT NULL,   -- 'max_users', 'max_locations', 'max_pos_terminals', 'ecommerce_access'
-  value_int    INTEGER,                 -- used for numeric limits
-  value_bool   BOOLEAN,                -- used for feature flags
-  UNIQUE(plan_id, feature_key)
-);`);
+      CREATE TABLE IF NOT EXISTS plan_features (
+        id SERIAL PRIMARY KEY,
+        plan_id INTEGER NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+        feature_key VARCHAR(100) NOT NULL,
+        value_int INTEGER,
+        value_bool BOOLEAN,
+        UNIQUE(plan_id, feature_key)
+      );
+    `);
 
-
-    await client.query(`
-  CREATE UNIQUE INDEX IF NOT EXISTS uq_company_subscriptions_company
-  ON company_subscriptions(company_id);
-`);
-
-
+    // ===============================
+    // COMPANY USER MAP TABLE
+    // ===============================
     await client.query(`
       CREATE TABLE IF NOT EXISTS company_user_map (
-      id           SERIAL PRIMARY KEY,
-      user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      company_id   INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-      username     VARCHAR(100),
-      responsibility_id INT,
-      location_id  INTEGER,
-      warehouse_id INTEGER,
-      is_active    BOOLEAN DEFAULT TRUE,
-      joined_at    TIMESTAMP DEFAULT NOW(),
-      UNIQUE(company_id, username),
-      UNIQUE(user_id, company_id)
-);
-  `);
-
-
-    await client.query(`
-INSERT INTO plans (name,price_monthly,price_yearly,billing_period,features,display_order,is_active
-)
-VALUES
-(
-    'INSTORE',500,5500,'Monthly / Yearly',
-    '[
-        "Dedicated In-Store POS Billing System",
-        "1 Warehouse + 1 Store Location",
-        "Up to 5 User Accounts",
-        "Inventory, Purchase, Sales & Reports Included",
-        "Retail Store Operations Management",
-        "Suitable for Businesses Selling In-Store Only"
-    ]'::jsonb,
-    1,
-    TRUE
-),(
-    'ECOM',1000,10000,'Monthly / Yearly',
-    '[
-        "Dedicated E-Commerce Website",
-        "1 Warehouse + 1 Store Location",
-        "Up to 5 User Accounts",
-        "Inventory, Purchase, Sales & Reports Included",
-        "Online Order & Catalog Management",
-        "Suitable for Businesses Selling Online Only"
-    ]'::jsonb,
-    2,
-    TRUE
-),
-(
-    'BASIC',1500,16500,'Monthly / Yearly',
-    '[
-        "E-Commerce Website + In-Store POS",
-        "1 Warehouse + 1 Store Location",
-        "Up to 5 User Accounts",
-        "Inventory, Purchase, Sales & Reports Included",
-        "Unified Online & Offline Sales Management",
-        "Ideal for Small Businesses"
-    ]'::jsonb,
-    3,
-    TRUE
-),
-(
-    'ENTERPRISE', 22500,247500,'Monthly / Yearly',
-    '[
-        "E-Commerce Website + In-Store POS",
-        "Unlimited Warehouses + Store Locations",
-        "Unlimited User Accounts",
-        "Inventory, Purchase, Sales & Reports Included",
-        "Advanced Multi-Branch Operations",
-        "Built for Large Enterprise Organizations"
-    ]'::jsonb,
-    5,
-    TRUE
-)
-ON CONFLICT (name) DO UPDATE
-SET
-    price_monthly  = EXCLUDED.price_monthly,
-    price_yearly   = EXCLUDED.price_yearly,
-    billing_period = EXCLUDED.billing_period,
-    features       = EXCLUDED.features,
-    display_order  = EXCLUDED.display_order,
-    is_active      = EXCLUDED.is_active;
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        username VARCHAR(100),
+        responsibility_id INT,
+        location_id INTEGER,
+        warehouse_id INTEGER,
+        is_active BOOLEAN DEFAULT TRUE,
+        joined_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(company_id, username),
+        UNIQUE(user_id, company_id)
+      );
     `);
 
+    // ===============================
+    // SEED PLANS
+    // ===============================
     await client.query(`
-    INSERT INTO plan_features (plan_id, feature_key, value_int, value_bool)
-SELECT p.id, v.feature_key, v.value_int, v.value_bool
-FROM plans p
-JOIN (
-    VALUES
-        ('INSTORE', 'max_users', 5, NULL::BOOLEAN),
-        ('INSTORE', 'max_locations', 1, NULL::BOOLEAN),
-        ('INSTORE', 'max_warehouses', 1, NULL::BOOLEAN),
-        ('INSTORE', 'ecommerce_access', NULL::INTEGER, FALSE),
-        ('INSTORE', 'pos_access', NULL::INTEGER, TRUE),
-        ('ECOM', 'max_users', 5, NULL::BOOLEAN),
-        ('ECOM', 'max_locations', 1, NULL::BOOLEAN),
-        ('ECOM', 'max_warehouses', 1, NULL::BOOLEAN),
-        ('ECOM', 'ecommerce_access', NULL::INTEGER, TRUE),
-        ('ECOM', 'pos_access', NULL::INTEGER, FALSE),
-        ('BASIC', 'max_users', 5, NULL::BOOLEAN),
-        ('BASIC', 'max_locations', 1, NULL::BOOLEAN),
-        ('BASIC', 'max_warehouses', 1, NULL::BOOLEAN),
-        ('BASIC', 'ecommerce_access', NULL::INTEGER, TRUE),
-        ('BASIC', 'pos_access', NULL::INTEGER, TRUE),
-        ('ENTERPRISE', 'max_users', 20, NULL::BOOLEAN),
-        ('ENTERPRISE', 'max_locations', 5, NULL::BOOLEAN),
-        ('ENTERPRISE', 'max_warehouses', 5, NULL::BOOLEAN),
-        ('ENTERPRISE', 'ecommerce_access', NULL::INTEGER, TRUE),
-        ('ENTERPRISE', 'pos_access', NULL::INTEGER, TRUE)
-       ) AS v(plan_name, feature_key, value_int, value_bool)
-    ON v.plan_name = p.name
-ON CONFLICT (plan_id, feature_key) DO UPDATE
-SET
-    value_int  = EXCLUDED.value_int,
-    value_bool = EXCLUDED.value_bool;
+      INSERT INTO plans (name, price_monthly, price_yearly, billing_period, features, display_order, is_active)
+      VALUES
+      (
+        'INSTORE', 500, 5500, 'Monthly / Yearly',
+        '[
+          "Dedicated In-Store POS Billing System",
+          "1 Warehouse + 1 Store Location",
+          "Up to 5 User Accounts",
+          "Inventory, Purchase, Sales & Reports Included",
+          "Retail Store Operations Management",
+          "Suitable for Businesses Selling In-Store Only"
+        ]'::jsonb,
+        1,
+        TRUE
+      ),
+      (
+        'ECOM', 1000, 10000, 'Monthly / Yearly',
+        '[
+          "Dedicated E-Commerce Website",
+          "1 Warehouse + 1 Store Location",
+          "Up to 5 User Accounts",
+          "Inventory, Purchase, Sales & Reports Included",
+          "Online Order & Catalog Management",
+          "Suitable for Businesses Selling Online Only"
+        ]'::jsonb,
+        2,
+        TRUE
+      ),
+      (
+        'BASIC', 1500, 16500, 'Monthly / Yearly',
+        '[
+          "E-Commerce Website + In-Store POS",
+          "1 Warehouse + 1 Store Location",
+          "Up to 5 User Accounts",
+          "Inventory, Purchase, Sales & Reports Included",
+          "Unified Online & Offline Sales Management",
+          "Ideal for Small Businesses"
+        ]'::jsonb,
+        3,
+        TRUE
+      ),
+      (
+        'ENTERPRISE', 22500, 247500, 'Monthly / Yearly',
+        '[
+          "E-Commerce Website + In-Store POS",
+          "Unlimited Warehouses + Store Locations",
+          "Unlimited User Accounts",
+          "Inventory, Purchase, Sales & Reports Included",
+          "Advanced Multi-Branch Operations",
+          "Built for Large Enterprise Organizations"
+        ]'::jsonb,
+        5,
+        TRUE
+      )
+      ON CONFLICT (name) DO UPDATE
+      SET
+        price_monthly  = EXCLUDED.price_monthly,
+        price_yearly   = EXCLUDED.price_yearly,
+        billing_period = EXCLUDED.billing_period,
+        features       = EXCLUDED.features,
+        display_order  = EXCLUDED.display_order,
+        is_active      = EXCLUDED.is_active;
     `);
 
+    // ===============================
+    // SEED PLAN FEATURES
+    // ===============================
     await client.query(`
-      UPDATE company_subscriptions cs
-      SET pos_access = pf.value_bool
-      FROM plan_features pf
-      WHERE cs.plan_id = pf.plan_id
-        AND pf.feature_key = 'pos_access'
-        AND pf.value_bool = FALSE
-        AND cs.pos_access IS DISTINCT FROM pf.value_bool;
+      INSERT INTO plan_features (plan_id, feature_key, value_int, value_bool)
+      SELECT p.id, v.feature_key, v.value_int, v.value_bool
+      FROM plans p
+      JOIN (
+        VALUES
+          ('INSTORE', 'max_users', 5, NULL::BOOLEAN),
+          ('INSTORE', 'max_locations', 1, NULL::BOOLEAN),
+          ('INSTORE', 'max_warehouses', 1, NULL::BOOLEAN),
+          ('INSTORE', 'ecommerce_access', NULL::INTEGER, FALSE),
+          ('INSTORE', 'pos_access', NULL::INTEGER, TRUE),
+          ('ECOM', 'max_users', 5, NULL::BOOLEAN),
+          ('ECOM', 'max_locations', 1, NULL::BOOLEAN),
+          ('ECOM', 'max_warehouses', 1, NULL::BOOLEAN),
+          ('ECOM', 'ecommerce_access', NULL::INTEGER, TRUE),
+          ('ECOM', 'pos_access', NULL::INTEGER, FALSE),
+          ('BASIC', 'max_users', 5, NULL::BOOLEAN),
+          ('BASIC', 'max_locations', 1, NULL::BOOLEAN),
+          ('BASIC', 'max_warehouses', 1, NULL::BOOLEAN),
+          ('BASIC', 'ecommerce_access', NULL::INTEGER, TRUE),
+          ('BASIC', 'pos_access', NULL::INTEGER, TRUE),
+          ('ENTERPRISE', 'max_users', 20, NULL::BOOLEAN),
+          ('ENTERPRISE', 'max_locations', 5, NULL::BOOLEAN),
+          ('ENTERPRISE', 'max_warehouses', 5, NULL::BOOLEAN),
+          ('ENTERPRISE', 'ecommerce_access', NULL::INTEGER, TRUE),
+          ('ENTERPRISE', 'pos_access', NULL::INTEGER, TRUE)
+      ) AS v(plan_name, feature_key, value_int, value_bool)
+        ON v.plan_name = p.name
+      ON CONFLICT (plan_id, feature_key) DO UPDATE
+      SET
+        value_int  = EXCLUDED.value_int,
+        value_bool = EXCLUDED.value_bool;
     `);
-
 
     await ensureResponsibilitySchema(client);
 
     // ===============================
-    // PHASE 3: PRODUCT CATALOGUE EXTENSIONS (Back in stock & Reviews)
+    // TENANT LOOKUP & EXTENSION SCHEMAS
     // ===============================
     const compSchemasRes = await client.query(`
       SELECT schema_name FROM public.companies WHERE schema_name IS NOT NULL AND schema_name <> ''
@@ -368,6 +357,7 @@ SET
       await ensureTenantLookupDataSeeded(client, s);
       await ensureLogisticsSchema(client, s);
       await ensurePaymentsSchema(client, s);
+      await ensureFinanceSchema(client, s);
     }
 
     await client.query("COMMIT");
@@ -381,6 +371,3 @@ SET
     client.release();
   }
 }
-
-
-

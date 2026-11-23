@@ -42,24 +42,29 @@ export default function OrderDetailPage() {
   const [submittingReturn, setSubmittingReturn] = useState(false);
   const [returnMessage, setReturnMessage] = useState<string | null>(null);
 
-  const fetchOrderDetail = () => {
+  const fetchOrderDetail = async () => {
     setLoading(true);
-    fetch(`/api/${company}/ecom/orders/${orderId}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.success && data.order) {
-          setOrder({
-            ...data.order,
-            items: data.items || [],
-            delivery: data.delivery || null,
-            payments: data.payments || [],
-          });
-        } else {
-          setError(data.error || "Order not found");
-        }
-      })
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+    setError(null);
+    try {
+      const r = await fetch(`/api/${company}/ecom/customer/orders/${orderId}`, {
+        credentials: "include",
+      });
+      const data = await r.json().catch(() => null);
+      if (r.ok && data?.success && data?.order) {
+        setOrder({
+          ...data.order,
+          items: data.items || [],
+          delivery: data.delivery || null,
+          payments: data.payments || [],
+        });
+      } else {
+        setError(data?.error || `Order not found (Status ${r.status})`);
+      }
+    } catch (err: any) {
+      setError(err?.message || "Failed to load order details");
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -76,9 +81,10 @@ export default function OrderDetailPage() {
     setCancelling(true);
     setCancelMessage(null);
     try {
-      const res = await fetch(`/api/${company}/ecom/orders/${orderId}/customer-cancel`, {
+      const res = await fetch(`/api/${company}/ecom/customer/orders/${orderId}/cancel`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ reason: cancelReason }),
       });
       const data = await res.json();
@@ -169,7 +175,7 @@ export default function OrderDetailPage() {
         </Link>
 
         <a
-          href={`/api/${company}/ecom/orders/${order.id}/invoice`}
+          href={`/api/${company}/ecom/orders/${order.invoice_token || order.order_no || order.id}/invoice`}
           target="_blank"
           rel="noreferrer"
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs"

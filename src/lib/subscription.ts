@@ -7,6 +7,8 @@ export type SubscriptionTierState =
 export interface SubscriptionEvaluation {
   state: SubscriptionTierState;
   daysRemaining: number;
+  daysLeftInGrace?: number;
+  gracePeriodEndDate?: string | null;
   isStorefrontBlocked: boolean;
   isCheckoutBlocked: boolean;
   showAdminWarning: boolean;
@@ -16,6 +18,7 @@ export interface SubscriptionEvaluation {
 
 export interface SubscriptionInput {
   subscriptionEndDate?: string | Date | null;
+  gracePeriodEndDate?: string | Date | null;
   subscriptionStatus?: string | null;
   paymentStatus?: string | null;
   now?: Date;
@@ -33,6 +36,7 @@ export interface SubscriptionInput {
  * 2. Grace Period (Day 0 to Day +3):
  *    - Storefront & Checkout: Operational
  *    - Admin: Red alert banner (suspension imminent)
+ *    - NO access restrictions or lockouts while NOW() <= subscription_end + 3 days
  *
  * 3. Hard Cutoff / Suspension (After Day +3 grace period or explicit SUSPENDED status):
  *    - Storefront & Checkout: Intercepted and blocked
@@ -43,6 +47,7 @@ export function evaluateSubscriptionLifecycle(
 ): SubscriptionEvaluation {
   const {
     subscriptionEndDate,
+    gracePeriodEndDate,
     subscriptionStatus,
     paymentStatus,
     now = new Date(),
@@ -62,6 +67,8 @@ export function evaluateSubscriptionLifecycle(
     return {
       state: "SUSPENDED",
       daysRemaining: 0,
+      daysLeftInGrace: 0,
+      gracePeriodEndDate: gracePeriodEndDate ? new Date(gracePeriodEndDate).toISOString() : null,
       isStorefrontBlocked: true,
       isCheckoutBlocked: true,
       showAdminWarning: true,
@@ -98,16 +105,24 @@ export function evaluateSubscriptionLifecycle(
     };
   }
 
-  // Difference in milliseconds
+  const parsedGraceEnd = gracePeriodEndDate
+    ? (gracePeriodEndDate instanceof Date ? gracePeriodEndDate : new Date(gracePeriodEndDate))
+    : null;
+  const effectiveGraceEnd =
+    parsedGraceEnd && !isNaN(parsedGraceEnd.getTime())
+      ? parsedGraceEnd
+      : new Date(endDate.getTime() + gracePeriodDays * 24 * 60 * 60 * 1000);
+
+  // Difference in milliseconds from subscription end
   const diffMs = endDate.getTime() - now.getTime();
-  // Calculate whole days remaining until expiry
   const daysRemaining = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 
   // Tier 1: Future and outside warning window (> 7 days)
-  if (daysRemaining > warningWindowDays) {
+  if (now <= endDate && daysRemaining > warningWindowDays) {
     return {
       state: "ACTIVE",
       daysRemaining,
+      gracePeriodEndDate: effectiveGraceEnd.toISOString(),
       isStorefrontBlocked: false,
       isCheckoutBlocked: false,
       showAdminWarning: false,
@@ -116,10 +131,11 @@ export function evaluateSubscriptionLifecycle(
   }
 
   // Tier 2: Warning Window (1 to 7 days before expiry, and day of expiry up to day 0)
-  if (daysRemaining > 0 && daysRemaining <= warningWindowDays) {
+  if (now <= endDate && daysRemaining > 0 && daysRemaining <= warningWindowDays) {
     return {
       state: "WARNING",
       daysRemaining,
+      gracePeriodEndDate: effectiveGraceEnd.toISOString(),
       isStorefrontBlocked: false,
       isCheckoutBlocked: false,
       showAdminWarning: true,
@@ -130,28 +146,31 @@ export function evaluateSubscriptionLifecycle(
     };
   }
 
-  // Tier 3: Grace Period (Day 0 to Day +3)
-  // daysRemaining is between 0 and -gracePeriodDays inclusive (e.g. 0, -1, -2, -3)
-  const daysPastExpiry = Math.abs(daysRemaining);
-  if (daysRemaining <= 0 && daysPastExpiry <= gracePeriodDays) {
-    const daysLeftInGrace = gracePeriodDays - daysPastExpiry;
+  // Tier 3: Real 3-Day Grace Period (NOW() <= subscription_end + 3 days)
+  if (now > endDate && now <= effectiveGraceEnd) {
+    const msLeftInGrace = effectiveGraceEnd.getTime() - now.getTime();
+    const daysLeftInGrace = Math.max(0, Math.ceil(msLeftInGrace / (1000 * 60 * 60 * 24)));
     return {
       state: "GRACE_PERIOD",
       daysRemaining,
+      daysLeftInGrace,
+      gracePeriodEndDate: effectiveGraceEnd.toISOString(),
       isStorefrontBlocked: false,
       isCheckoutBlocked: false,
       showAdminWarning: true,
       warningType: "grace_period",
-      message: `Subscription expired! You are in a ${gracePeriodDays}-day grace period (${daysLeftInGrace} day${
+      message: `Subscription expired! You are in a 3-day grace period (${daysLeftInGrace} day${
         daysLeftInGrace === 1 ? "" : "s"
-      } remaining). Suspension is imminent.`,
+      } remaining until ${effectiveGraceEnd.toLocaleDateString()}). Suspension is imminent.`,
     };
   }
 
-  // Tier 4: Hard Cutoff / Suspension (Past Day +3)
+  // Tier 4: Hard Cutoff / Suspension (Past grace period: NOW() > subscription_end + 3 days)
   return {
     state: "SUSPENDED",
     daysRemaining,
+    daysLeftInGrace: 0,
+    gracePeriodEndDate: effectiveGraceEnd.toISOString(),
     isStorefrontBlocked: true,
     isCheckoutBlocked: true,
     showAdminWarning: true,

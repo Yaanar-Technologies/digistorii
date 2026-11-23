@@ -41,7 +41,7 @@ export default function AccountLayout({
 
   const navItems = [
     {
-      name: "Overview",
+      name: "My Profile",
       href: `/${company}/account`,
       exact: true,
       icon: UserIcon,
@@ -51,24 +51,6 @@ export default function AccountLayout({
       href: `/${company}/account/orders`,
       exact: false,
       icon: ShoppingBagIcon,
-    },
-    {
-      name: "Saved Addresses",
-      href: `/${company}/account/addresses`,
-      exact: false,
-      icon: MapPinIcon,
-    },
-    {
-      name: "Help & Support",
-      href: `/${company}/account/support`,
-      exact: false,
-      icon: QuestionMarkCircleIcon,
-    },
-    {
-      name: "Privacy & Settings",
-      href: `/${company}/account/settings`,
-      exact: false,
-      icon: Cog6ToothIcon,
     },
   ];
 

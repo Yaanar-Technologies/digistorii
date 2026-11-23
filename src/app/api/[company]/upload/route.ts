@@ -3,7 +3,6 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { pool } from "@/lib/db";
-import { put } from "@vercel/blob";
 
 export const runtime = "nodejs";
 
@@ -50,23 +49,12 @@ export async function POST(
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const fileHash = crypto.createHash("sha256").update(buffer).digest("hex");
-    const isVercel = process.env.VERCEL === "1" || Boolean(process.env.BLOB_READ_WRITE_TOKEN);
 
-    let fileUrl = "";
-
-    if (isVercel) {
-      // 1. Production (Vercel Blob)
-      const blob = await put(`${companySlug}/${subfolder}/${filename}`, buffer, {
-        access: "public",
-      });
-      fileUrl = blob.url;
-    } else {
-      // 2. Local Development (Disk)
-      const targetDir = path.join(process.cwd(), "public", "uploads", companySlug, subfolder);
-      await mkdir(targetDir, { recursive: true });
-      await writeFile(path.join(targetDir, filename), buffer);
-      fileUrl = `/uploads/${companySlug}/${subfolder}/${filename}`;
-    }
+    // Local / Server uploads directory
+    const targetDir = path.join(process.cwd(), "public", "uploads", companySlug, subfolder);
+    await mkdir(targetDir, { recursive: true });
+    await writeFile(path.join(targetDir, filename), buffer);
+    const fileUrl = `/uploads/${companySlug}/${subfolder}/${filename}`;
 
     let imageMasterId: number | null = null;
 

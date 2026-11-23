@@ -324,7 +324,6 @@ export default function StoreSettingsPage() {
                 type="text"
                 value={customDomain}
                 onChange={e => setCustomDomain(e.target.value)}
-                placeholder="e.g. pothys.com"
                 className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
               />
               <p className="mt-1 text-xs text-gray-500">
@@ -453,11 +452,10 @@ export default function StoreSettingsPage() {
 
           {testResult && (
             <div
-              className={`rounded-lg p-3 text-sm flex items-start gap-2 ${
-                testResult.success
+              className={`rounded-lg p-3 text-sm flex items-start gap-2 ${testResult.success
                   ? "bg-green-50 text-green-800 border border-green-200"
                   : "bg-red-50 text-red-800 border border-red-200"
-              }`}
+                }`}
             >
               {testResult.success ? (
                 <svg className="h-5 w-5 text-green-600 shrink-0" fill="currentColor" viewBox="0 0 20 20">

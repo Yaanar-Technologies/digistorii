@@ -32,6 +32,7 @@ type Variant = {
   size: string;
   sku: string;
   qty: string;
+  opening_stock?: string;
   low_stock_threshold: string;
   backorders_allowed: boolean | null;
   status: VariantStatus;
@@ -140,6 +141,7 @@ const EMPTY_VARIANT: Variant = {
   size: "",
   sku: "",
   qty: "0",
+  opening_stock: "0",
   low_stock_threshold: "",
   backorders_allowed: null,
   status: "draft",
@@ -192,6 +194,7 @@ export function ProductForm({
   const [description, setDescription] = useState("");
   const [source, setSource] = useState<"own" | "vendor">("own");
   const [status, setStatus] = useState("1");
+  const [openingStock, setOpeningStock] = useState("0");
   const [variants, setVariants] = useState<Variant[]>([{ ...EMPTY_VARIANT }]);
   const [images, setImages] = useState<ProductImage[]>([{ ...EMPTY_IMAGE, is_primary: true }]);
   const [loading, setLoading] = useState(false);
@@ -320,6 +323,7 @@ export function ProductForm({
       setDescription(data.product.description || "");
       setSource(data.product.source === "vendor" ? "vendor" : "own");
       setStatus(String(data.product.status || 1));
+      setOpeningStock(String(data.product.opening_stock ?? 0));
       console.log("data variants", data.variants)
       const loadedVariants = (data.variants || []).map((v: any) => ({
         id: v.id,
@@ -327,6 +331,7 @@ export function ProductForm({
         size: v.size || "",
         sku: v.sku || "",
         qty: String(v.qty ?? 0),
+        opening_stock: String(v.opening_stock ?? v.qty ?? 0),
         low_stock_threshold: v.low_stock_threshold === null || v.low_stock_threshold === undefined ? "" : String(v.low_stock_threshold),
         backorders_allowed: v.backorders_allowed === null || v.backorders_allowed === undefined ? null : Boolean(v.backorders_allowed),
         status: normalizeVariantStatus(v.status),
@@ -697,6 +702,7 @@ export function ProductForm({
     setDescription("");
     setSource("own");
     setStatus("1");
+    setOpeningStock("0");
     setVariants([{ ...EMPTY_VARIANT }]);
     setImages([{ ...EMPTY_IMAGE, is_primary: true }]);
     setMessage("");
@@ -749,7 +755,7 @@ export function ProductForm({
         if (err) currentErrors[`variant_color_${idx}`] = err;
       }
       if (v.size) {
-        const err = getRuleValidationError("alphanumeric", v.size);
+        const err = getRuleValidationError("alphanumeric-spaces-hyphens", v.size);
         if (err) currentErrors[`variant_size_${idx}`] = err;
       }
     });
@@ -776,7 +782,8 @@ export function ProductForm({
         size: v.size.trim(),
         sku: v.sku.trim(),
         barcode: normalizeBarcode(v.barcode),
-        qty: Number(v.qty),
+        qty: Number(v.opening_stock || v.qty || 0),
+        opening_stock: Number(v.opening_stock || v.qty || 0),
         low_stock_threshold: v.low_stock_threshold === "" || v.low_stock_threshold === null || v.low_stock_threshold === undefined ? null : Number(v.low_stock_threshold),
         backorders_allowed: v.backorders_allowed,
         status: v.status,
@@ -811,6 +818,7 @@ export function ProductForm({
         height: height ? Number(height) : null,
         source,
         status: Number(status),
+        opening_stock: Number(openingStock || 0),
       };
 
       if (productType === "finished_good") {
@@ -1148,6 +1156,7 @@ export function ProductForm({
               {errors.hsn_code && <p className="text-red-500 text-xs mt-1">{errors.hsn_code}</p>}
             </div>
 
+
             <div className="md:col-span-2">
               <label className="mb-1 block text-sm font-medium text-gray-700">Description</label>
               <textarea
@@ -1271,6 +1280,7 @@ export function ProductForm({
                   <th className="px-3 py-2">Size</th>
                   <th className="px-3 py-2">SKU (optional)</th>
                   <th className="px-3 py-2">Barcode</th>
+                  <th className="px-3 py-2">Opening Stock</th>
                   <th className="px-3 py-2">Low Stock Threshold</th>
                   <th className="px-3 py-2">Backorders Allowed</th>
                   <th className="px-3 py-2">Status</th>
@@ -1281,7 +1291,7 @@ export function ProductForm({
                 {variants.length === 0 ? (
                   <tr className="border-t border-gray-100">
                     <td
-                      colSpan={readOnly ? 7 : 8}
+                      colSpan={readOnly ? 8 : 9}
                       className="px-3 py-3 text-sm text-gray-500"
                     >
                       No variants added yet.
@@ -1334,7 +1344,7 @@ export function ProductForm({
                         ) : (
                           <>
                             <input
-                              data-rules="alphanumeric"
+                              data-rules="alphanumeric-spaces-hyphens"
                               data-field={`variant_size_${index}`}
                               data-optional="true"
                               value={variant.size}
@@ -1376,6 +1386,21 @@ export function ProductForm({
                             {variantBarcodeErrors[index]}
                           </span>
                         ) : null}
+                      </td>
+                      <td className="px-3 py-2">
+                        <input
+                          type="number"
+                          min="0"
+                          value={variant.opening_stock ?? variant.qty ?? "0"}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            updateVariant(index, "opening_stock", val);
+                            updateVariant(index, "qty", val);
+                          }}
+                          disabled={readOnly || Boolean(variant.id)}
+                          placeholder="0"
+                          className="w-full rounded border border-gray-300 px-2 py-1 disabled:bg-gray-100"
+                        />
                       </td>
                       <td className="px-3 py-2">
                         <input
@@ -1524,11 +1549,11 @@ export function ProductForm({
                           className="w-full font-sans"
                           getPopupContainer={(triggerNode) => triggerNode.parentNode}
                         />
-                        <Button icon={<PlusOutlined />} type="default" onClick={() => fileInputRef.current?.click()} />
+                        <Button icon={<PlusOutlined />} type="default" onClick={() => document.getElementById(`file-input-${index}`)?.click()} />
                       </div>
                       <input
                         type="file"
-                        ref={fileInputRef}
+                        id={`file-input-${index}`}
                         hidden
                         accept="image/*"
                         onChange={(e) => handleImageUpload(e, index)}

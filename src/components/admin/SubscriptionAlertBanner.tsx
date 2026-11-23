@@ -15,6 +15,7 @@ import {
 
 export interface SubscriptionAlertBannerProps {
   subscriptionEndDate?: string | Date | null;
+  gracePeriodEndDate?: string | Date | null;
   subscriptionStatus?: string | null;
   paymentStatus?: string | null;
   tenant?: string;
@@ -24,6 +25,7 @@ export interface SubscriptionAlertBannerProps {
 
 export const SubscriptionAlertBanner: React.FC<SubscriptionAlertBannerProps> = ({
   subscriptionEndDate: propEndDate,
+  gracePeriodEndDate: propGraceEndDate,
   subscriptionStatus: propStatus,
   paymentStatus: propPaymentStatus,
   tenant: propTenant,
@@ -42,6 +44,7 @@ export const SubscriptionAlertBanner: React.FC<SubscriptionAlertBannerProps> = (
     if (propEndDate !== undefined || propStatus !== undefined) {
       return evaluateSubscriptionLifecycle({
         subscriptionEndDate: propEndDate,
+        gracePeriodEndDate: propGraceEndDate,
         subscriptionStatus: propStatus,
         paymentStatus: propPaymentStatus,
       });
@@ -64,6 +67,7 @@ export const SubscriptionAlertBanner: React.FC<SubscriptionAlertBannerProps> = (
         if (data.success && isMounted) {
           const evalResult = evaluateSubscriptionLifecycle({
             subscriptionEndDate: data.subscription_end,
+            gracePeriodEndDate: data.grace_period_end_date,
             subscriptionStatus: data.subscription_state,
           });
           setEvaluation(evalResult);
@@ -77,7 +81,7 @@ export const SubscriptionAlertBanner: React.FC<SubscriptionAlertBannerProps> = (
     return () => {
       isMounted = false;
     };
-  }, [tenant, propEndDate, propStatus]);
+  }, [tenant, propEndDate, propGraceEndDate, propStatus]);
 
   if (!evaluation || !evaluation.showAdminWarning) {
     return null;
@@ -104,8 +108,14 @@ export const SubscriptionAlertBanner: React.FC<SubscriptionAlertBannerProps> = (
 
   // 1. Grace Period (Day 0 to Day +3): Non-dismissible RED alert
   if (evaluation.state === "GRACE_PERIOD") {
-    const daysPast = Math.abs(evaluation.daysRemaining);
-    const daysLeftInGrace = Math.max(0, 3 - daysPast);
+    const daysLeftInGrace = evaluation.daysLeftInGrace ?? Math.max(0, 3 - Math.abs(evaluation.daysRemaining));
+    const graceDateText = evaluation.gracePeriodEndDate
+      ? new Date(evaluation.gracePeriodEndDate).toLocaleDateString(undefined, {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })
+      : null;
 
     return (
       <aside
@@ -118,8 +128,8 @@ export const SubscriptionAlertBanner: React.FC<SubscriptionAlertBannerProps> = (
             <span>
               <strong>Action Required:</strong> Your subscription has expired. You
               are in a 3-day grace period ({daysLeftInGrace} day
-              {daysLeftInGrace === 1 ? "" : "s"} left). Storefront and checkout
-              suspension is imminent!
+              {daysLeftInGrace === 1 ? "" : "s"} left{graceDateText ? ` until ${graceDateText}` : ""}). Storefront and checkout
+              suspension is imminent after grace period!
             </span>
           </div>
 

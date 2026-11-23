@@ -8,7 +8,8 @@ export type ResponsibilityAccessKey =
   | "sales_billing_access"
   | "reports_access"
   | "settings_access"
-  | "ecommerce_access";
+  | "ecommerce_access"
+  | "finance_access";
 
 export type ResponsibilityRecord = {
   id: number;
@@ -22,6 +23,7 @@ export type ResponsibilityRecord = {
   reports_access: boolean;
   settings_access: boolean;
   ecommerce_access: boolean;
+  finance_access: boolean;
   is_system: boolean;
 };
 
@@ -47,6 +49,7 @@ export const RESPONSIBILITY_ACCESS_FIELDS: ResponsibilityAccessKey[] = [
   "reports_access",
   "settings_access",
   "ecommerce_access",
+  "finance_access",
 ];
 
 export const DEFAULT_RESPONSIBILITIES: Array<
@@ -62,6 +65,20 @@ export const DEFAULT_RESPONSIBILITIES: Array<
       reports_access: true,
       settings_access: true,
       ecommerce_access: true,
+      finance_access: true,
+      is_system: true,
+    },
+    {
+      responsibility_name: "finance_team",
+      dashboard_access: true,
+      purchase_access: true,
+      inventory_access: false,
+      sales_access: false,
+      sales_billing_access: false,
+      reports_access: true,
+      settings_access: false,
+      ecommerce_access: false,
+      finance_access: true,
       is_system: true,
     },
     {
@@ -74,6 +91,7 @@ export const DEFAULT_RESPONSIBILITIES: Array<
       reports_access: false,
       settings_access: false,
       ecommerce_access: true,
+      finance_access: false,
       is_system: true,
     },
     {
@@ -86,6 +104,7 @@ export const DEFAULT_RESPONSIBILITIES: Array<
       reports_access: true,
       settings_access: false,
       ecommerce_access: false,
+      finance_access: false,
       is_system: true,
     },
     {
@@ -98,6 +117,7 @@ export const DEFAULT_RESPONSIBILITIES: Array<
       reports_access: true,
       settings_access: false,
       ecommerce_access: false,
+      finance_access: false,
       is_system: true,
     },
     {
@@ -110,6 +130,7 @@ export const DEFAULT_RESPONSIBILITIES: Array<
       reports_access: false,
       settings_access: false,
       ecommerce_access: false,
+      finance_access: false,
       is_system: true,
     },
     {
@@ -122,6 +143,7 @@ export const DEFAULT_RESPONSIBILITIES: Array<
       reports_access: true,
       settings_access: false,
       ecommerce_access: false,
+      finance_access: false,
       is_system: true,
     },
     {
@@ -134,6 +156,7 @@ export const DEFAULT_RESPONSIBILITIES: Array<
       reports_access: true,
       settings_access: false,
       ecommerce_access: false,
+      finance_access: true,
       is_system: true,
     },
   ];
@@ -167,6 +190,7 @@ export function coerceResponsibilityRecord(row: Record<string, unknown>): Respon
     reports_access: Boolean(row.reports_access),
     settings_access: Boolean(row.settings_access),
     ecommerce_access: Boolean(row.ecommerce_access),
+    finance_access: Boolean(row.finance_access),
     is_system: Boolean(row.is_system),
   };
 }
@@ -185,6 +209,7 @@ export async function ensureResponsibilitySchema(client: PoolClient) {
       reports_access BOOLEAN DEFAULT FALSE,
       settings_access BOOLEAN DEFAULT FALSE,
       ecommerce_access BOOLEAN DEFAULT FALSE,
+      finance_access BOOLEAN DEFAULT FALSE,
       is_system BOOLEAN DEFAULT FALSE,
       created_at TIMESTAMP DEFAULT NOW(),
       updated_at TIMESTAMP DEFAULT NOW()
@@ -192,9 +217,15 @@ export async function ensureResponsibilitySchema(client: PoolClient) {
   `);
 
   await client.query(`
+    ALTER TABLE public.user_responsibilities 
+    ADD COLUMN IF NOT EXISTS finance_access BOOLEAN DEFAULT FALSE;
+  `);
+
+  await client.query(`
     UPDATE public.user_responsibilities 
-    SET ecommerce_access = TRUE 
-    WHERE responsibility_name = 'Admin' AND is_system = TRUE;
+    SET ecommerce_access = TRUE,
+        finance_access = TRUE
+    WHERE responsibility_name = 'Admin';
   `);
   await client.query(`
     CREATE UNIQUE INDEX IF NOT EXISTS uq_user_responsibilities_company_name
@@ -271,16 +302,19 @@ export async function seedDefaultResponsibilities(client: PoolClient, companyId:
     const ecommerceAccess = planAccess.ecommerce_access
       ? responsibility.ecommerce_access
       : false;
+    const financeAccess = Boolean(responsibility.finance_access);
 
     await client.query(
       `INSERT INTO public.user_responsibilities
        (
          company_id, responsibility_name, dashboard_access, purchase_access,
          inventory_access, sales_access, sales_billing_access, reports_access,
-         settings_access, ecommerce_access, is_system, created_at, updated_at
+         settings_access, ecommerce_access, finance_access, is_system, created_at, updated_at
        )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW(),NOW())
-       ON CONFLICT (company_id, responsibility_name) DO NOTHING`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW())
+       ON CONFLICT (company_id, responsibility_name) DO UPDATE
+       SET finance_access = EXCLUDED.finance_access
+       WHERE public.user_responsibilities.responsibility_name IN ('Admin', 'finance_team')`,
       [
         companyId,
         responsibility.responsibility_name,
@@ -292,6 +326,7 @@ export async function seedDefaultResponsibilities(client: PoolClient, companyId:
         responsibility.reports_access,
         responsibility.settings_access,
         ecommerceAccess,
+        financeAccess,
         responsibility.is_system,
       ]
     );
@@ -380,6 +415,7 @@ export async function getResponsibilitiesForCompany(client: PoolClient, companyI
        reports_access,
        settings_access,
        ecommerce_access,
+       COALESCE(finance_access, FALSE) AS finance_access,
        is_system
      FROM public.user_responsibilities
      WHERE company_id = $1
@@ -408,6 +444,7 @@ export async function getResponsibilityById(
        reports_access,
        settings_access,
        ecommerce_access,
+       COALESCE(finance_access, FALSE) AS finance_access,
        is_system
      FROM public.user_responsibilities
      WHERE company_id = $1 AND id = $2

@@ -9,6 +9,7 @@ import {
   validateBarcodeOrThrow,
   normalizeBarcode,
 } from "@/lib/product-barcode";
+import { getNextOpeningStockDocNo, postOpeningStockToLedger } from "@/lib/stockLedger";
 
 export const runtime = "nodejs";
 
@@ -25,6 +26,9 @@ type ParsedVariant = {
   barcode: string;
   imageUrls: string[];
   imageIds: number[];
+  initialQty: number;
+  warehouseId: number | null;
+  locatorId: number | null;
 };
 
 type ParsedParent = {
@@ -51,14 +55,27 @@ type VariantTarget = {
   barcode: string | null;
 };
 
+type ParentTarget = {
+  productId: number;
+  productCode: string;
+  name: string;
+};
+
+type WarehouseMeta = { id: number; code: string; name: string };
+type LocatorMeta = { id: number; locatorName: string; warehouseId: number };
+
 type ParsedLinkRow = {
   row: number;
   targetSkuRaw: string;
   productId: number;
-  variantId: number;
+  variantId: number | null;
   sku: string;
   imageIds: number[];
   imageUrls: string[];
+  isParentMapping: boolean;
+  initialQty?: number;
+  warehouseId?: number | null;
+  locatorId?: number | null;
 };
 
 type Lookups = {
@@ -67,6 +84,10 @@ type Lookups = {
   uomByLabel: Map<string, string>;
   variantBySku: Map<string, VariantTarget>;
   variantByBarcode: Map<string, VariantTarget>;
+  parentByCode: Map<string, ParentTarget>;
+  warehousesById: Map<number, WarehouseMeta>;
+  warehousesByKey: Map<string, WarehouseMeta>;
+  locatorsList: LocatorMeta[];
 };
 
 function normalizeHeader(value: string): string {
@@ -185,17 +206,44 @@ async function loadLookups(client: PoolClient, schema: string): Promise<Lookups>
     uomByLabel.set(normalizeLookupKey(idText), idText);
   });
 
-  const variantRows = await client.query<{
-    id: number;
-    product_id: number;
-    sku: string;
-    barcode: string | null;
-  }>(
-    `
-      SELECT id, product_id, sku, barcode
-      FROM "${schema}".product_variants
-    `
-  );
+  const [variantRows, parentRows, warehousesRes, locatorsRes] = await Promise.all([
+    client.query<{
+      id: number;
+      product_id: number;
+      sku: string;
+      barcode: string | null;
+    }>(
+      `
+        SELECT id, product_id, sku, barcode
+        FROM "${schema}".product_variants
+      `
+    ),
+    client.query<{
+      id: number;
+      product_code: string;
+      name: string;
+    }>(
+      `
+        SELECT id, product_code, name
+        FROM "${schema}".products
+      `
+    ),
+    client.query(
+      `
+        SELECT id, code, name
+        FROM "${schema}".warehouses
+        WHERE effective_to IS NULL OR effective_to >= CURRENT_DATE
+      `
+    ),
+    client.query(
+      `
+        SELECT id, locator_name, warehouse_id
+        FROM "${schema}".locators
+        WHERE effective_to IS NULL OR effective_to >= CURRENT_DATE
+      `
+    ),
+  ]);
+
   const variantBySku = new Map<string, VariantTarget>();
   const variantByBarcode = new Map<string, VariantTarget>();
   variantRows.rows.forEach((row) => {
@@ -213,12 +261,54 @@ async function loadLookups(client: PoolClient, schema: string): Promise<Lookups>
     }
   });
 
+  const parentByCode = new Map<string, ParentTarget>();
+  parentRows.rows.forEach((row) => {
+    const target: ParentTarget = {
+      productId: Number(row.id),
+      productCode: String(row.product_code || "").trim(),
+      name: String(row.name || "").trim(),
+    };
+    if (target.productCode) {
+      parentByCode.set(normalizeLookupKey(target.productCode), target);
+    }
+    if (target.name) {
+      parentByCode.set(normalizeLookupKey(target.name), target);
+    }
+  });
+
+  const warehousesById = new Map<number, WarehouseMeta>();
+  const warehousesByKey = new Map<string, WarehouseMeta>();
+  for (const w of warehousesRes.rows) {
+    const meta: WarehouseMeta = {
+      id: Number(w.id),
+      code: stringValue(w.code),
+      name: stringValue(w.name),
+    };
+    warehousesById.set(meta.id, meta);
+    if (meta.code) warehousesByKey.set(normalizeLookupKey(meta.code), meta);
+    if (meta.name) warehousesByKey.set(normalizeLookupKey(meta.name), meta);
+    if (meta.code && meta.name) {
+      warehousesByKey.set(normalizeLookupKey(`${meta.code} - ${meta.name}`), meta);
+      warehousesByKey.set(normalizeLookupKey(`${meta.name} - ${meta.code}`), meta);
+    }
+  }
+
+  const locatorsList: LocatorMeta[] = locatorsRes.rows.map((l: any) => ({
+    id: Number(l.id),
+    locatorName: stringValue(l.locator_name),
+    warehouseId: Number(l.warehouse_id),
+  }));
+
   return {
     categoryByLabel,
     materialByLabel,
     uomByLabel,
     variantBySku,
     variantByBarcode,
+    parentByCode,
+    warehousesById,
+    warehousesByKey,
+    locatorsList,
   };
 }
 
@@ -249,6 +339,57 @@ function resolveTargetVariant(rawValue: string, lookups: Lookups): VariantTarget
   }
 
   return null;
+}
+
+function resolveTargetParent(rawValue: string, lookups: Lookups): ParentTarget | null {
+  const trimmed = rawValue.trim();
+  if (!trimmed) return null;
+
+  const direct = lookups.parentByCode.get(normalizeLookupKey(trimmed));
+  if (direct) return direct;
+
+  if (trimmed.includes(" - ")) {
+    const codePart = trimmed.split(" - ")[0]?.trim() || "";
+    if (codePart) {
+      const byPrefix = lookups.parentByCode.get(normalizeLookupKey(codePart));
+      if (byPrefix) return byPrefix;
+    }
+  }
+
+  return null;
+}
+
+function resolveWarehouse(rawValue: string, lookups: Lookups): WarehouseMeta | null {
+  const trimmed = rawValue.trim();
+  if (!trimmed) return null;
+  return lookups.warehousesByKey.get(normalizeLookupKey(trimmed)) || null;
+}
+
+function resolveLocator(rawValue: string, warehouseId: number, lookups: Lookups): LocatorMeta | null {
+  const trimmed = rawValue.trim().toLowerCase();
+  if (!trimmed) return null;
+  const wh = lookups.warehousesById.get(warehouseId);
+  const whName = wh?.name.toLowerCase() || "";
+
+  for (const loc of lookups.locatorsList) {
+    if (loc.warehouseId !== warehouseId) continue;
+    const nameLower = loc.locatorName.toLowerCase();
+    if (nameLower === trimmed) return loc;
+    if (whName && `${nameLower} (${whName})` === trimmed) return loc;
+    if (whName && `${whName} - ${nameLower}` === trimmed) return loc;
+  }
+  return null;
+}
+
+function isValidImageUrl(url: string): boolean {
+  if (!url || typeof url !== "string") return false;
+  const trimmed = url.trim();
+  if (!trimmed) return false;
+  if (trimmed.includes("<") || trimmed.includes(">") || trimmed.includes('"')) return false;
+  if (trimmed.startsWith("/") || trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return true;
+  }
+  return /^[a-zA-Z0-9_\-./]+\.(jpe?g|png|webp|svg|gif)$/i.test(trimmed);
 }
 
 function resolveLookupStrict(
@@ -368,40 +509,67 @@ async function parseSheet(buffer: Buffer, lookups: Lookups) {
       return;
     }
 
-    const imageIdRaw = cell(row, "image_id");
-    const imageUrlRaw = cell(row, "image_url");
+    const imageIdRaw = cell(row, "image_id") || cell(row, "image id");
+    const imageUrlRaw =
+      cell(row, "image_url") || cell(row, "image url") || cell(row, "image url / tag") || cell(row, "image_url / tag");
     const targetSkuRaw = cell(row, "target sku") || cell(row, "target_sku");
+    const parentSkuRaw = cell(row, "parent sku") || cell(row, "parent_sku");
     const actionRaw = cell(row, "action");
     const skuRaw = cell(row, "sku");
 
     const isLinkRow =
-      Boolean(targetSkuRaw) || actionRaw.trim().toUpperCase() === "LINK";
+      Boolean(targetSkuRaw) || actionRaw.trim().toUpperCase() === "LINK" || isLinkTemplateOnly;
 
     if (isLinkRow) {
-      const lookupRaw = targetSkuRaw || skuRaw;
-      if (!lookupRaw) {
-        errors.push(`Row ${rowNumber}: Target SKU is required for LINK rows.`);
+      const lookupSkuRaw = targetSkuRaw || skuRaw;
+      const lookupParentRaw = parentSkuRaw;
+
+      let targetVariant: VariantTarget | null = null;
+      let targetParent: ParentTarget | null = null;
+
+      if (lookupSkuRaw) {
+        targetVariant = resolveTargetVariant(lookupSkuRaw, lookups);
+        if (!targetVariant) {
+          errors.push(`Row ${rowNumber}: SKU "${lookupSkuRaw}" does not exist in catalog.`);
+          return;
+        }
+      } else if (lookupParentRaw) {
+        targetParent = resolveTargetParent(lookupParentRaw, lookups);
+        if (!targetParent) {
+          errors.push(`Row ${rowNumber}: Parent SKU "${lookupParentRaw}" does not exist in catalog.`);
+          return;
+        }
+      } else {
+        if (isLinkTemplateOnly) {
+          warnings.push(`Row ${rowNumber}: Skipped (no SKU or Parent SKU provided).`);
+          return;
+        }
+        errors.push(`Row ${rowNumber}: SKU or Parent SKU is required for LINK rows.`);
         return;
       }
-      const target = resolveTargetVariant(lookupRaw, lookups);
-      if (!target) {
-        errors.push(`Row ${rowNumber}: Target SKU "${lookupRaw}" not found.`);
-        return;
-      }
+
       const linkImageUrls = splitImageUrls(imageUrlRaw);
       const linkImageIds = splitImageIds(imageIdRaw);
       if (linkImageIds.length === 0 && linkImageUrls.length === 0) {
         errors.push(`Row ${rowNumber}: Image ID or Image URL is required to link.`);
         return;
       }
+
+      for (const url of linkImageUrls) {
+        if (!isValidImageUrl(url)) {
+          errors.push(`Row ${rowNumber}: Image URL "${url}" is malformed.`);
+        }
+      }
+
       linkRows.push({
         row: rowNumber,
-        targetSkuRaw: lookupRaw,
-        productId: target.productId,
-        variantId: target.variantId,
-        sku: target.sku,
+        targetSkuRaw: lookupSkuRaw || lookupParentRaw,
+        productId: targetVariant ? targetVariant.productId : targetParent!.productId,
+        variantId: targetVariant ? targetVariant.variantId : null,
+        sku: targetVariant ? targetVariant.sku : targetParent!.productCode,
         imageIds: linkImageIds,
         imageUrls: linkImageUrls,
+        isParentMapping: targetVariant === null,
       });
       return;
     }
@@ -418,7 +586,6 @@ async function parseSheet(buffer: Buffer, lookups: Lookups) {
     const nameRaw = cell(row, "product_name");
     const description = cell(row, "description");
     const hsn = cell(row, "hsn");
-    const parentSkuRaw = cell(row, "parent sku");
     const color = cell(row, "color");
     const size = cell(row, "size");
     const fitting = cell(row, "fitting");
@@ -430,6 +597,62 @@ async function parseSheet(buffer: Buffer, lookups: Lookups) {
     const lowStockRaw = cell(row, "Low stock amount");
     const backordersRaw = cell(row, "backorders allowed");
     const barcodeRaw = cell(row, "barcode");
+
+    // OPS Quantity fields (Option B - For new products)
+    const qtyRaw =
+      cell(row, "Quantity (OPS - New Products Only)") ||
+      cell(row, "Quantity (OPS)") ||
+      cell(row, "Quantity") ||
+      cell(row, "qty") ||
+      cell(row, "ops qty");
+    const warehouseRaw =
+      cell(row, "Warehouse (OPS - New Products Only)") ||
+      cell(row, "Warehouse (OPS)") ||
+      cell(row, "Warehouse") ||
+      cell(row, "warehouse") ||
+      cell(row, "ops warehouse");
+    const locatorRaw =
+      cell(row, "Locator (OPS - New Products Only)") ||
+      cell(row, "Locator (OPS)") ||
+      cell(row, "Locator") ||
+      cell(row, "locator") ||
+      cell(row, "ops locator");
+
+    let initialQty = 0;
+    let resolvedWarehouseId: number | null = null;
+    let resolvedLocatorId: number | null = null;
+
+    if (qtyRaw || warehouseRaw || locatorRaw) {
+      const parsedQty = asNumber(qtyRaw);
+      if (qtyRaw && (parsedQty === null || parsedQty < 0)) {
+        errors.push(`Row ${rowNumber}: Quantity (OPS) must be a non-negative number.`);
+      } else if (parsedQty !== null) {
+        initialQty = parsedQty;
+      }
+
+      if (initialQty > 0 || warehouseRaw || locatorRaw) {
+        if (!warehouseRaw) {
+          errors.push(`Row ${rowNumber}: Warehouse (OPS) is required when OPS Quantity is provided.`);
+        } else {
+          const wh = resolveWarehouse(warehouseRaw, lookups);
+          if (!wh) {
+            errors.push(`Row ${rowNumber}: Warehouse "${warehouseRaw}" not found in catalog.`);
+          } else {
+            resolvedWarehouseId = wh.id;
+            if (!locatorRaw) {
+              errors.push(`Row ${rowNumber}: Locator (OPS) is required when Warehouse is specified.`);
+            } else {
+              const loc = resolveLocator(locatorRaw, wh.id, lookups);
+              if (!loc) {
+                errors.push(`Row ${rowNumber}: Locator "${locatorRaw}" not found in warehouse "${wh.name}".`);
+              } else {
+                resolvedLocatorId = loc.id;
+              }
+            }
+          }
+        }
+      }
+    }
 
     const categoryId = resolveLookupStrict(
       categoryRaw,
@@ -531,13 +754,17 @@ async function parseSheet(buffer: Buffer, lookups: Lookups) {
     const variantSku = skuRaw || buildVariantSku(parentSku, color, size, fitting);
     const imageUrls = splitImageUrls(imageUrlRaw);
     const imageIds = splitImageIds(imageIdRaw);
-    //console.log("Detected headers:", Object.keys(rows[0]));
+
+    for (const url of imageUrls) {
+      if (!isValidImageUrl(url)) {
+        errors.push(`Row ${rowNumber}: Image URL "${url}" is malformed.`);
+      }
+    }
+
     if (!parentSkuRaw) {
       if (!nameRaw) {
         errors.push(`Row ${rowNumber}: product_name is required for parent rows.`);
-        // console.log(`rownumber: ${rowNumber} missing product name for parent row with auto-generated SKU ${parentSku}`);
       }
-
 
       if (parents.has(parentKey)) {
         errors.push(`Row ${rowNumber}: Duplicate parent SKU "${parentSku}".`);
@@ -574,6 +801,9 @@ async function parseSheet(buffer: Buffer, lookups: Lookups) {
         barcode,
         imageUrls,
         imageIds,
+        initialQty,
+        warehouseId: resolvedWarehouseId,
+        locatorId: resolvedLocatorId,
       });
 
       parents.set(parentKey, parent);
@@ -594,6 +824,9 @@ async function parseSheet(buffer: Buffer, lookups: Lookups) {
       barcode,
       imageUrls,
       imageIds,
+      initialQty,
+      warehouseId: resolvedWarehouseId,
+      locatorId: resolvedLocatorId,
     };
 
     if (parent) {
@@ -845,6 +1078,14 @@ export async function POST(req: NextRequest) {
       fittingMap.set(String(r.fitting_name).toLowerCase(), Number(r.id));
     }
 
+    const initialStockEntries: Array<{
+      variantId: number;
+      sku: string;
+      qty: number;
+      warehouseId: number;
+      locatorId: number;
+    }> = [];
+
     try {
       if (parsed.linkRows.length > 0) {
         const allLinkImageIds = Array.from(
@@ -925,8 +1166,8 @@ export async function POST(req: NextRequest) {
             await client.query(
               `
                 INSERT INTO "${schema}".product_images
-                  (product_id, variant_id, image_id, image_url, alt_text, is_primary, sort_order)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                  (product_id, variant_id, image_id, image_url, alt_text, is_primary, sort_order, is_published)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE)
               `,
               [
                 linkRow.productId,
@@ -1004,6 +1245,16 @@ export async function POST(req: NextRequest) {
           }
           insertedVariants += 1;
 
+          if (variant.initialQty > 0 && variant.warehouseId && variant.locatorId) {
+            initialStockEntries.push({
+              variantId,
+              sku: variant.sku,
+              qty: variant.initialQty,
+              warehouseId: variant.warehouseId,
+              locatorId: variant.locatorId,
+            });
+          }
+
           let order = 1;
           for (const [index, imageUrl] of variant.imageUrls.entries()) {
             const imageId = variant.imageIds[index] ?? null;
@@ -1011,8 +1262,8 @@ export async function POST(req: NextRequest) {
             await client.query(
               `
                 INSERT INTO "${schema}".product_images
-                  (product_id, variant_id, image_id, image_url, alt_text, is_primary, sort_order)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                  (product_id, variant_id, image_id, image_url, alt_text, is_primary, sort_order, is_published)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE)
               `,
               [productId, variantId, imageId, imageUrl, null, order === 1, order]
             );
@@ -1058,6 +1309,16 @@ export async function POST(req: NextRequest) {
         }
         insertedVariants += 1;
 
+        if (variant.initialQty > 0 && variant.warehouseId && variant.locatorId) {
+          initialStockEntries.push({
+            variantId,
+            sku: variant.sku,
+            qty: variant.initialQty,
+            warehouseId: variant.warehouseId,
+            locatorId: variant.locatorId,
+          });
+        }
+
         let order = 1;
         for (const [index, imageUrl] of variant.imageUrls.entries()) {
           const imageId = variant.imageIds[index] ?? null;
@@ -1065,12 +1326,57 @@ export async function POST(req: NextRequest) {
           await client.query(
             `
               INSERT INTO "${schema}".product_images
-                (product_id, variant_id, image_id, image_url, alt_text, is_primary, sort_order)
-              VALUES ($1, $2, $3, $4, $5, $6, $7)
+                (product_id, variant_id, image_id, image_url, alt_text, is_primary, sort_order, is_published)
+              VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE)
             `,
             [productId, variantId, imageId, imageUrl, null, order === 1, order]
           );
           order += 1;
+        }
+      }
+
+      let openingStockCount = 0;
+      if (initialStockEntries.length > 0) {
+        const stockGroups = new Map<string, typeof initialStockEntries>();
+        for (const entry of initialStockEntries) {
+          const groupKey = `${entry.warehouseId}-${entry.locatorId}`;
+          stockGroups.set(groupKey, [...(stockGroups.get(groupKey) || []), entry]);
+        }
+
+        const { company } = await getTenantSchema(req);
+
+        for (const groupEntries of stockGroups.values()) {
+          const { warehouseId, locatorId } = groupEntries[0];
+          const docNo = await getNextOpeningStockDocNo(client, schema);
+          const headerRes = await client.query(
+            `
+              INSERT INTO "${schema}".opening_stock
+                (doc_no, date, description, warehouse_id, locator_id, status, created_at, updated_at)
+              VALUES ($1, CURRENT_DATE, $2, $3, $4, 'Entered', NOW(), NOW())
+              RETURNING id
+            `,
+            [docNo, "Initial stock via Image Master Excel Import", warehouseId, locatorId]
+          );
+          const openingStockId = Number(headerRes.rows[0].id);
+
+          const itemValues: Array<number | string> = [openingStockId, warehouseId, locatorId];
+          const itemPlaceholders = groupEntries.map((entry, idx) => {
+            const base = idx * 3;
+            itemValues.push(entry.variantId, entry.sku, entry.qty);
+            return `($1, $2, $3, $${base + 4}, $${base + 5}, $${base + 6}, NOW())`;
+          });
+
+          await client.query(
+            `
+              INSERT INTO "${schema}".opening_stock_items
+                (opening_stock_id, warehouse_id, locator_id, product_id, sku, qty, created_at)
+              VALUES ${itemPlaceholders.join(", ")}
+            `,
+            itemValues
+          );
+
+          await postOpeningStockToLedger(client, schema, company, openingStockId);
+          openingStockCount += 1;
         }
       }
     } catch (importError: any) {
@@ -1091,6 +1397,7 @@ export async function POST(req: NextRequest) {
       linked_images: linkedImages,
       inserted_products: insertedProducts,
       inserted_variants: insertedVariants,
+      opening_stock_entries: initialStockEntries.length,
       warnings: parsed.warnings,
     });
   } catch (error: any) {

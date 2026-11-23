@@ -7,9 +7,11 @@ import { z } from "zod";
 export const RESERVED_SLUGS = [
   "api",
   "admin",
+  "workspace",
   "app",
   "auth",
   "dashboard",
+  "finance",
   "settings",
   "store",
   "setup",

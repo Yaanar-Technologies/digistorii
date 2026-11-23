@@ -59,7 +59,7 @@ export async function GET(
         pcat.path_string AS category_path,
         pcat.category_name AS category_name,
         COALESCE(
-          (SELECT image_url FROM "${schema}".product_images WHERE product_id = p.id AND (variant_id = pv.id OR variant_id IS NULL) ORDER BY (variant_id = pv.id) DESC, is_primary DESC, id ASC LIMIT 1),
+          (SELECT image_url FROM "${schema}".product_images WHERE product_id = p.id AND (variant_id = pv.id OR variant_id IS NULL) AND is_published = TRUE ORDER BY (variant_id = pv.id) DESC, is_primary DESC, id ASC LIMIT 1),
           ''
         ) AS image_url,
         COALESCE(
@@ -141,7 +141,7 @@ export async function GET(
           pcat.path_string AS category_path,
           pcat.category_name AS category_name,
           COALESCE(
-            (SELECT image_url FROM "${schema}".product_images WHERE product_id = p.id AND (variant_id = pv.id OR variant_id IS NULL) ORDER BY (variant_id = pv.id) DESC, is_primary DESC, id ASC LIMIT 1),
+            (SELECT image_url FROM "${schema}".product_images WHERE product_id = p.id AND (variant_id = pv.id OR variant_id IS NULL) AND is_published = TRUE ORDER BY (variant_id = pv.id) DESC, is_primary DESC, id ASC LIMIT 1),
             ''
           ) AS image_url,
           COALESCE(

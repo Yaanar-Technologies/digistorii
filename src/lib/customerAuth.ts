@@ -111,12 +111,16 @@ export async function ensureCustomerSchema(client: PoolClient, schema: string): 
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".customer_otps (
       id BIGSERIAL PRIMARY KEY,
-      phone VARCHAR(20) NOT NULL,
+      phone VARCHAR(20),
+      email VARCHAR(150),
       otp_hash VARCHAR(255) NOT NULL,
       expires_at TIMESTAMPTZ NOT NULL,
       attempts INT DEFAULT 0,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+
+    ALTER TABLE "${schema}".customer_otps ALTER COLUMN phone DROP NOT NULL;
+    ALTER TABLE "${schema}".customer_otps ADD COLUMN IF NOT EXISTS email VARCHAR(150);
 
     CREATE TABLE IF NOT EXISTS "${schema}".ecom_support_tickets (
       id BIGSERIAL PRIMARY KEY,

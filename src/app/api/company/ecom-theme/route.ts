@@ -310,6 +310,11 @@ export async function POST(req: NextRequest) {
         [companyId]
       );
 
+      // 5. Publish any unreviewed product images
+      await client.query(
+        `UPDATE "${schema}".product_images SET is_published = TRUE WHERE is_published = FALSE`
+      );
+
       await client.query("COMMIT");
       return NextResponse.json({
         success: true,
@@ -346,6 +351,11 @@ export async function POST(req: NextRequest) {
           [companyId, JSON.stringify(draft_theme)]
         );
       }
+
+      // Activate all pending draft images on Save Draft
+      await client.query(
+        `UPDATE "${schema}".product_images SET is_published = TRUE WHERE is_published = FALSE`
+      );
 
       return NextResponse.json({ success: true, message: "Draft theme saved successfully" });
     }

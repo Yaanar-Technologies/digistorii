@@ -90,15 +90,18 @@ export async function POST(req: NextRequest) {
       newEnd.setMonth(newEnd.getMonth() + 1);
     }
 
+    const graceEnd = new Date(newEnd.getTime() + 3 * 24 * 60 * 60 * 1000);
+
     await client.query(
       `UPDATE public.company_subscriptions
        SET 
          subscription_start = NOW(),
          subscription_end = $1,
+         grace_period_end_date = $2,
          status = 'active',
          updated_at = NOW()
-       WHERE company_id = $2`,
-      [newEnd, companyId]
+       WHERE company_id = $3`,
+      [newEnd, graceEnd, companyId]
     );
 
     await client.query(

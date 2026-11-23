@@ -31,7 +31,7 @@ export async function POST(
     }
 
     // 1. Authenticate customer
-    const customerSession = await getStorefrontCustomerSession(req, schema);
+    const customerSession = await getStorefrontCustomerSession(req, company);
     if (!customerSession?.customerId) {
       return NextResponse.json(
         { success: false, error: "Authentication required to cancel order." },

@@ -45,7 +45,7 @@ export function startBillingCron() {
     try {
       await client.query("BEGIN");
 
-      // 1. Sync Expired Statuses
+      // 1. Sync Expired Statuses (Only after the 3-day grace period has passed)
       // Sync companies table status
       await client.query(`
         UPDATE public.companies 
@@ -53,7 +53,7 @@ export function startBillingCron() {
         WHERE id IN (
           SELECT company_id 
           FROM public.company_subscriptions 
-          WHERE subscription_end < NOW()
+          WHERE COALESCE(grace_period_end_date, subscription_end + INTERVAL '3 days') < NOW()
         )
       `);
 
@@ -61,15 +61,15 @@ export function startBillingCron() {
       await client.query(`
         UPDATE public.company_subscriptions
         SET status = 'expired'
-        WHERE subscription_end < NOW()
+        WHERE COALESCE(grace_period_end_date, subscription_end + INTERVAL '3 days') < NOW()
       `);
 
       await client.query("COMMIT");
-      console.log("Expired subscription statuses synced successfully.");
+      console.log("Expired subscription statuses synced successfully (accounting for 3-day grace period).");
 
       // 2. Query & Send 7-Day Warning Email
       const warningResult = await client.query(`
-        SELECT c.email, c.company_name as name, cs.subscription_end
+        SELECT c.email, c.company_name as name, cs.subscription_end, cs.grace_period_end_date
         FROM public.companies c
         JOIN public.company_subscriptions cs ON cs.company_id = c.id
         WHERE cs.subscription_end::date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'
@@ -79,24 +79,45 @@ export function startBillingCron() {
       for (const row of warningResult.rows) {
         if (row.email) {
           const subject = "Your Subscription Expires Soon - Action Required";
-          const text = `Dear Admin,\n\nYour subscription for company "${row.name}" is set to expire on ${new Date(row.subscription_end).toLocaleDateString()}. Please renew it to prevent access lock.\n\nBest Regards,\nSystem Administrator`;
+          const text = `Dear Admin,\n\nYour subscription for company "${row.name}" is set to expire on ${new Date(row.subscription_end).toLocaleDateString()}. Please renew it to prevent service interruption.\n\nBest Regards,\nSystem Administrator`;
           await sendMail(row.email, subject, text);
         }
       }
 
-      // 3. Query & Send Day of Expiry / Expired Email
-      const expiredResult = await client.query(`
-        SELECT c.email, c.company_name as name, cs.subscription_end
+      // 3. Query & Send Grace Period Notice (Subscription Expired, in 3-day grace period)
+      const graceResult = await client.query(`
+        SELECT c.email, c.company_name as name, cs.subscription_end, 
+               COALESCE(cs.grace_period_end_date, cs.subscription_end + INTERVAL '3 days') as grace_end
         FROM public.companies c
         JOIN public.company_subscriptions cs ON cs.company_id = c.id
-        WHERE cs.subscription_end::date <= CURRENT_DATE
+        WHERE cs.subscription_end <= NOW()
+          AND NOW() <= COALESCE(cs.grace_period_end_date, cs.subscription_end + INTERVAL '3 days')
+          AND c.status != 'EXPIRED'
+      `);
+
+      for (const row of graceResult.rows) {
+        if (row.email) {
+          const graceDate = new Date(row.grace_end).toLocaleDateString();
+          const subject = "Subscription Expired: 3-Day Grace Period Active";
+          const text = `Dear Admin,\n\nYour subscription for company "${row.name}" expired on ${new Date(row.subscription_end).toLocaleDateString()}.\n\nYou are currently in a 3-day grace period ending on ${graceDate}. All operations remain active during this window. Please renew immediately to avoid complete service suspension after ${graceDate}.\n\nBest Regards,\nSystem Administrator`;
+          await sendMail(row.email, subject, text);
+        }
+      }
+
+      // 4. Query & Send Hard Cutoff / Expired Email (After grace period)
+      const expiredResult = await client.query(`
+        SELECT c.email, c.company_name as name, cs.subscription_end,
+               COALESCE(cs.grace_period_end_date, cs.subscription_end + INTERVAL '3 days') as grace_end
+        FROM public.companies c
+        JOIN public.company_subscriptions cs ON cs.company_id = c.id
+        WHERE COALESCE(cs.grace_period_end_date, cs.subscription_end + INTERVAL '3 days') < NOW()
           AND c.status = 'EXPIRED'
       `);
 
       for (const row of expiredResult.rows) {
         if (row.email) {
-          const subject = "Your Subscription Has Expired - Contact Administrator";
-          const text = `Dear Admin,\n\nYour subscription for company "${row.name}" has expired on ${new Date(row.subscription_end).toLocaleDateString()}. Access to the system has been restricted. Please renew the subscription to restore access.\n\nBest Regards,\nSystem Administrator`;
+          const subject = "Your Subscription Has Expired - Access Suspended";
+          const text = `Dear Admin,\n\nYour subscription and 3-day grace period for company "${row.name}" have ended. Access to the system has been restricted. Please renew the subscription to restore access.\n\nBest Regards,\nSystem Administrator`;
           await sendMail(row.email, subject, text);
         }
       }

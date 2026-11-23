@@ -20,7 +20,7 @@ async function resolveSchema(req: NextRequest): Promise<string> {
   throw new Error("Tenant context missing");
 }
 
-async function handleValidate(code: string, dateStr?: string | null, req?: NextRequest) {
+async function handleValidate(code: string, dateStr?: string | null, req?: NextRequest, channelParam?: string | null) {
   if (!code || !code.trim()) {
     return NextResponse.json(
       { success: false, error: "Coupon code is required" },
@@ -31,9 +31,22 @@ async function handleValidate(code: string, dateStr?: string | null, req?: NextR
   const client = await pool.connect();
   try {
     const schema = await resolveSchema(req!);
+    const url = req ? new URL(req.url) : null;
+    const resolvedChannel = (
+      channelParam ||
+      url?.searchParams?.get("channel") ||
+      (url?.searchParams?.get("company") ? "ecom" : "pos")
+    ).toLowerCase();
+
     const checkDate = dateStr && !isNaN(new Date(dateStr).getTime())
       ? new Date(dateStr).toISOString().split("T")[0]
       : new Date().toISOString().split("T")[0];
+
+    const channelFilter = resolvedChannel === "ecom"
+      ? "AND COALESCE(d.channel, 'both') IN ('ecom', 'both')"
+      : resolvedChannel === "pos"
+      ? "AND COALESCE(d.channel, 'both') IN ('pos', 'both')"
+      : "AND COALESCE(d.channel, 'both') IN ('pos', 'ecom', 'both')";
 
     const result = await client.query(
       `
@@ -57,6 +70,7 @@ async function handleValidate(code: string, dateStr?: string | null, req?: NextR
         FROM "${schema}".discounts d
         LEFT JOIN "${schema}".discount_variants dv ON d.id = dv.discount_id
         WHERE d.is_active = TRUE
+          ${channelFilter}
           AND LOWER(d.coupon_code) = LOWER($1)
           AND (d.starts_at IS NULL OR d.starts_at::date <= $2::date)
           AND (d.ends_at IS NULL OR d.ends_at::date >= $2::date)
@@ -109,7 +123,8 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const code = searchParams.get("code") || "";
   const date = searchParams.get("date");
-  return handleValidate(code, date, req);
+  const channel = searchParams.get("channel");
+  return handleValidate(code, date, req, channel);
 }
 
 export async function POST(req: NextRequest) {
@@ -117,7 +132,8 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const code = body.code || body.coupon_code || "";
     const date = body.date || body.sales_date;
-    return handleValidate(code, date, req);
+    const channel = body.channel;
+    return handleValidate(code, date, req, channel);
   } catch {
     return NextResponse.json(
       { success: false, error: "Invalid request payload" },

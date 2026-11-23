@@ -32,8 +32,17 @@ const PUBLIC_API_PREFIXES = [
 ];
 // Exact paths only (sub-paths stay protected). /api/company returns just the display name for login pages.
 const INTERNAL_ORIGIN = `http://127.0.0.1:${process.env.PORT || 3000}`;
+
+function getInternalOrigin(req: NextRequest): string {
+  const host = req.headers.get("host") || "";
+  if (host.includes("localhost") || host.includes("127.0.0.1")) {
+    return req.nextUrl.origin;
+  }
+  return INTERNAL_ORIGIN;
+}
+
 const PUBLIC_API_EXACT = ["/api/company"];
-const PUBLIC_COMPANY_API = /^\/api\/[^/]+\/(ecom\/(checkout|payment|webhooks|support|customer)|storefront)(\/|$)/;
+const PUBLIC_COMPANY_API = /^\/api\/[^/]+\/(ecom\/(checkout|payment|webhooks|support|customer|orders\/[^/]+\/(customer-cancel|invoice))|storefront)(\/|$)/;
 const COMPANY_SCOPED_API = /^\/api\/([^/]+)\/(ecom|admin|upload)(\/|$)/;
 // Lookups the onboarding wizard needs before the owner has a staff session.
 const ONBOARDING_API_PREFIXES = ["/api/currencies", "/api/user-responsibilities", "/api/locations", "/api/warehouses"];
@@ -41,7 +50,8 @@ const TRUSTED_TENANT_HEADERS = ["x-tenant", "x-schema-name", "x-company-id", "x-
 
 async function resolveTenantBySlug(req: NextRequest, slug: string) {
   try {
-    const res = await fetch(`${INTERNAL_ORIGIN}/api/resolve-tenant?subdomain=${encodeURIComponent(slug)}`, {
+    const origin = getInternalOrigin(req);
+    const res = await fetch(`${origin}/api/resolve-tenant?subdomain=${encodeURIComponent(slug)}`, {
       cache: "no-store",
     });
     if (!res.ok) return null;
@@ -164,7 +174,8 @@ export async function middleware(req: NextRequest) {
   if (isCustomDomain) {
     // 1. If it's a custom domain, look up by hostname
     try {
-      const res = await fetch(`${INTERNAL_ORIGIN}/api/resolve-tenant?host=${encodeURIComponent(domainInfo.hostname)}`, {
+      const origin = getInternalOrigin(req);
+      const res = await fetch(`${origin}/api/resolve-tenant?host=${encodeURIComponent(domainInfo.hostname)}`, {
         cache: "no-store",
       });
       if (res.ok) {
@@ -193,7 +204,8 @@ export async function middleware(req: NextRequest) {
 
     if (subdomain && !isReservedSlug(subdomain)) {
       try {
-        const res = await fetch(`${INTERNAL_ORIGIN}/api/resolve-tenant?subdomain=${encodeURIComponent(subdomain)}`, {
+        const origin = getInternalOrigin(req);
+        const res = await fetch(`${origin}/api/resolve-tenant?subdomain=${encodeURIComponent(subdomain)}`, {
           cache: "no-store",
         });
         if (res.ok) {
@@ -237,6 +249,25 @@ export async function middleware(req: NextRequest) {
     "robots.txt",
     "sitemap.xml",
   ]);
+
+  if (!isCustomDomain) {
+    if (
+      pathname === "/workspace" ||
+      pathname.startsWith("/workspace/") ||
+      pathname === "/admin" ||
+      pathname.startsWith("/admin/")
+    ) {
+      const staff =
+        (await verifySession<StaffSessionPayload>(req.cookies.get(STAFF_COOKIE_NAME)?.value, "staff")) ||
+        (await verifySession<StaffSessionPayload>(req.cookies.get("admin_user")?.value, "staff"));
+
+      if (staff?.company_name) {
+        const redirectUrl = new URL(`/${staff.company_name}${pathname}`, req.url);
+        redirectUrl.search = req.nextUrl.search;
+        return NextResponse.redirect(redirectUrl);
+      }
+    }
+  }
 
   if (isCustomDomain && tenant) {
     // Block /workspace and /admin routes on custom domains
@@ -343,6 +374,25 @@ export async function middleware(req: NextRequest) {
     });
   }
 
+  // Check user and admin cookies using verifySession
+  const userCookie = req.cookies.get(STAFF_COOKIE_NAME)?.value;
+  const adminCookie = req.cookies.get("admin_user")?.value;
+
+  // If path is workspace login, check if user already has an active session for this company to bypass login
+  if (
+    effectivePathname === `/${company}/workspace/login` ||
+    effectivePathname === `/${company}/workspace/login/`
+  ) {
+    const staffUser = await verifySession<StaffSessionPayload>(userCookie, "staff");
+    if (
+      staffUser &&
+      (staffUser.company_name?.toLowerCase() === company.toLowerCase() ||
+        staffUser.subdomain_url?.toLowerCase() === company.toLowerCase())
+    ) {
+      return NextResponse.redirect(new URL(`/${company}/workspace`, req.url));
+    }
+  }
+
   // If path is a login/reset path, let it pass
   const isLoginOrReset =
     effectivePathname.startsWith(`/${company}/workspace/login`) ||
@@ -358,10 +408,6 @@ export async function middleware(req: NextRequest) {
       request: { headers: requestHeaders }
     });
   }
-
-  // Check user and admin cookies using verifySession
-  const userCookie = req.cookies.get(STAFF_COOKIE_NAME)?.value;
-  const adminCookie = req.cookies.get("admin_user")?.value;
 
   // Storefront pages (e.g. /mycompany/store/..., /mycompany/policies/...) do NOT require admin or workspace user authentication!
   const isStorefrontRoute =
@@ -396,7 +442,9 @@ export async function middleware(req: NextRequest) {
     }
     const adminPath = effectivePathname.slice(`/${company}`.length);
     const requiredPermission = getRequiredPermissionForPath(adminPath);
-    if (requiredPermission && !canAccess(adminUser?.permissions, requiredPermission)) {
+    const isAdmin = adminUser?.responsibility_name === "Admin" || (adminUser?.permissions?.settings_access && adminUser?.permissions?.dashboard_access);
+    const hasAdminAccess = !requiredPermission || isAdmin || canAccess(adminUser?.permissions, requiredPermission);
+    if (requiredPermission && !hasAdminAccess) {
       const fallbackPath = getFirstAccessiblePath(adminUser?.permissions);
       return NextResponse.redirect(
         new URL(fallbackPath ? `/${company}${fallbackPath}` : `/${company}/admin/login`, req.url)
@@ -412,7 +460,15 @@ export async function middleware(req: NextRequest) {
     }
     const userPath = effectivePathname.slice(`/${company}`.length);
     const requiredPermission = getRequiredPermissionForPath(userPath);
-    if (requiredPermission && !canAccess(currentUser?.permissions, requiredPermission)) {
+    const isAdmin = currentUser?.responsibility_name === "Admin" || (currentUser?.permissions?.settings_access && currentUser?.permissions?.dashboard_access);
+    const isFinanceTeam = currentUser?.responsibility_name === "finance_team";
+    const hasAccess =
+      !requiredPermission ||
+      isAdmin ||
+      (requiredPermission === "finance_access" && isFinanceTeam) ||
+      canAccess(currentUser?.permissions, requiredPermission);
+
+    if (requiredPermission && !hasAccess) {
       const fallbackPath = getFirstAccessiblePath(currentUser?.permissions);
       return NextResponse.redirect(
         new URL(fallbackPath ? `/${company}${fallbackPath}` : `/${company}/workspace/login`, req.url)

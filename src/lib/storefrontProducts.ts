@@ -165,7 +165,7 @@ export async function getStorefrontData(companySlug: string) {
           (
             SELECT ARRAY_AGG(pi.image_url ORDER BY pi.is_primary DESC, pi.id ASC)
             FROM "${schema}".product_images pi
-            WHERE pi.product_id = p.id
+            WHERE pi.product_id = p.id AND pi.is_published = TRUE
           ),
           ARRAY[]::text[]
         ) AS images,

@@ -1,11 +1,6 @@
 import { PoolClient } from "pg";
-import { createMasterTables } from "./lib";
 import { ensureCurrenciesSeeded } from "./currencySeed";
-import { ensureLocationTableShape } from "./locationSchema";
 import { ensureTenantLookupDataSeeded } from "./tenantLookupSeed";
-import { ensureLogisticsSchema } from "./logisticsSchema";
-import { ensurePaymentsSchema } from "./paymentsSchema";
-
 
 export async function createCompanySchema(
   client: PoolClient,
@@ -48,193 +43,193 @@ export async function createCompanySchema(
   // Security hardening (important for SaaS isolation)
   await client.query(`REVOKE ALL ON SCHEMA "${schema}" FROM PUBLIC`);
 
-  // Ensure UUID generation is available for discount IDs
+  // Ensure UUID generation is available for discount IDs and tokens
   await client.query(`CREATE EXTENSION IF NOT EXISTS "pgcrypto"`);
 
   /* =========================================================
      CUSTOMERS
      ========================================================= */
   await client.query(`
-      CREATE TABLE IF NOT EXISTS "${schema}".customers (
-        id SERIAL PRIMARY KEY,
-        cust_code VARCHAR(20) UNIQUE,
-        cust_name VARCHAR(50) NOT NULL,
-        name VARCHAR(50),
-        email VARCHAR(150),
-        phone VARCHAR(20),
-        channel VARCHAR(20) NOT NULL DEFAULT 'pos' CHECK (channel IN ('pos', 'ecom', 'both')),
-        password_hash VARCHAR(255) NULL,
-        is_verified BOOLEAN NOT NULL DEFAULT FALSE,
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT now()
-      );
-    `);
+    CREATE TABLE IF NOT EXISTS "${schema}".customers (
+      id SERIAL PRIMARY KEY,
+      cust_code VARCHAR(20) UNIQUE,
+      cust_name VARCHAR(50) NOT NULL,
+      name VARCHAR(50),
+      email VARCHAR(150),
+      phone VARCHAR(20),
+      channel VARCHAR(20) NOT NULL DEFAULT 'pos' CHECK (channel IN ('pos', 'ecom', 'both')),
+      password_hash VARCHAR(255) NULL,
+      is_verified BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT now()
+    );
 
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_unique_email
+    ON "${schema}".customers (email) WHERE email IS NOT NULL AND email <> '';
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_unique_phone
+    ON "${schema}".customers (phone) WHERE phone IS NOT NULL AND phone <> '';
+  `);
+
+  /* =========================================================
+     CUSTOMER ADDRESSES
+     ========================================================= */
   await client.query(`
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_unique_email
-      ON "${schema}".customers (email) WHERE email IS NOT NULL AND email <> '';
+    CREATE TABLE IF NOT EXISTS "${schema}".customer_addresses (
+      id SERIAL PRIMARY KEY,
+      customer_id INTEGER NOT NULL REFERENCES "${schema}".customers(id) ON DELETE CASCADE,
+      recipient_name VARCHAR(100),
+      recipient_phone VARCHAR(20),
+      address_type VARCHAR(20) DEFAULT 'Home',
+      address_line1 VARCHAR(200),
+      address_line2 VARCHAR(200),
+      address_line3 VARCHAR(200),
+      city VARCHAR(100),
+      state VARCHAR(100),
+      pincode VARCHAR(20),
+      country VARCHAR(100) DEFAULT 'India',
+      is_default BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW(),
+      CONSTRAINT chk_india_pincode CHECK (pincode IS NULL OR pincode ~ '^[1-9][0-9]{5}$')
+    );
 
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_unique_phone
-      ON "${schema}".customers (phone) WHERE phone IS NOT NULL AND phone <> '';
-    `);
-
-  await client.query(`
-      CREATE TABLE IF NOT EXISTS "${schema}".customer_addresses (
-        id SERIAL PRIMARY KEY,
-        customer_id INTEGER NOT NULL REFERENCES "${schema}".customers(id) ON DELETE CASCADE,
-        recipient_name VARCHAR(100),
-        recipient_phone VARCHAR(20),
-        address_type VARCHAR(20) DEFAULT 'Home',
-        address_line1 VARCHAR(200),
-        address_line2 VARCHAR(200),
-        address_line3 VARCHAR(200),
-        city VARCHAR(100),
-        state VARCHAR(100),
-        pincode VARCHAR(20),
-        country VARCHAR(100) DEFAULT 'India',
-        is_default BOOLEAN NOT NULL DEFAULT FALSE,
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW(),
-        CONSTRAINT chk_india_pincode CHECK (pincode IS NULL OR pincode ~ '^[1-9][0-9]{5}$')
-      );
-
-      CREATE UNIQUE INDEX IF NOT EXISTS customer_addresses_customer_default_idx
-      ON "${schema}".customer_addresses (customer_id)
-      WHERE is_default;
-    `);
+    CREATE UNIQUE INDEX IF NOT EXISTS customer_addresses_customer_default_idx
+    ON "${schema}".customer_addresses (customer_id)
+    WHERE is_default;
+  `);
 
   /* =========================================================
      SUPPLIERS
      ========================================================= */
   await client.query(`
-      CREATE TABLE IF NOT EXISTS "${schema}".suppliers (
-        id SERIAL PRIMARY KEY,
-        supplier_code VARCHAR(20) UNIQUE,
-        short_name VARCHAR(100) NOT NULL,
-        supplier_name VARCHAR(200) NOT NULL,
-        classification SMALLINT NOT NULL,
-        introduced_date DATE,
-        introduced_by VARCHAR(100),
-        effective_from DATE,
-        effective_to DATE,
-        purchase_hold BOOLEAN DEFAULT FALSE,
-        qc_required BOOLEAN DEFAULT FALSE,
-        name VARCHAR(200),
-        email VARCHAR(150),
-        phone VARCHAR(20),
-        address_line1 VARCHAR(50),
-        address_line2 VARCHAR(50),
-        address_line3 VARCHAR(50),
-        city VARCHAR(100),
-        state VARCHAR(100),
-        pincode VARCHAR(20),
-        country VARCHAR(100),
-        website VARCHAR(200),
-        linkedin VARCHAR(200),
-        skype VARCHAR(200),
-        dispatch_terms VARCHAR(100),
-        payment_terms VARCHAR(100),
-        currency VARCHAR(20),
-        gstin VARCHAR(30),
-        cin VARCHAR(30),
-        bank_name VARCHAR(150),
-        beneficiary_name VARCHAR(150),
-        beneficiary_code VARCHAR(100),
-        branch VARCHAR(150),
-        ifsc_code VARCHAR(50),
-        swift_code VARCHAR(50),
-        contact_person1 VARCHAR(100),
-        contact_phone1 VARCHAR(30),
-        contact_email1 VARCHAR(150),
-        contact_person2 VARCHAR(100),
-        contact_phone2 VARCHAR(30),
-        contact_email2 VARCHAR(150),
-        contact_person3 VARCHAR(100),
-        contact_phone3 VARCHAR(30),
-        contact_email3 VARCHAR(150),
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT now(),
-        CONSTRAINT unique_supplier_email UNIQUE(email)
-      );
-    `);
-
-  await client.query(`
-      CREATE TABLE IF NOT EXISTS "${schema}".tax_master (
-        id SERIAL PRIMARY KEY,
-        tax_name VARCHAR(100) NOT NULL,
-        total_percentage NUMERIC(5,2) NOT NULL CHECK (total_percentage >= 0),
-        effective_from DATE NOT NULL,
-        effective_to DATE,
-        is_active BOOLEAN DEFAULT TRUE,
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW()
-      );
-    `);
-
-  await client.query(`
-      CREATE TABLE IF NOT EXISTS "${schema}".tax_component (
-        id SERIAL PRIMARY KEY,
-        tax_master_id INT NOT NULL
-          REFERENCES "${schema}".tax_master(id) ON DELETE CASCADE,
-        component_name VARCHAR(20) NOT NULL,
-        component_percentage NUMERIC(5,2) NOT NULL CHECK (component_percentage >= 0),
-        created_at TIMESTAMP DEFAULT NOW()
-      );
-    `);
-
-  await client.query(`
-      CREATE TABLE IF NOT EXISTS "${schema}".uom (
-        id SERIAL PRIMARY KEY,
-        uom_code VARCHAR(30) NOT NULL UNIQUE,
-        uom_name VARCHAR(120) NOT NULL,
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW()
-      );
-    `);
-
-  await client.query(`
-      CREATE TABLE IF NOT EXISTS "${schema}".currencies (
-        id SERIAL PRIMARY KEY,
-        currency_code VARCHAR(10) UNIQUE NOT NULL,
-        currency_name VARCHAR(120) NOT NULL
-      );
-    `);
-  await client.query(`
-    CREATE TABLE "${schema}".currency_rates (
-    id SERIAL PRIMARY KEY,
-    currency_id INT NOT NULL
-        REFERENCES "${schema}".currencies(id)
-        ON DELETE CASCADE,
-    country VARCHAR(100),
-    region VARCHAR(50),
-    conversion_rate NUMERIC NOT NULL CHECK (conversion_rate >= 0),
-    created_by VARCHAR(100),
-    created_at TIMESTAMP,
-    updated_by VARCHAR(100),
-    updated_at TIMESTAMP,
-    UNIQUE (currency_id)
+    CREATE TABLE IF NOT EXISTS "${schema}".suppliers (
+      id SERIAL PRIMARY KEY,
+      supplier_code VARCHAR(20) UNIQUE,
+      short_name VARCHAR(100) NOT NULL,
+      supplier_name VARCHAR(200) NOT NULL,
+      classification SMALLINT NOT NULL,
+      introduced_date DATE,
+      introduced_by VARCHAR(100),
+      effective_from DATE,
+      effective_to DATE,
+      purchase_hold BOOLEAN DEFAULT FALSE,
+      qc_required BOOLEAN DEFAULT FALSE,
+      name VARCHAR(200),
+      email VARCHAR(150),
+      phone VARCHAR(20),
+      address_line1 VARCHAR(50),
+      address_line2 VARCHAR(50),
+      address_line3 VARCHAR(50),
+      city VARCHAR(100),
+      state VARCHAR(100),
+      pincode VARCHAR(20),
+      country VARCHAR(100),
+      website VARCHAR(200),
+      linkedin VARCHAR(200),
+      skype VARCHAR(200),
+      dispatch_terms VARCHAR(100),
+      payment_terms VARCHAR(100),
+      currency VARCHAR(20),
+      gstin VARCHAR(30),
+      cin VARCHAR(30),
+      bank_name VARCHAR(150),
+      beneficiary_name VARCHAR(150),
+      beneficiary_code VARCHAR(100),
+      branch VARCHAR(150),
+      ifsc_code VARCHAR(50),
+      swift_code VARCHAR(50),
+      contact_person1 VARCHAR(100),
+      contact_phone1 VARCHAR(30),
+      contact_email1 VARCHAR(150),
+      contact_person2 VARCHAR(100),
+      contact_phone2 VARCHAR(30),
+      contact_email2 VARCHAR(150),
+      contact_person3 VARCHAR(100),
+      contact_phone3 VARCHAR(30),
+      contact_email3 VARCHAR(150),
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT now(),
+      CONSTRAINT unique_supplier_email UNIQUE(email)
     );
   `);
 
+  /* =========================================================
+     TAX MASTER & COMPONENTS
+     ========================================================= */
   await client.query(`
-  CREATE TABLE "${schema}".company_settings (
-  id SERIAL PRIMARY KEY,
-  company_id INT NOT NULL,              
-  base_currency VARCHAR(10) NOT NULL,
-  date_format VARCHAR(20) ,
-  time_zone VARCHAR(50) ,
-  financial_year_start DATE,
-  financial_year_end DATE,
-  sales_target NUMERIC DEFAULT 0,
-  created_by VARCHAR(100),
-  created_at TIMESTAMP ,
-  updated_by VARCHAR(100),
-  updated_at TIMESTAMP ,
-  CONSTRAINT unique_company UNIQUE (company_id)
-);
-`);
+    CREATE TABLE IF NOT EXISTS "${schema}".tax_master (
+      id SERIAL PRIMARY KEY,
+      tax_name VARCHAR(100) NOT NULL,
+      total_percentage NUMERIC(5,2) NOT NULL CHECK (total_percentage >= 0),
+      effective_from DATE NOT NULL,
+      effective_to DATE,
+      is_active BOOLEAN DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    );
 
+    CREATE TABLE IF NOT EXISTS "${schema}".tax_component (
+      id SERIAL PRIMARY KEY,
+      tax_master_id INT NOT NULL REFERENCES "${schema}".tax_master(id) ON DELETE CASCADE,
+      component_name VARCHAR(20) NOT NULL,
+      component_percentage NUMERIC(5,2) NOT NULL CHECK (component_percentage >= 0),
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+  `);
+
+  /* =========================================================
+     UOM & CURRENCIES
+     ========================================================= */
   await client.query(`
+    CREATE TABLE IF NOT EXISTS "${schema}".uom (
+      id SERIAL PRIMARY KEY,
+      uom_code VARCHAR(30) NOT NULL UNIQUE,
+      uom_name VARCHAR(120) NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS "${schema}".currencies (
+      id SERIAL PRIMARY KEY,
+      currency_code VARCHAR(10) UNIQUE NOT NULL,
+      currency_name VARCHAR(120) NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS "${schema}".currency_rates (
+      id SERIAL PRIMARY KEY,
+      currency_id INT NOT NULL REFERENCES "${schema}".currencies(id) ON DELETE CASCADE,
+      country VARCHAR(100),
+      region VARCHAR(50),
+      conversion_rate NUMERIC NOT NULL CHECK (conversion_rate >= 0),
+      created_by VARCHAR(100),
+      created_at TIMESTAMP,
+      updated_by VARCHAR(100),
+      updated_at TIMESTAMP,
+      UNIQUE (currency_id)
+    );
+  `);
+
+  /* =========================================================
+     SETTINGS
+     ========================================================= */
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "${schema}".company_settings (
+      id SERIAL PRIMARY KEY,
+      company_id INT NOT NULL,              
+      base_currency VARCHAR(10) NOT NULL,
+      date_format VARCHAR(20),
+      time_zone VARCHAR(50),
+      financial_year_start DATE,
+      financial_year_end DATE,
+      sales_target NUMERIC DEFAULT 0,
+      created_by VARCHAR(100),
+      created_at TIMESTAMP,
+      updated_by VARCHAR(100),
+      updated_at TIMESTAMP,
+      CONSTRAINT unique_company UNIQUE (company_id)
+    );
+
     CREATE TABLE IF NOT EXISTS "${schema}".business_settings (
       id SERIAL PRIMARY KEY,
       gst_number VARCHAR(20),
@@ -259,189 +254,137 @@ export async function createCompanySchema(
   await ensureCurrenciesSeeded(client, schema);
 
   /* =========================================================
-     PAYMENT TERMS MASTER
+     PAYMENT TERMS & MODES
      ========================================================= */
   await client.query(`
-      CREATE TABLE IF NOT EXISTS "${schema}".payment_terms (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(120) NOT NULL,
-        type VARCHAR(20) NOT NULL CHECK (type IN ('immediate', 'days', 'month')),
-        days INT NULL CHECK (days IS NULL OR (days >= 1 AND days <= 30)),
-        month INT NULL CHECK (month IS NULL OR (month >= 1 AND month <= 30)),
-        description TEXT NULL,
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW(),
-        CONSTRAINT payment_terms_type_value_chk CHECK (
-          (type = 'immediate' AND days IS NULL AND month IS NULL) OR
-          (type = 'days' AND days IS NOT NULL AND month IS NULL) OR
-          (type = 'month' AND month IS NOT NULL AND days IS NULL)
-        )
-      );
-    `);
+    CREATE TABLE IF NOT EXISTS "${schema}".payment_terms (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(120) NOT NULL,
+      type VARCHAR(20) NOT NULL CHECK (type IN ('immediate', 'days', 'month')),
+      days INT NULL CHECK (days IS NULL OR (days >= 1 AND days <= 30)),
+      month INT NULL CHECK (month IS NULL OR (month >= 1 AND month <= 30)),
+      description TEXT NULL,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW(),
+      CONSTRAINT payment_terms_type_value_chk CHECK (
+        (type = 'immediate' AND days IS NULL AND month IS NULL) OR
+        (type = 'days' AND days IS NOT NULL AND month IS NULL) OR
+        (type = 'month' AND month IS NOT NULL AND days IS NULL)
+      )
+    );
 
-  await client.query(`
-      CREATE TABLE IF NOT EXISTS "${schema}".payment_modes (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(120) NOT NULL,
-        is_default BOOLEAN DEFAULT FALSE,
-        is_active BOOLEAN DEFAULT TRUE,
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW(),
-        CONSTRAINT uq_payment_modes_name UNIQUE (name)
-      );
-    `);
+    CREATE TABLE IF NOT EXISTS "${schema}".payment_modes (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(120) NOT NULL,
+      is_default BOOLEAN DEFAULT FALSE,
+      is_active BOOLEAN DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW(),
+      CONSTRAINT uq_payment_modes_name UNIQUE (name)
+    );
+  `);
 
   /* =========================================================
-     CATEGORY MASTER
+     CATEGORIES, ATTRIBUTES & DESPATCH
      ========================================================= */
   await client.query(`
-      CREATE TABLE IF NOT EXISTS "${schema}".product_categories (
-        id BIGSERIAL PRIMARY KEY,
-        category_name VARCHAR(150) NOT NULL,
-        parent_id BIGINT NULL REFERENCES "${schema}".product_categories(id) ON DELETE CASCADE,
-        level INT DEFAULT 1,
-        path_string TEXT,
-        path_ids TEXT,
-        inactive_date DATE NULL,
-        created_at TIMESTAMP DEFAULT NOW()
-      );
-    `);
+    CREATE TABLE IF NOT EXISTS "${schema}".product_categories (
+      id BIGSERIAL PRIMARY KEY,
+      category_name VARCHAR(150) NOT NULL,
+      parent_id BIGINT NULL REFERENCES "${schema}".product_categories(id) ON DELETE CASCADE,
+      level INT DEFAULT 1,
+      path_string TEXT,
+      path_ids TEXT,
+      inactive_date DATE NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
 
-  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_cat_path_string
     ON "${schema}".product_categories (path_string);
+
+    CREATE TABLE IF NOT EXISTS "${schema}".product_materials (
+      id SERIAL PRIMARY KEY,
+      material_code VARCHAR(20) NOT NULL,
+      material_name VARCHAR(150) NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS "${schema}".product_fittings (
+      id SERIAL PRIMARY KEY,
+      fitting_name VARCHAR(150) NOT NULL UNIQUE,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS "${schema}".product_colors (
+      id SERIAL PRIMARY KEY,
+      color_name VARCHAR(150) NOT NULL UNIQUE,
+      hex_code VARCHAR(20) NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS "${schema}".despatch_terms (
+      id SERIAL PRIMARY KEY,
+      code VARCHAR(30) NOT NULL UNIQUE,
+      despatch_name VARCHAR(150) NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    );
   `);
 
   /* =========================================================
-     PRODUCT MATERIALS
+     PRODUCTS & VARIANTS
      ========================================================= */
   await client.query(`
-      CREATE TABLE IF NOT EXISTS "${schema}".product_materials (
-        id SERIAL PRIMARY KEY,
-        material_code VARCHAR(20) NOT NULL,
-        material_name VARCHAR(150) NOT NULL,
-        created_at TIMESTAMP DEFAULT NOW()
-      );
-       `);
-  await client.query(`
-      CREATE TABLE IF NOT EXISTS "${schema}".product_fittings (
-        id SERIAL PRIMARY KEY,
-        fitting_name VARCHAR(150) NOT NULL UNIQUE,
-        created_at TIMESTAMP DEFAULT NOW()
-      );
-       `);
-  await client.query(`
-      CREATE TABLE IF NOT EXISTS "${schema}".product_colors (
-        id SERIAL PRIMARY KEY,
-        color_name VARCHAR(150) NOT NULL UNIQUE,
-        hex_code VARCHAR(20) NOT NULL,
-        created_at TIMESTAMP DEFAULT NOW()
-      );
-    `);
+    CREATE TABLE IF NOT EXISTS "${schema}".products (
+      id BIGSERIAL PRIMARY KEY,
+      product_code VARCHAR(20) NOT NULL UNIQUE,
+      name VARCHAR(120) NOT NULL,
+      description TEXT,
+      category VARCHAR(50),
+      material VARCHAR(50),
+      uom VARCHAR(20),
+      hsn_code VARCHAR(20),
+      weight NUMERIC(10,2),
+      length NUMERIC(10,2),
+      width NUMERIC(10,2),
+      height NUMERIC(10,2),
+      specifications JSONB DEFAULT '[]'::jsonb,
+      type VARCHAR(20) NOT NULL DEFAULT 'finished_good' CHECK (type IN ('finished_good', 'raw_material', 'other')),
+      source VARCHAR(20) NOT NULL DEFAULT 'own' CHECK (source IN ('own', 'vendor')),
+      status SMALLINT NOT NULL DEFAULT 1 CHECK (status IN (1, 2)),
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
 
-  /* =========================================================
-     DESPATCH TERMS MASTER
-     ========================================================= */
-  await client.query(`
-      CREATE TABLE IF NOT EXISTS "${schema}".despatch_terms (
-        id SERIAL PRIMARY KEY,
-        code VARCHAR(30) NOT NULL UNIQUE,
-        despatch_name VARCHAR(150) NOT NULL,
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW()
-      );
-    `);
+    CREATE TABLE IF NOT EXISTS "${schema}".product_variants (
+      id BIGSERIAL PRIMARY KEY,
+      product_id BIGINT NOT NULL REFERENCES "${schema}".products(id) ON DELETE CASCADE,
+      color_id BIGINT REFERENCES "${schema}".product_colors(id) ON DELETE SET NULL,
+      size VARCHAR(30),
+      fitting_id BIGINT REFERENCES "${schema}".product_fittings(id) ON DELETE SET NULL,
+      gender VARCHAR(20) CHECK (gender IN ('Male', 'Female', 'Transgender', 'Not Specified')),
+      sku VARCHAR(120) NOT NULL UNIQUE,
+      qty INT NOT NULL DEFAULT 0,
+      low_stock_threshold INT DEFAULT 5,
+      backorders_allowed BOOLEAN DEFAULT FALSE,
+      last_low_stock_notified_at TIMESTAMPTZ,
+      status VARCHAR(20) NOT NULL DEFAULT 'draft',
+      barcode VARCHAR(40),
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      CONSTRAINT product_variants_status_chk CHECK (status IN ('draft', 'active', 'inactive')),
+      CONSTRAINT unique_variant_barcode UNIQUE (barcode),
+      CONSTRAINT unique_variant_combination UNIQUE (product_id, color_id, size)
+    );
 
-  /* =========================================================
-     PRODUCTS
-     ========================================================= */
-  await client.query(`
-CREATE TABLE IF NOT EXISTS "${schema}".products (
-  id BIGSERIAL PRIMARY KEY,
-  product_code VARCHAR(20) NOT NULL UNIQUE,
-  name VARCHAR(120) NOT NULL,
-  description TEXT,
-  category VARCHAR(50),
-  material VARCHAR(50),
-  uom VARCHAR(20),
-  hsn_code VARCHAR(20),
-  weight NUMERIC(10,2),
-  length NUMERIC(10,2),
-  width NUMERIC(10,2),
-  height NUMERIC(10,2),
-  specifications JSONB DEFAULT '[]'::jsonb,
-  type VARCHAR(20) NOT NULL DEFAULT 'finished_good' CHECK (type IN ('finished_good', 'raw_material', 'other')),
-  source VARCHAR(20) NOT NULL DEFAULT 'own' CHECK (source IN ('own', 'vendor')),
-  status SMALLINT NOT NULL DEFAULT 1 CHECK (status IN (1, 2)), -- 1=active, 2=inactive
-  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
-`);
-
-  await client.query(`
-CREATE TABLE IF NOT EXISTS "${schema}".product_variants (
-  id BIGSERIAL PRIMARY KEY,
-  product_id BIGINT NOT NULL REFERENCES "${schema}".products(id) ON DELETE CASCADE,
-  color_id BIGINT REFERENCES "${schema}".product_colors(id) ON DELETE SET NULL,
-  size VARCHAR(30),
-  fitting_id BIGINT REFERENCES "${schema}".product_fittings(id) ON DELETE SET NULL,
-  gender VARCHAR(20) CHECK (gender IN ('Male', 'Female', 'Transgender', 'Not Specified')),
-  sku VARCHAR(120) NOT NULL UNIQUE,
-  qty INT NOT NULL DEFAULT 0,
-  low_stock_threshold INT DEFAULT 5,
-  backorders_allowed BOOLEAN DEFAULT FALSE,
-  last_low_stock_notified_at TIMESTAMPTZ,
-  status VARCHAR(20) NOT NULL DEFAULT 'draft',
-  barcode VARCHAR(40),
-  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-  CONSTRAINT product_variants_status_chk
-  CHECK (status IN ('draft', 'active', 'inactive')),
-  CONSTRAINT unique_variant_barcode UNIQUE (barcode),
-  CONSTRAINT unique_variant_combination
-  UNIQUE (product_id, color_id, size)
-);
-`);
-
-  await client.query(`
-    UPDATE "${schema}".product_variants v
-    SET status = CASE
-      WHEN p.status = 2 THEN 'inactive'
-      ELSE 'draft'
-    END
-    FROM "${schema}".products p
-    WHERE v.product_id = p.id
-      AND v.status NOT IN ('active', 'inactive');
+    CREATE INDEX IF NOT EXISTS idx_variants_product ON "${schema}".product_variants(product_id);
+    CREATE INDEX IF NOT EXISTS idx_variants_barcode ON "${schema}".product_variants(barcode);
+    CREATE INDEX IF NOT EXISTS idx_variants_size ON "${schema}".product_variants(size);
+    CREATE INDEX IF NOT EXISTS idx_variants_status ON "${schema}".product_variants(status);
   `);
-  await client.query(`
-    UPDATE "${schema}".product_variants
-    SET barcode = CONCAT('INT', LPAD(id::text, 10, '0'))
-    WHERE barcode IS NULL OR barcode = '';
-  `);
-  await client.query(`
-CREATE INDEX IF NOT EXISTS idx_variants_product
-ON "${schema}".product_variants(product_id);
-`);
-  await client.query(`
-CREATE INDEX IF NOT EXISTS idx_variants_barcode
-ON "${schema}".product_variants(barcode);
-`);
-
-
-
-  await client.query(`
-CREATE INDEX IF NOT EXISTS idx_variants_size
-ON "${schema}".product_variants(size);
-`);
-
-  await client.query(`
-CREATE INDEX IF NOT EXISTS idx_variants_status
-ON "${schema}".product_variants(status);
-`);
 
   /* =========================================================
-     IMAGE MASTER (staged uploads)
+     IMAGES
      ========================================================= */
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".image_master (
@@ -457,21 +400,23 @@ ON "${schema}".product_variants(status);
       created_at TIMESTAMP DEFAULT NOW()
     );
 
-     `);
+    CREATE TABLE IF NOT EXISTS "${schema}".product_images (
+      id BIGSERIAL PRIMARY KEY,
+      product_id BIGINT NOT NULL REFERENCES "${schema}".products(id) ON DELETE CASCADE,
+      variant_id BIGINT REFERENCES "${schema}".product_variants(id) ON DELETE SET NULL,
+      image_id BIGINT REFERENCES "${schema}".image_master(id) ON DELETE SET NULL,
+      image_url VARCHAR(500) NOT NULL,
+      alt_text VARCHAR(100),
+      is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+      is_published BOOLEAN NOT NULL DEFAULT FALSE,
+      sort_order INT NOT NULL DEFAULT 1,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+  `);
 
-  await client.query(`
-CREATE TABLE IF NOT EXISTS "${schema}".product_images (
-  id BIGSERIAL PRIMARY KEY,
-  product_id BIGINT NOT NULL  REFERENCES "${schema}".products(id) ON DELETE CASCADE,
-  variant_id BIGINT REFERENCES "${schema}".product_variants(id)  ON DELETE SET NULL,
-  image_id BIGINT REFERENCES "${schema}".image_master(id) ON DELETE SET NULL,
-  image_url VARCHAR(500) NOT NULL,
-  alt_text VARCHAR(100),
-  is_primary BOOLEAN NOT NULL DEFAULT FALSE,
-  sort_order INT NOT NULL DEFAULT 1,
-  created_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-`);
+  /* =========================================================
+     PRODUCT PRICING
+     ========================================================= */
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".product_pricing (
       id BIGSERIAL PRIMARY KEY,
@@ -495,18 +440,18 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
       created_at TIMESTAMP NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     );
-  `);
-  await client.query(`
+
     CREATE UNIQUE INDEX IF NOT EXISTS idx_product_pricing_active_per_variant
       ON "${schema}".product_pricing(tenant_id, variant_id)
       WHERE is_active = TRUE;
-  `);
-  await client.query(`
+
     CREATE INDEX IF NOT EXISTS idx_product_pricing_variant_history
       ON "${schema}".product_pricing(variant_id, created_at DESC);
-  `);/* =========================================================
-       INVENTORY
-       ========================================================= */
+  `);
+
+  /* =========================================================
+     DISCOUNTS & PROMOTIONS
+     ========================================================= */
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".discounts (
       id BIGSERIAL PRIMARY KEY,
@@ -528,49 +473,47 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     );
 
-    ALTER TABLE "${schema}".discounts ADD COLUMN IF NOT EXISTS min_order_value NUMERIC(12,2) DEFAULT 0;
-    ALTER TABLE "${schema}".discounts ADD COLUMN IF NOT EXISTS total_usage_limit INT DEFAULT NULL;
-    ALTER TABLE "${schema}".discounts ADD COLUMN IF NOT EXISTS per_customer_limit INT DEFAULT NULL;
-    ALTER TABLE "${schema}".discounts ADD COLUMN IF NOT EXISTS total_used_count INT DEFAULT 0;
-  `);
-  await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".discount_variants (
       discount_id BIGINT NOT NULL REFERENCES "${schema}".discounts(id) ON DELETE CASCADE,
       variant_id BIGINT NOT NULL REFERENCES "${schema}".product_variants(id) ON DELETE CASCADE,
       PRIMARY KEY (discount_id, variant_id)
     );
-  `);
-  await client.query(`
+
     CREATE INDEX IF NOT EXISTS idx_discount_variants_variant
       ON "${schema}".discount_variants(variant_id);
   `);
-  await client.query(`
-      CREATE TABLE IF NOT EXISTS "${schema}".inventory (
-        id SERIAL PRIMARY KEY,
-        item_code VARCHAR(50) NOT NULL,
-        category VARCHAR(100),
-        brand VARCHAR(100),
-        barcode VARCHAR(100),
-        unit VARCHAR(20) NOT NULL DEFAULT 'PCS',
-        hsn_code VARCHAR(20),
-        purchase_price NUMERIC(15,2) NOT NULL DEFAULT 0,  -- Finance
-        selling_price NUMERIC(15,2) NOT NULL DEFAULT 0, -- Ecommerce
-        tax_master_id INTEGER
-          REFERENCES "${schema}".tax_master(id)
-          ON DELETE SET NULL,
-        discount_percentage NUMERIC(5,2) DEFAULT 0,
-        opening_stock NUMERIC(15,2) NOT NULL DEFAULT 0,
-        current_stock NUMERIC(15,2) NOT NULL DEFAULT 0,
-        min_stock_level NUMERIC(15,2) DEFAULT 0,
-        warehouse VARCHAR(100),
-        location VARCHAR(100),
-        is_active BOOLEAN DEFAULT TRUE,
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW(),
-        CONSTRAINT unique_item_code UNIQUE(item_code)
-      );
-    `);
 
+  /* =========================================================
+     INVENTORY
+     ========================================================= */
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "${schema}".inventory (
+      id SERIAL PRIMARY KEY,
+      item_code VARCHAR(50) NOT NULL,
+      category VARCHAR(100),
+      brand VARCHAR(100),
+      barcode VARCHAR(100),
+      unit VARCHAR(20) NOT NULL DEFAULT 'PCS',
+      hsn_code VARCHAR(20),
+      purchase_price NUMERIC(15,2) NOT NULL DEFAULT 0,
+      selling_price NUMERIC(15,2) NOT NULL DEFAULT 0,
+      tax_master_id INTEGER REFERENCES "${schema}".tax_master(id) ON DELETE SET NULL,
+      discount_percentage NUMERIC(5,2) DEFAULT 0,
+      opening_stock NUMERIC(15,2) NOT NULL DEFAULT 0,
+      current_stock NUMERIC(15,2) NOT NULL DEFAULT 0,
+      min_stock_level NUMERIC(15,2) DEFAULT 0,
+      warehouse VARCHAR(100),
+      location VARCHAR(100),
+      is_active BOOLEAN DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW(),
+      CONSTRAINT unique_item_code UNIQUE(item_code)
+    );
+  `);
+
+  /* =========================================================
+     LOCATIONS, WAREHOUSES & LOCATORS
+     ========================================================= */
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".locations (
       id SERIAL PRIMARY KEY,
@@ -607,11 +550,7 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
       created_at TIMESTAMP DEFAULT NOW(),
       updated_at TIMESTAMP DEFAULT NOW()
     );
-  `);
 
-  await ensureLocationTableShape(client, schema);
-
-  await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".warehouses (
       id SERIAL PRIMARY KEY,
       code VARCHAR(30) NOT NULL UNIQUE,
@@ -641,9 +580,7 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
       created_at TIMESTAMP DEFAULT NOW(),
       updated_at TIMESTAMP DEFAULT NOW()
     );
-  `);
 
-  await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".locators (
       id SERIAL PRIMARY KEY,
       locator_name VARCHAR(120) NOT NULL,
@@ -669,267 +606,139 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
       updated_at TIMESTAMP DEFAULT NOW()
     );
   `);
+
   /* =========================================================
-     PURCHASES
+     PURCHASES & GRN
      ========================================================= */
   await client.query(`
-        CREATE TABLE IF NOT EXISTS "${schema}".purchase_header (
-          id SERIAL PRIMARY KEY,
-          po_type VARCHAR(20) NOT NULL DEFAULT 'standard'
-            CHECK (po_type IN ('standard', 'manual')),
-          purchase_no VARCHAR(30) UNIQUE NOT NULL,  
-          ref_no VARCHAR(30),
-          bill_to TEXT,
-          ship_to TEXT,
-          despatch_terms BIGINT,
-          payment_terms BIGINT,
-          freight_charges NUMERIC(10,2) DEFAULT 0,
-          freight_tax NUMERIC(10,2) DEFAULT 0,
-          freight_tax_amount NUMERIC(10,2) DEFAULT 0,
-          packaging_amount NUMERIC(10,2) DEFAULT 0,
-          notes TEXT,
-          attachment_url TEXT,
-          supplier_id INTEGER NOT NULL
-          REFERENCES "${schema}".suppliers(id) ON DELETE CASCADE,
-          purchase_date DATE NOT NULL,
-          req_date DATE,
-          currency INTEGER,
-          conversion_rate NUMERIC(18,6) DEFAULT 0,
-          approval_status VARCHAR(50) DEFAULT 'Awaiting for approval',
-          status VARCHAR(50) DEFAULT 'Entered',
-          reject_reason TEXT,
-          subtotal NUMERIC(12,2) DEFAULT 0,
-          tax_amount NUMERIC(12,2) DEFAULT 0,
-          total_amount NUMERIC(12,2) DEFAULT 0,
-          renewed_from_po_id INT NULL
-          REFERENCES "${schema}".purchase_header(id) ON DELETE SET NULL,
-          created_by VARCHAR(100),
-          created_at TIMESTAMP,
-          updated_by VARCHAR(100),
-          updated_at TIMESTAMP
-        );
-      `)
-
-
-
-  await client.query(`
-        CREATE TABLE IF NOT EXISTS "${schema}".purchase_detail (
-          id SERIAL PRIMARY KEY,
-          purchase_id INT NOT NULL REFERENCES "${schema}".purchase_header(id) ON DELETE CASCADE,
-          product_id BIGINT NOT NULL
-          REFERENCES "${schema}".product_variants(id) ON DELETE CASCADE,
-          UOM VARCHAR(20),
-          HSN_NO VARCHAR(20),
-          rate NUMERIC(12,2) NOT NULL DEFAULT 0,
-          qty NUMERIC(12,2) NOT NULL DEFAULT 0,
-          tax_master_id INT
-          REFERENCES "${schema}".tax_master(id) ON DELETE CASCADE,
-          tax_amount NUMERIC(12,2) DEFAULT 0,
-          extra_cost_allocated NUMERIC(12,2) DEFAULT 0,
-          line_total NUMERIC(12,2) DEFAULT 0,
-          created_by VARCHAR(100),
-          created_at TIMESTAMP,
-          updated_by VARCHAR(100),
-          updated_at TIMESTAMP
-        );
-      `)
-
-
-  await client.query(`
-        CREATE TABLE IF NOT EXISTS "${schema}".grn_header (
-          id SERIAL PRIMARY KEY,
-          grn_no VARCHAR(30) UNIQUE NOT NULL,
-          grn_date DATE NOT NULL,
-          purchase_id INT NOT NULL REFERENCES "${schema}".purchase_header(id) ON DELETE CASCADE,
-          supplier_id INTEGER NOT NULL
-          REFERENCES "${schema}".suppliers(id) ON DELETE CASCADE,
-          status VARCHAR(20) DEFAULT 'Entered',
-          po_status VARCHAR(20),
-          created_by VARCHAR(100),
-          created_date TIMESTAMP,
-          updated_by VARCHAR(100),
-          updated_date TIMESTAMP
-        );
-      `);
-
-  await client.query(`
-        CREATE TABLE IF NOT EXISTS "${schema}".grn_detail (
-          id SERIAL PRIMARY KEY,
-          grn_id INT NOT NULL REFERENCES "${schema}".grn_header(id) ON DELETE CASCADE,
-          product_id BIGINT NOT NULL
-          REFERENCES "${schema}".product_variants(id) ON DELETE CASCADE,
-          warehouse_id INT NOT NULL REFERENCES "${schema}".warehouses(id) ON DELETE RESTRICT,
-          locator_id INT NOT NULL REFERENCES "${schema}".locators(id) ON DELETE RESTRICT,
-          UOM VARCHAR(20),
-          HSN_NO VARCHAR(20),
-          order_qty NUMERIC(12,2) NOT NULL DEFAULT 0,
-          received_qty NUMERIC(12,2) NOT NULL DEFAULT 0,
-          qty NUMERIC(12,2) NOT NULL DEFAULT 0,
-          created_by VARCHAR(100),
-          created_date TIMESTAMP,
-          updated_by VARCHAR(100),
-          updated_date TIMESTAMP
-        );
-      `);
-  await client.query(`
-        CREATE TABLE IF NOT EXISTS "${schema}".sales_header (
-          id SERIAL PRIMARY KEY,
-          sales_no VARCHAR(30) UNIQUE NOT NULL,  
-          customer_id INTEGER NOT NULL
-          REFERENCES "${schema}".customers(id) ON DELETE CASCADE,
-          sales_date DATE NOT NULL,
-          currency VARCHAR(100),
-             location_id INT REFERENCES "${schema}".locations(id) ON DELETE RESTRICT,
-          warehouse_id INT REFERENCES "${schema}".warehouses(id) ON DELETE RESTRICT,
-          locator_id INT REFERENCES "${schema}".locators(id) ON DELETE RESTRICT,
-          status VARCHAR(50) DEFAULT 'Entered',
-          payment_status VARCHAR(20) NOT NULL DEFAULT 'unpaid'
-            CONSTRAINT sales_header_payment_status_chk
-            CHECK (payment_status IN ('paid', 'unpaid', 'partial')),
-          subtotal NUMERIC(12,2) DEFAULT 0,
-          tax_amount NUMERIC(12,2) DEFAULT 0,
-          total_amount NUMERIC(12,2) DEFAULT 0,
-          return_change NUMERIC(12,2) DEFAULT 0.00,
-          created_by VARCHAR(100),
-          created_at TIMESTAMP,
-          updated_by VARCHAR(100),
-          updated_at TIMESTAMP
-        );
-      `);
-
-
-  await client.query(`
-    UPDATE "${schema}".sales_header sh
-    SET location_id = w.location_id
-    FROM "${schema}".warehouses w
-    WHERE sh.warehouse_id = w.id
-      AND (sh.location_id IS NULL OR sh.location_id <> w.location_id);
-  `);
-
-  await client.query(`
-        CREATE TABLE IF NOT EXISTS "${schema}".sales_detail (
-          id SERIAL PRIMARY KEY,
-          sales_id INT NOT NULL
-          REFERENCES "${schema}".sales_header(id) ON DELETE CASCADE,
-          product_id INTEGER NOT NULL
-          REFERENCES "${schema}".product_variants(id) ON DELETE CASCADE,
-          UOM VARCHAR(20),
-          HSN_NO VARCHAR(20),
-          rate NUMERIC(12,2) NOT NULL DEFAULT 0,
-          qty NUMERIC(12,2) NOT NULL DEFAULT 0,
-          discount NUMERIC(12,2) DEFAULT 0,
-          tax_master_id INT
-          REFERENCES "${schema}".tax_master(id) ON DELETE CASCADE,
-          tax_amount NUMERIC(12,2) DEFAULT 0,
-          line_total NUMERIC(12,2) DEFAULT 0,
-          created_by VARCHAR(100),
-          created_at TIMESTAMP,
-          updated_by VARCHAR(100),
-          updated_at TIMESTAMP
-        );
-      `);
-
-  await client.query(`
-    CREATE TABLE IF NOT EXISTS "${schema}".sales_returns (
-      id BIGSERIAL PRIMARY KEY,
-      tenant_id VARCHAR(80) NOT NULL,
-      sales_invoice_id INT NOT NULL REFERENCES "${schema}".sales_header(id) ON DELETE RESTRICT,
-      txn_date DATE NOT NULL,
-      refund_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+    CREATE TABLE IF NOT EXISTS "${schema}".purchase_header (
+      id SERIAL PRIMARY KEY,
+      po_type VARCHAR(20) NOT NULL DEFAULT 'standard' CHECK (po_type IN ('standard', 'manual')),
+      purchase_no VARCHAR(30) UNIQUE NOT NULL,  
+      ref_no VARCHAR(30),
+      bill_to TEXT,
+      ship_to TEXT,
+      despatch_terms BIGINT,
+      payment_terms BIGINT,
+      freight_charges NUMERIC(10,2) DEFAULT 0,
+      freight_tax NUMERIC(10,2) DEFAULT 0,
+      freight_tax_amount NUMERIC(10,2) DEFAULT 0,
+      packaging_amount NUMERIC(10,2) DEFAULT 0,
+      notes TEXT,
+      attachment_url TEXT,
+      supplier_id INTEGER NOT NULL REFERENCES "${schema}".suppliers(id) ON DELETE CASCADE,
+      purchase_date DATE NOT NULL,
+      req_date DATE,
+      currency INTEGER,
+      conversion_rate NUMERIC(18,6) DEFAULT 0,
+      approval_status VARCHAR(50) DEFAULT 'Awaiting for approval',
+      status VARCHAR(50) DEFAULT 'Entered',
+      reject_reason TEXT,
+      subtotal NUMERIC(12,2) DEFAULT 0,
+      tax_amount NUMERIC(12,2) DEFAULT 0,
+      total_amount NUMERIC(12,2) DEFAULT 0,
+      renewed_from_po_id INT NULL REFERENCES "${schema}".purchase_header(id) ON DELETE SET NULL,
       created_by VARCHAR(100),
-      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      created_at TIMESTAMP,
+      updated_by VARCHAR(100),
+      updated_at TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS "${schema}".purchase_detail (
+      id SERIAL PRIMARY KEY,
+      purchase_id INT NOT NULL REFERENCES "${schema}".purchase_header(id) ON DELETE CASCADE,
+      product_id BIGINT NOT NULL REFERENCES "${schema}".product_variants(id) ON DELETE CASCADE,
+      UOM VARCHAR(20),
+      HSN_NO VARCHAR(20),
+      rate NUMERIC(12,2) NOT NULL DEFAULT 0,
+      qty NUMERIC(12,2) NOT NULL DEFAULT 0,
+      tax_master_id INT REFERENCES "${schema}".tax_master(id) ON DELETE CASCADE,
+      tax_amount NUMERIC(12,2) DEFAULT 0,
+      extra_cost_allocated NUMERIC(12,2) DEFAULT 0,
+      line_total NUMERIC(12,2) DEFAULT 0,
+      created_by VARCHAR(100),
+      created_at TIMESTAMP,
+      updated_by VARCHAR(100),
+      updated_at TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS "${schema}".grn_header (
+      id SERIAL PRIMARY KEY,
+      grn_no VARCHAR(30) UNIQUE NOT NULL,
+      grn_date DATE NOT NULL,
+      purchase_id INT NOT NULL REFERENCES "${schema}".purchase_header(id) ON DELETE CASCADE,
+      supplier_id INTEGER NOT NULL REFERENCES "${schema}".suppliers(id) ON DELETE CASCADE,
+      status VARCHAR(20) DEFAULT 'Entered',
+      po_status VARCHAR(20),
+      created_by VARCHAR(100),
+      created_date TIMESTAMP,
+      updated_by VARCHAR(100),
+      updated_date TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS "${schema}".grn_detail (
+      id SERIAL PRIMARY KEY,
+      grn_id INT NOT NULL REFERENCES "${schema}".grn_header(id) ON DELETE CASCADE,
+      product_id BIGINT NOT NULL REFERENCES "${schema}".product_variants(id) ON DELETE CASCADE,
+      warehouse_id INT NOT NULL REFERENCES "${schema}".warehouses(id) ON DELETE RESTRICT,
+      locator_id INT NOT NULL REFERENCES "${schema}".locators(id) ON DELETE RESTRICT,
+      UOM VARCHAR(20),
+      HSN_NO VARCHAR(20),
+      order_qty NUMERIC(12,2) NOT NULL DEFAULT 0,
+      received_qty NUMERIC(12,2) NOT NULL DEFAULT 0,
+      qty NUMERIC(12,2) NOT NULL DEFAULT 0,
+      created_by VARCHAR(100),
+      created_date TIMESTAMP,
+      updated_by VARCHAR(100),
+      updated_date TIMESTAMP
     );
   `);
 
+  /* =========================================================
+     SALES & POS
+     ========================================================= */
   await client.query(`
-    CREATE TABLE IF NOT EXISTS "${schema}".sales_return_items (
-      id BIGSERIAL PRIMARY KEY,
-      sales_return_id BIGINT NOT NULL REFERENCES "${schema}".sales_returns(id) ON DELETE CASCADE,
-      sales_invoice_line_id INT NOT NULL REFERENCES "${schema}".sales_detail(id) ON DELETE RESTRICT,
-      product_id BIGINT NOT NULL REFERENCES "${schema}".product_variants(id) ON DELETE RESTRICT,
+    CREATE TABLE IF NOT EXISTS "${schema}".sales_header (
+      id SERIAL PRIMARY KEY,
+      sales_no VARCHAR(30) UNIQUE NOT NULL,  
+      customer_id INTEGER NOT NULL REFERENCES "${schema}".customers(id) ON DELETE CASCADE,
+      sales_date DATE NOT NULL,
+      currency VARCHAR(100),
+      location_id INT REFERENCES "${schema}".locations(id) ON DELETE RESTRICT,
       warehouse_id INT REFERENCES "${schema}".warehouses(id) ON DELETE RESTRICT,
       locator_id INT REFERENCES "${schema}".locators(id) ON DELETE RESTRICT,
-      returned_qty NUMERIC(12,2) NOT NULL DEFAULT 0,
-      unit_price NUMERIC(12,2) NOT NULL DEFAULT 0
-    );
-  `);
-
-  await client.query(`
-    CREATE INDEX IF NOT EXISTS idx_sales_return_items_header
-    ON "${schema}".sales_return_items(sales_return_id);
-  `);
-
-
-  await client.query(`
-    CREATE TABLE IF NOT EXISTS "${schema}".purchase_returns (
-      id BIGSERIAL PRIMARY KEY,
-      tenant_id VARCHAR(80) NOT NULL,
-      grn_id INT NOT NULL REFERENCES "${schema}".grn_header(id) ON DELETE RESTRICT,
-      purchase_return_no VARCHAR(100) UNIQUE,
-      txn_date DATE NOT NULL,
-      refund_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+      status VARCHAR(50) DEFAULT 'Entered',
+      payment_status VARCHAR(20) NOT NULL DEFAULT 'unpaid'
+        CONSTRAINT sales_header_payment_status_chk
+        CHECK (payment_status IN ('paid', 'unpaid', 'partial')),
+      subtotal NUMERIC(12,2) DEFAULT 0,
+      tax_amount NUMERIC(12,2) DEFAULT 0,
+      total_amount NUMERIC(12,2) DEFAULT 0,
+      return_change NUMERIC(12,2) DEFAULT 0.00,
       created_by VARCHAR(100),
-      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      created_at TIMESTAMP,
+      updated_by VARCHAR(100),
+      updated_at TIMESTAMP
     );
-  `);
 
-  await client.query(`
-    CREATE TABLE IF NOT EXISTS "${schema}".purchase_return_items (
-      id BIGSERIAL PRIMARY KEY,
-      purchase_return_id BIGINT NOT NULL REFERENCES "${schema}".purchase_returns(id) ON DELETE CASCADE,
-      grn_line_id INT NOT NULL REFERENCES "${schema}".grn_detail(id) ON DELETE RESTRICT,
-      product_id BIGINT NOT NULL REFERENCES "${schema}".product_variants(id) ON DELETE RESTRICT,
-      warehouse_id INT REFERENCES "${schema}".warehouses(id) ON DELETE RESTRICT,
-      locator_id INT REFERENCES "${schema}".locators(id) ON DELETE RESTRICT,
-      returned_qty NUMERIC(12,2) NOT NULL DEFAULT 0,
-      unit_price NUMERIC(12,2) NOT NULL DEFAULT 0
+    CREATE TABLE IF NOT EXISTS "${schema}".sales_detail (
+      id SERIAL PRIMARY KEY,
+      sales_id INT NOT NULL REFERENCES "${schema}".sales_header(id) ON DELETE CASCADE,
+      product_id INTEGER NOT NULL REFERENCES "${schema}".product_variants(id) ON DELETE CASCADE,
+      UOM VARCHAR(20),
+      HSN_NO VARCHAR(20),
+      rate NUMERIC(12,2) NOT NULL DEFAULT 0,
+      qty NUMERIC(12,2) NOT NULL DEFAULT 0,
+      discount NUMERIC(12,2) DEFAULT 0,
+      tax_master_id INT REFERENCES "${schema}".tax_master(id) ON DELETE CASCADE,
+      tax_amount NUMERIC(12,2) DEFAULT 0,
+      line_total NUMERIC(12,2) DEFAULT 0,
+      created_by VARCHAR(100),
+      created_at TIMESTAMP,
+      updated_by VARCHAR(100),
+      updated_at TIMESTAMP
     );
-  `);
 
-  await client.query(`
-    CREATE INDEX IF NOT EXISTS idx_purchase_return_items_header
-    ON "${schema}".purchase_return_items(purchase_return_id);
-  `);
-
-
-
-  await client.query(`
-    CREATE TABLE IF NOT EXISTS "${schema}".product_import_mapping_templates (
-      id BIGSERIAL PRIMARY KEY,
-      template_name VARCHAR(120) NOT NULL,
-      sheet_name VARCHAR(120),
-      mapping_json JSONB NOT NULL,
-      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-      UNIQUE (template_name)
-    );
-  `);
-  await client.query(`
-    CREATE TABLE IF NOT EXISTS "${schema}".product_import_batches (
-      id BIGSERIAL PRIMARY KEY,
-      sheet_name VARCHAR(120),
-      mapping_template_id BIGINT REFERENCES "${schema}".product_import_mapping_templates(id) ON DELETE SET NULL,
-      source_file_name VARCHAR(255),
-      total_rows INT NOT NULL DEFAULT 0,
-      imported_products INT NOT NULL DEFAULT 0,
-      imported_variants INT NOT NULL DEFAULT 0,
-      status VARCHAR(20) NOT NULL DEFAULT 'completed',
-      created_at TIMESTAMP NOT NULL DEFAULT NOW()
-    );
-  `);
-  await client.query(`
-    CREATE TABLE IF NOT EXISTS "${schema}".product_import_batch_items (
-      id BIGSERIAL PRIMARY KEY,
-      batch_id BIGINT NOT NULL REFERENCES "${schema}".product_import_batches(id) ON DELETE CASCADE,
-      product_id BIGINT REFERENCES "${schema}".products(id) ON DELETE CASCADE,
-      variant_id BIGINT REFERENCES "${schema}".product_variants(id) ON DELETE CASCADE,
-      row_number INT,
-      item_type VARCHAR(20) NOT NULL CHECK (item_type IN ('product', 'variant')),
-      created_at TIMESTAMP NOT NULL DEFAULT NOW()
-    );
-  `);
-
-  await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".sales_payments (
       id SERIAL PRIMARY KEY,
       sales_id INT NOT NULL REFERENCES "${schema}".sales_header(id) ON DELETE CASCADE,
@@ -943,39 +752,116 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
       location_id INT REFERENCES "${schema}".locations(id) ON DELETE RESTRICT,
       warehouse_id INT REFERENCES "${schema}".warehouses(id) ON DELETE RESTRICT
     );
-  `);
 
-  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_sales_payments_sales_id
     ON "${schema}".sales_payments(sales_id);
   `);
 
+  /* =========================================================
+     RETURNS (POS & PURCHASES)
+     ========================================================= */
   await client.query(`
-    UPDATE "${schema}".sales_payments
-    SET paid_amount = amount,
-        actual_amount = amount
-    WHERE paid_amount = 0.00 AND actual_amount = 0.00;
+    CREATE TABLE IF NOT EXISTS "${schema}".sales_returns (
+      id BIGSERIAL PRIMARY KEY,
+      tenant_id VARCHAR(80) NOT NULL,
+      sales_invoice_id INT NOT NULL REFERENCES "${schema}".sales_header(id) ON DELETE RESTRICT,
+      txn_date DATE NOT NULL,
+      refund_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+      created_by VARCHAR(100),
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS "${schema}".sales_return_items (
+      id BIGSERIAL PRIMARY KEY,
+      sales_return_id BIGINT NOT NULL REFERENCES "${schema}".sales_returns(id) ON DELETE CASCADE,
+      sales_invoice_line_id INT NOT NULL REFERENCES "${schema}".sales_detail(id) ON DELETE RESTRICT,
+      product_id BIGINT NOT NULL REFERENCES "${schema}".product_variants(id) ON DELETE RESTRICT,
+      warehouse_id INT REFERENCES "${schema}".warehouses(id) ON DELETE RESTRICT,
+      locator_id INT REFERENCES "${schema}".locators(id) ON DELETE RESTRICT,
+      returned_qty NUMERIC(12,2) NOT NULL DEFAULT 0,
+      unit_price NUMERIC(12,2) NOT NULL DEFAULT 0
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_sales_return_items_header
+    ON "${schema}".sales_return_items(sales_return_id);
+
+    CREATE TABLE IF NOT EXISTS "${schema}".purchase_returns (
+      id BIGSERIAL PRIMARY KEY,
+      tenant_id VARCHAR(80) NOT NULL,
+      grn_id INT NOT NULL REFERENCES "${schema}".grn_header(id) ON DELETE RESTRICT,
+      purchase_return_no VARCHAR(100) UNIQUE,
+      txn_date DATE NOT NULL,
+      refund_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+      created_by VARCHAR(100),
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS "${schema}".purchase_return_items (
+      id BIGSERIAL PRIMARY KEY,
+      purchase_return_id BIGINT NOT NULL REFERENCES "${schema}".purchase_returns(id) ON DELETE CASCADE,
+      grn_line_id INT NOT NULL REFERENCES "${schema}".grn_detail(id) ON DELETE RESTRICT,
+      product_id BIGINT NOT NULL REFERENCES "${schema}".product_variants(id) ON DELETE RESTRICT,
+      warehouse_id INT REFERENCES "${schema}".warehouses(id) ON DELETE RESTRICT,
+      locator_id INT REFERENCES "${schema}".locators(id) ON DELETE RESTRICT,
+      returned_qty NUMERIC(12,2) NOT NULL DEFAULT 0,
+      unit_price NUMERIC(12,2) NOT NULL DEFAULT 0
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_return_items_header
+    ON "${schema}".purchase_return_items(purchase_return_id);
   `);
 
   /* =========================================================
-     OPENING STOCK
+     PRODUCT IMPORT BATCHES & MAPPINGS
      ========================================================= */
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "${schema}".product_import_mapping_templates (
+      id BIGSERIAL PRIMARY KEY,
+      template_name VARCHAR(120) NOT NULL,
+      sheet_name VARCHAR(120),
+      mapping_json JSONB NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      UNIQUE (template_name)
+    );
 
+    CREATE TABLE IF NOT EXISTS "${schema}".product_import_batches (
+      id BIGSERIAL PRIMARY KEY,
+      sheet_name VARCHAR(120),
+      mapping_template_id BIGINT REFERENCES "${schema}".product_import_mapping_templates(id) ON DELETE SET NULL,
+      source_file_name VARCHAR(255),
+      total_rows INT NOT NULL DEFAULT 0,
+      imported_products INT NOT NULL DEFAULT 0,
+      imported_variants INT NOT NULL DEFAULT 0,
+      status VARCHAR(20) NOT NULL DEFAULT 'completed',
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS "${schema}".product_import_batch_items (
+      id BIGSERIAL PRIMARY KEY,
+      batch_id BIGINT NOT NULL REFERENCES "${schema}".product_import_batches(id) ON DELETE CASCADE,
+      product_id BIGINT REFERENCES "${schema}".products(id) ON DELETE CASCADE,
+      variant_id BIGINT REFERENCES "${schema}".product_variants(id) ON DELETE CASCADE,
+      row_number INT,
+      item_type VARCHAR(20) NOT NULL CHECK (item_type IN ('product', 'variant')),
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  /* =========================================================
+     OPENING STOCK & ADJUSTMENTS
+     ========================================================= */
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".user_settings (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL,
-      default_warehouse_id INT
-        REFERENCES "${schema}".warehouses(id) ON DELETE SET NULL,
-      default_locator_id INT
-        REFERENCES "${schema}".locators(id) ON DELETE SET NULL,
+      default_warehouse_id INT REFERENCES "${schema}".warehouses(id) ON DELETE SET NULL,
+      default_locator_id INT REFERENCES "${schema}".locators(id) ON DELETE SET NULL,
       branch_name VARCHAR(100),
       created_at TIMESTAMP DEFAULT NOW(),
       updated_at TIMESTAMP DEFAULT NOW()
     );
-  `);
 
-  await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".opening_stock (
       id SERIAL PRIMARY KEY,
       doc_no VARCHAR(20) UNIQUE,
@@ -987,9 +873,7 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
       created_at TIMESTAMP DEFAULT NOW(),
       updated_at TIMESTAMP DEFAULT NOW()
     );
-  `);
 
-  await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".opening_stock_items (
       id SERIAL PRIMARY KEY,
       opening_stock_id INT REFERENCES "${schema}".opening_stock(id) ON DELETE CASCADE,
@@ -1000,14 +884,10 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
       qty NUMERIC(12,2),
       created_at TIMESTAMP DEFAULT NOW()
     );
-  `);
 
-  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_opening_stock_items_header
     ON "${schema}".opening_stock_items(opening_stock_id);
-  `);
 
-  await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".stock_adjustments (
       id BIGSERIAL PRIMARY KEY,
       tenant_id VARCHAR(80) NOT NULL,
@@ -1018,9 +898,7 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
       created_by VARCHAR(100),
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     );
-  `);
 
-  await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".stock_adjustment_items (
       id BIGSERIAL PRIMARY KEY,
       adjustment_id BIGINT NOT NULL REFERENCES "${schema}".stock_adjustments(id) ON DELETE CASCADE,
@@ -1029,13 +907,14 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
       physical_qty NUMERIC(12,2) NOT NULL DEFAULT 0,
       adjustment_qty NUMERIC(12,2) NOT NULL DEFAULT 0
     );
-  `);
 
-  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_stock_adjustment_items_header
     ON "${schema}".stock_adjustment_items(adjustment_id);
   `);
 
+  /* =========================================================
+     STOCK LAYERS & SALES ALLOCATIONS
+     ========================================================= */
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".stock_layers (
       id BIGSERIAL PRIMARY KEY,
@@ -1050,15 +929,11 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
       cost NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (cost >= 0),
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     );
-  `);
 
-  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_stock_layers_fifo
     ON "${schema}".stock_layers(tenant_id, product_id, warehouse_id, created_at, id)
     WHERE qty_remaining > 0;
-  `);
 
-  await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".sales_allocations (
       id BIGSERIAL PRIMARY KEY,
       tenant_id VARCHAR(80) NOT NULL,
@@ -1066,20 +941,16 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
       stock_layer_id BIGINT NOT NULL REFERENCES "${schema}".stock_layers(id) ON DELETE RESTRICT,
       qty_allocated NUMERIC(12,2) NOT NULL CHECK (qty_allocated > 0)
     );
-  `);
 
-  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_sales_allocations_sales_detail
     ON "${schema}".sales_allocations(sales_detail_id);
-  `);
 
-  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_sales_allocations_stock_layer
     ON "${schema}".sales_allocations(stock_layer_id);
   `);
 
   /* =========================================================
-     STOCK LEDGER
+     STOCK LEDGER & CURRENT STOCK VIEW
      ========================================================= */
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".stock_ledger (
@@ -1111,6 +982,15 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
           (qty_out = 0 AND qty_in > 0)
         )
     );
+
+    CREATE INDEX IF NOT EXISTS idx_stock_ledger_stock_grouping
+    ON "${schema}".stock_ledger(tenant_id, warehouse_id, locator_id, product_id);
+
+    CREATE INDEX IF NOT EXISTS idx_stock_ledger_ref
+    ON "${schema}".stock_ledger(ref_type, ref_id, ref_line_id);
+
+    CREATE INDEX IF NOT EXISTS idx_stock_ledger_txn_date
+    ON "${schema}".stock_ledger(txn_date);
   `);
 
   await client.query(`
@@ -1120,9 +1000,7 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
       RAISE EXCEPTION 'stock_ledger is immutable. Use reversing entries.';
     END;
     $$ LANGUAGE plpgsql;
-  `);
 
-  await client.query(`
     DO $$
     BEGIN
       IF NOT EXISTS (
@@ -1138,24 +1016,7 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
         FOR EACH ROW EXECUTE FUNCTION "${schema}".stock_ledger_immutable();
       END IF;
     END $$;
-  `);
 
-  await client.query(`
-    CREATE INDEX IF NOT EXISTS idx_stock_ledger_stock_grouping
-    ON "${schema}".stock_ledger(tenant_id, warehouse_id, locator_id, product_id);
-  `);
-
-  await client.query(`
-    CREATE INDEX IF NOT EXISTS idx_stock_ledger_ref
-    ON "${schema}".stock_ledger(ref_type, ref_id, ref_line_id);
-  `);
-
-  await client.query(`
-    CREATE INDEX IF NOT EXISTS idx_stock_ledger_txn_date
-    ON "${schema}".stock_ledger(txn_date);
-  `);
-
-  await client.query(`
     CREATE OR REPLACE VIEW "${schema}".current_stock AS
     SELECT
       tenant_id,
@@ -1168,24 +1029,22 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
   `);
 
   /* =========================================================
-     OPTIONAL: AUDIT LOG TABLE (Recommended for Finance SaaS)
+     AUDIT LOG
      ========================================================= */
   await client.query(`
-      CREATE TABLE IF NOT EXISTS "${schema}".audit_log (
-        id SERIAL PRIMARY KEY,
-        action TEXT NOT NULL,
-        entity TEXT NOT NULL,
-        entity_id INT,
-        performed_by TEXT,
-        created_at TIMESTAMP DEFAULT NOW()
-      );
-    `);
+    CREATE TABLE IF NOT EXISTS "${schema}".audit_log (
+      id SERIAL PRIMARY KEY,
+      action TEXT NOT NULL,
+      entity TEXT NOT NULL,
+      entity_id INT,
+      performed_by TEXT,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+  `);
 
   /* =========================================================
-     INVENTORY ALERTS & NOTIFICATIONS
+     NOTIFICATIONS & SUBSCRIPTIONS
      ========================================================= */
-
-
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".notification_subscriptions (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1195,9 +1054,7 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
       created_at TIMESTAMPTZ DEFAULT now(),
       UNIQUE (event_type, user_id)
     );
-  `);
 
-  await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".notifications (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       type VARCHAR(50) NOT NULL,
@@ -1206,9 +1063,7 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
       metadata JSONB,
       created_at TIMESTAMPTZ DEFAULT now()
     );
-  `);
 
-  await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".notification_recipients (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       notification_id UUID NOT NULL REFERENCES "${schema}".notifications(id) ON DELETE CASCADE,
@@ -1219,9 +1074,7 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
       created_at TIMESTAMPTZ DEFAULT now(),
       UNIQUE (notification_id, user_id)
     );
-  `);
 
-  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_notif_recipients_user_unread 
     ON "${schema}".notification_recipients (user_id, is_read);
   `);
@@ -1232,11 +1085,11 @@ CREATE TABLE IF NOT EXISTS "${schema}".product_images (
 export async function createEcomSchema(
   client: PoolClient,
   schema: string,
-  companyId: number
+  companyId?: number
 ) {
-  console.log(`Creating ECOM tables for schema: ${schema}, company: ${companyId}`);
+  console.log(`Creating ECOM tables for schema: ${schema}${companyId ? `, company: ${companyId}` : ""}`);
 
-  // 1. Create ecom_settings table
+  // 1. ecom_settings table
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".ecom_settings (
       id SERIAL PRIMARY KEY,
@@ -1267,16 +1120,18 @@ export async function createEcomSchema(
       use_custom_discounts BOOLEAN NOT NULL DEFAULT FALSE,
       setup_status VARCHAR(20) NOT NULL DEFAULT 'incomplete'
         CHECK (setup_status IN ('incomplete','complete')),
+      default_length_cm NUMERIC(10,2) DEFAULT 10.00,
+      default_width_cm NUMERIC(10,2) DEFAULT 10.00,
+      default_height_cm NUMERIC(10,2) DEFAULT 10.00,
+      default_weight_grams NUMERIC(10,2) DEFAULT 500.00,
+      cod_max_order_value NUMERIC(10,2) DEFAULT 5000,
+      cod_require_otp BOOLEAN DEFAULT FALSE,
       created_at TIMESTAMP DEFAULT NOW(),
       updated_at TIMESTAMP DEFAULT NOW()
     );
-
-    ALTER TABLE "${schema}".ecom_settings ADD COLUMN IF NOT EXISTS privacy_policy TEXT;
   `);
 
-
-
-  // 2. Create storefront_config table
+  // 2. storefront_config table
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".storefront_config (
       id SERIAL PRIMARY KEY,
@@ -1291,11 +1146,11 @@ export async function createEcomSchema(
     );
   `);
 
-  // 3. Create storefront_products table
+  // 3. storefront_products table
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".storefront_products (
       id SERIAL PRIMARY KEY,
-      company_id INT NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
+      company_id INT NOT NULL UNIQUE REFERENCES public.companies(id) ON DELETE CASCADE,
       variant_id BIGINT NOT NULL REFERENCES "${schema}".product_variants(id) ON DELETE CASCADE,
       is_selected_draft BOOLEAN NOT NULL DEFAULT FALSE,
       is_live BOOLEAN NOT NULL DEFAULT FALSE,
@@ -1306,11 +1161,11 @@ export async function createEcomSchema(
     );
   `);
 
-  // 4. Create ecom_price_overrides table
+  // 4. ecom_price_overrides table
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".ecom_price_overrides (
       id SERIAL PRIMARY KEY,
-      company_id INT NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
+      company_id INT NOT NULL UNIQUE REFERENCES public.companies(id) ON DELETE CASCADE,
       variant_id BIGINT NOT NULL REFERENCES "${schema}".product_variants(id) ON DELETE CASCADE,
       ecom_price NUMERIC(12,2) NOT NULL CHECK (ecom_price >= 0),
       is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -1320,7 +1175,7 @@ export async function createEcomSchema(
     );
   `);
 
-  // 5. Create inventory_reservations table
+  // 5. inventory_reservations table
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".inventory_reservations (
       id BIGSERIAL PRIMARY KEY,
@@ -1334,17 +1189,11 @@ export async function createEcomSchema(
       created_at TIMESTAMP DEFAULT NOW()
     );
 
-    ALTER TABLE "${schema}".inventory_reservations DROP CONSTRAINT IF EXISTS inventory_reservations_status_check;
-    ALTER TABLE "${schema}".inventory_reservations ADD CONSTRAINT inventory_reservations_status_check CHECK (status IN ('held','converted','released','consumed'));
-  `);
-
-  // 6. Create inventory reservation index
-  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_inventory_reservations_variant
       ON "${schema}".inventory_reservations(variant_id) WHERE status = 'held';
   `);
 
-  // 7. Create ecom_available_stock view
+  // 6. ecom_available_stock view
   await client.query(`
     CREATE OR REPLACE VIEW "${schema}".ecom_available_stock AS
     SELECT
@@ -1360,7 +1209,7 @@ export async function createEcomSchema(
     WHERE cs.current_stock > 0;
   `);
 
-  // 8. Create customer_ecom_auth table
+  // 7. customer_ecom_auth table
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".customer_ecom_auth (
       id SERIAL PRIMARY KEY,
@@ -1375,7 +1224,7 @@ export async function createEcomSchema(
     );
   `);
 
-  // 9. Create store_theme_assets table
+  // 8. store_theme_assets table
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".store_theme_assets (
       id SERIAL PRIMARY KEY,
@@ -1386,7 +1235,7 @@ export async function createEcomSchema(
     );
   `);
 
-  // 10. Create cart_items and wishlist_items tables for storefront customers
+  // 9. cart_items & wishlist_items tables
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".cart_items (
       id BIGSERIAL PRIMARY KEY,
@@ -1397,9 +1246,7 @@ export async function createEcomSchema(
       updated_at TIMESTAMP DEFAULT NOW(),
       CONSTRAINT unique_customer_cart_variant UNIQUE (customer_id, variant_id)
     );
-  `);
 
-  await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".wishlist_items (
       id BIGSERIAL PRIMARY KEY,
       customer_id INT NOT NULL REFERENCES "${schema}".customers(id) ON DELETE CASCADE,
@@ -1408,6 +1255,8 @@ export async function createEcomSchema(
       CONSTRAINT unique_customer_wishlist_variant UNIQUE (customer_id, variant_id)
     );
   `);
+
+  // 10. online_orders table
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".online_orders (
       id BIGSERIAL PRIMARY KEY,
@@ -1420,6 +1269,7 @@ export async function createEcomSchema(
       billing_address_id INT REFERENCES "${schema}".customer_addresses(id) ON DELETE RESTRICT,
       coupon_id BIGINT REFERENCES "${schema}".discounts(id) ON DELETE SET NULL,
       coupon_code VARCHAR(100),
+      invoice_token UUID DEFAULT gen_random_uuid(),
       currency VARCHAR(10) NOT NULL DEFAULT 'INR',
       subtotal NUMERIC(12,2) NOT NULL DEFAULT 0,
       tax_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
@@ -1446,10 +1296,17 @@ export async function createEcomSchema(
       updated_at TIMESTAMPTZ
     );
 
-    ALTER TABLE "${schema}".online_orders ADD COLUMN IF NOT EXISTS coupon_id BIGINT REFERENCES "${schema}".discounts(id) ON DELETE SET NULL;
-    ALTER TABLE "${schema}".online_orders ADD COLUMN IF NOT EXISTS coupon_code VARCHAR(100);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_online_orders_invoice_token
+      ON "${schema}".online_orders (invoice_token);
+    CREATE INDEX IF NOT EXISTS idx_online_orders_customer
+      ON "${schema}".online_orders(customer_id);
+    CREATE INDEX IF NOT EXISTS idx_online_orders_status
+      ON "${schema}".online_orders(order_status);
+    CREATE INDEX IF NOT EXISTS idx_online_orders_payment_status
+      ON "${schema}".online_orders(payment_status);
   `);
 
+  // 11. online_order_items table
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".online_order_items (
       id BIGSERIAL PRIMARY KEY,
@@ -1471,8 +1328,11 @@ export async function createEcomSchema(
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
-    ALTER TABLE "${schema}".online_order_items ADD COLUMN IF NOT EXISTS cogs_amount NUMERIC(12,2) DEFAULT 0;
+    CREATE INDEX IF NOT EXISTS idx_online_order_items_order
+      ON "${schema}".online_order_items(order_id);
   `);
+
+  // 12. online_order_payments table
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".online_order_payments (
       id BIGSERIAL PRIMARY KEY,
@@ -1488,7 +1348,15 @@ export async function createEcomSchema(
       raw_response JSONB,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    CREATE INDEX IF NOT EXISTS idx_online_order_payments_order
+      ON "${schema}".online_order_payments(order_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_online_order_payments_gateway_order
+      ON "${schema}".online_order_payments(gateway_order_id)
+      WHERE gateway_order_id IS NOT NULL;
   `);
+
+  // 13. online_order_status_history table
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".online_order_status_history (
       id BIGSERIAL PRIMARY KEY,
@@ -1500,8 +1368,12 @@ export async function createEcomSchema(
       note TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    CREATE INDEX IF NOT EXISTS idx_online_order_status_history_order
+      ON "${schema}".online_order_status_history(order_id, created_at);
   `);
 
+  // 14. online_order_deliveries table
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".online_order_deliveries (
       id BIGSERIAL PRIMARY KEY,
@@ -1516,36 +1388,40 @@ export async function createEcomSchema(
       estimated_delivery_at TIMESTAMPTZ,
       last_location TEXT,
       last_webhook_payload JSONB,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      max_attempts INTEGER NOT NULL DEFAULT 3,
+      failure_reason TEXT,
+      next_retry_date TIMESTAMPTZ,
+      rto_initiated_at TIMESTAMPTZ,
+      rto_delivered_at TIMESTAMPTZ,
+      dispatched_at TIMESTAMPTZ,
+      pod_type VARCHAR(20),
+      pod_resource_url TEXT,
+      delivered_to_person_name VARCHAR(150),
+      delivery_coordinates JSONB,
+      shipping_label_url TEXT,
+      return_awb VARCHAR(100),
+      return_pickup_scheduled_at TIMESTAMPTZ,
+      is_active BOOLEAN NOT NULL DEFAULT true,
+      length_cm NUMERIC(10,2),
+      width_cm NUMERIC(10,2),
+      height_cm NUMERIC(10,2),
+      actual_weight_grams NUMERIC(10,2),
+      volumetric_weight_grams NUMERIC(10,2),
+      manifest_id VARCHAR(100),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ
     );
+
+    CREATE INDEX IF NOT EXISTS idx_online_order_deliveries_awb
+      ON "${schema}".online_order_deliveries (awb_number)
+      WHERE awb_number IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_online_order_deliveries_manifest
+      ON "${schema}".online_order_deliveries (manifest_id)
+      WHERE manifest_id IS NOT NULL;
   `);
 
-  await client.query(`
-    CREATE INDEX IF NOT EXISTS idx_online_orders_customer
-      ON "${schema}".online_orders(customer_id);
-
-    CREATE INDEX IF NOT EXISTS idx_online_orders_status
-      ON "${schema}".online_orders(order_status);
-
-    CREATE INDEX IF NOT EXISTS idx_online_orders_payment_status
-      ON "${schema}".online_orders(payment_status);
-
-    CREATE INDEX IF NOT EXISTS idx_online_order_items_order
-      ON "${schema}".online_order_items(order_id);
-
-    CREATE INDEX IF NOT EXISTS idx_online_order_payments_order
-      ON "${schema}".online_order_payments(order_id);
-
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_online_order_payments_gateway_order
-      ON "${schema}".online_order_payments(gateway_order_id)
-      WHERE gateway_order_id IS NOT NULL;
-
-    CREATE INDEX IF NOT EXISTS idx_online_order_status_history_order
-      ON "${schema}".online_order_status_history(order_id, created_at);
-  `);
-
-  // 12. Create payment_gateway_configs table
+  // 15. payment_gateway_configs table
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".payment_gateway_configs (
       id SERIAL PRIMARY KEY,
@@ -1555,13 +1431,21 @@ export async function createEcomSchema(
       key_secret_enc VARCHAR(255),
       webhook_secret VARCHAR(255),
       is_active BOOLEAN DEFAULT TRUE,
+      is_test_mode BOOLEAN DEFAULT TRUE,
+      is_live_mode BOOLEAN DEFAULT FALSE,
+      test_key_id VARCHAR(255),
+      test_key_secret_enc VARCHAR(255),
+      live_key_id VARCHAR(255),
+      live_key_secret_enc VARCHAR(255),
+      test_webhook_secret_enc VARCHAR(255),
+      live_webhook_secret_enc VARCHAR(255),
       created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
       UNIQUE (provider)
     );
   `);
 
-  // 13. Create back_in_stock_subscriptions table
+  // 16. back_in_stock_subscriptions table
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".back_in_stock_subscriptions (
       id BIGSERIAL PRIMARY KEY,
@@ -1577,7 +1461,7 @@ export async function createEcomSchema(
       ON "${schema}".back_in_stock_subscriptions(variant_id, status);
   `);
 
-  // 14. Create product_reviews table
+  // 17. product_reviews table
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".product_reviews (
       id BIGSERIAL PRIMARY KEY,
@@ -1596,7 +1480,7 @@ export async function createEcomSchema(
       ON "${schema}".product_reviews(variant_id, status);
   `);
 
-  // 15. Create order_notes table for internal staff comments and customer-visible notes
+  // 18. order_notes table
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".order_notes (
       id BIGSERIAL PRIMARY KEY,
@@ -1613,5 +1497,3 @@ export async function createEcomSchema(
       ON "${schema}".order_notes(order_id, created_at);
   `);
 }
-
-

@@ -10,6 +10,7 @@ import { CompanySettingsProvider } from "@/context/CompanySettingsContext";
 
 import useIdleLogout from "@/hooks/useIdleLogout";
 import { useUser } from "@/context/CurrentUserContext";
+import { canAccess, getFirstAccessiblePath, getRequiredPermissionForPath } from "@/lib/accessControl";
 
 const AdminLayout = dynamic(() => import("@/layout/AdminLayout"), {
   ssr: false,
@@ -34,10 +35,10 @@ export default function CompanyLayout({
     ? companyParam[0]
     : companyParam || "default-tenant";
 
-  useIdleLogout(tenant, "/workspace/login");
-
   const [checkingAuth, setCheckingAuth] = useState(true);
   const { user, setUser } = useUser();
+
+  useIdleLogout(tenant, "/workspace/login", Boolean(user?.rememberMe));
   useEffect(() => {
     const checkAuthAndOnboarding = async () => {
       try {
@@ -86,13 +87,32 @@ export default function CompanyLayout({
             body: JSON.stringify({ company: user.company_name || user.subdomain_url || tenant }),
           }).catch((err) => console.error("Failed to update guided setup flag", err));
 
-          // 3. Redirect to configuration page if not already there
-          if (pathname !== configPath) {
+          // 3. Redirect to configuration page if user has settings_access and not already there
+          if (pathname !== configPath && canAccess(user?.permissions, "settings_access")) {
             router.replace(configPath);
             return;
           }
         } else if (!user.has_completed_guided_setup) {
           setUser({ ...user, has_completed_guided_setup: true });
+        }
+
+        // Route protection guard for client-side navigation
+        const userPath = pathname?.startsWith(`/${tenant}`)
+          ? pathname.slice(`/${tenant}`.length)
+          : (pathname || "");
+        const requiredPermission = getRequiredPermissionForPath(userPath);
+        const isAdmin = user?.responsibility_name === "Admin" || (user?.permissions?.settings_access && user?.permissions?.dashboard_access);
+        const isFinanceTeam = user?.responsibility_name === "finance_team";
+        const hasAccess =
+          !requiredPermission ||
+          isAdmin ||
+          (requiredPermission === "finance_access" && isFinanceTeam) ||
+          canAccess(user?.permissions, requiredPermission);
+
+        if (requiredPermission && !hasAccess) {
+          const fallbackPath = getFirstAccessiblePath(user?.permissions);
+          router.replace(fallbackPath ? `/${tenant}${fallbackPath}` : `/${tenant}/workspace/login`);
+          return;
         }
 
         setCheckingAuth(false);
@@ -121,13 +141,13 @@ export default function CompanyLayout({
   }
 
   const isLiveBilling = pathname?.includes("/workspace/transactions/sales/add");
-  console.log("--- CompanyLayout Diagnostic ---", {
-    AdminLayout: typeof AdminLayout,
-    TenantProvider: typeof TenantProvider,
-    ThemeProvider: typeof ThemeProvider,
-    SidebarProvider: typeof SidebarProvider,
-    isLiveBilling,
-  });
+  // console.log("--- CompanyLayout Diagnostic ---", {
+  //   AdminLayout: typeof AdminLayout,
+  //   TenantProvider: typeof TenantProvider,
+  //   ThemeProvider: typeof ThemeProvider,
+  //   SidebarProvider: typeof SidebarProvider,
+  //   isLiveBilling,
+  // });
   return (
     <TenantProvider value={{ company: tenant }}>
       <CompanySettingsProvider>

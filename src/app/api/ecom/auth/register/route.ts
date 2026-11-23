@@ -121,6 +121,7 @@ export async function POST(req: NextRequest) {
     }
 
     const sessionData = {
+      id: customerId,
       customerId,
       channel: finalChannel,
       email,

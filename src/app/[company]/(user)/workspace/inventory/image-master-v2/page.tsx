@@ -136,11 +136,19 @@ export default function ImageMasterV2Page() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [tagModalOpen, setTagModalOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{
+    currentBatch: number;
+    totalBatches: number;
+    uploadedCount: number;
+    totalFiles: number;
+    percent: number;
+  } | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [templateReviewOpen, setTemplateReviewOpen] = useState(false);
   const [templateMode, setTemplateMode] = useState<"link" | "create">("link");
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importLoading, setImportLoading] = useState(false);
+  const [importErrors, setImportErrors] = useState<string[]>([]);
 
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [linkTargetImageIds, setLinkTargetImageIds] = useState<number[]>([]);
@@ -401,32 +409,74 @@ export default function ImageMasterV2Page() {
     if (!company || selectedFiles.length === 0) return;
     setUploading(true);
     setMessage("");
+    const BATCH_SIZE = 4;
+    const totalFiles = selectedFiles.length;
+    const totalBatches = Math.ceil(totalFiles / BATCH_SIZE);
+    const allUploadedIds: number[] = [];
+    const uploadErrors: string[] = [];
+
     try {
-      const form = new FormData();
-      selectedFiles.forEach((file) => form.append("files", file));
-      const res = await apiFetch("/api/image-master-v2/upload", company, {
-        method: "POST",
-        body: form,
+      for (let b = 0; b < totalBatches; b++) {
+        const batchFiles = selectedFiles.slice(b * BATCH_SIZE, (b + 1) * BATCH_SIZE);
+        setUploadProgress({
+          currentBatch: b + 1,
+          totalBatches,
+          uploadedCount: allUploadedIds.length,
+          totalFiles,
+          percent: Math.round((b / totalBatches) * 100),
+        });
+
+        const form = new FormData();
+        batchFiles.forEach((file) => form.append("files", file));
+        const res = await apiFetch("/api/image-master-v2/upload", company, {
+          method: "POST",
+          body: form,
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          uploadErrors.push(data.message || `Batch ${b + 1} failed`);
+          continue;
+        }
+
+        if (Array.isArray(data?.data)) {
+          for (const row of data.data) {
+            const id = Number(row.id);
+            if (Number.isFinite(id)) allUploadedIds.push(id);
+          }
+        }
+      }
+
+      setUploadProgress({
+        currentBatch: totalBatches,
+        totalBatches,
+        uploadedCount: allUploadedIds.length,
+        totalFiles,
+        percent: 100,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Upload failed");
-      const uploadedIds = Array.isArray(data?.data)
-        ? data.data.map((row: { id: number }) => Number(row.id)).filter((id: number) => Number.isFinite(id))
-        : [];
+
       setSelectedFiles([]);
       setUploadOpen(false);
       await refreshImageMaster();
-      if (uploadedIds.length) {
-        setSelectedIds(new Set(uploadedIds));
+
+      if (uploadErrors.length > 0) {
+        notify(
+          `Uploaded ${allUploadedIds.length} file(s), with issues: ${uploadErrors.join("; ")}`,
+          { severity: "warning" }
+        );
+      }
+
+      if (allUploadedIds.length) {
+        setSelectedIds(new Set(allUploadedIds));
         setTagModalOpen(true);
-        notify(`Uploaded ${uploadedIds.length} image(s). Select tags for this batch.`);
-      } else {
-        notify(`Uploaded ${data.data?.length || 0} image(s).`);
+        notify(`Uploaded ${allUploadedIds.length} image(s). Select tags for this batch.`);
+      } else if (!uploadErrors.length) {
+        notify(`Upload complete.`);
       }
     } catch (error: any) {
-      notify(error.message || "Upload failed.",{ severity: "error" });
+      notify(error.message || "Upload failed.", { severity: "error" });
     } finally {
       setUploading(false);
+      setUploadProgress(null);
     }
   }
 
@@ -590,6 +640,7 @@ export default function ImageMasterV2Page() {
   async function importTemplate() {
     if (!company || !importFile) return;
     setImportLoading(true);
+    setImportErrors([]);
     setMessage("");
     try {
       const form = new FormData();
@@ -599,17 +650,15 @@ export default function ImageMasterV2Page() {
         body: form,
       });
       const data = await res.json();
-      if (!res.ok) {
-        const errorText = Array.isArray(data?.errors) ? data.errors.join(" ") : data.message;
-        notify(errorText || "Import failed",{ severity: "error" });
+      if (!res.ok || !data?.success) {
+        const errs: string[] = Array.isArray(data?.errors)
+          ? data.errors
+          : [data?.message || "Import failed"];
+        setImportErrors(errs);
+        notify(errs[0] || "Import failed", { severity: "error" });
+        return;
       }
-
-          if (!data?.success) {
-      notify(data?.errors?.join(", ") || "Import failed", {
-        severity: "error",
-      });
-      return;
-    }
+      setImportErrors([]);
       const warningCount = Array.isArray(data?.warnings) ? data.warnings.length : 0;
       const linkedCount = Number(data?.linked_images || 0);
       const createdCount = Number(data?.inserted_products || 0);
@@ -1122,12 +1171,32 @@ export default function ImageMasterV2Page() {
               <div className="text-xs text-gray-500">
                 Selected files: {selectedFiles.length || "None"}
               </div>
+              {uploadProgress ? (
+                <div className="space-y-1.5 rounded-lg border border-blue-100 bg-blue-50/50 p-3">
+                  <div className="flex justify-between text-xs text-blue-900 font-medium">
+                    <span>
+                      Batch {uploadProgress.currentBatch} of {uploadProgress.totalBatches} ({uploadProgress.uploadedCount}/{uploadProgress.totalFiles} images uploaded)
+                    </span>
+                    <span>{uploadProgress.percent}%</span>
+                  </div>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-blue-200">
+                    <div
+                      className="h-full bg-blue-600 transition-all duration-300 rounded-full"
+                      style={{ width: `${uploadProgress.percent}%` }}
+                    />
+                  </div>
+                </div>
+              ) : null}
               <button
                 onClick={handleUpload}
                 disabled={uploading || selectedFiles.length === 0}
                 className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
               >
-                {uploading ? "Uploading..." : "Upload Images"}
+                {uploading
+                  ? uploadProgress
+                    ? `Uploading (${uploadProgress.uploadedCount}/${uploadProgress.totalFiles})...`
+                    : "Uploading..."
+                  : "Upload Images"}
               </button>
             </div>
           </div>
@@ -1155,12 +1224,24 @@ export default function ImageMasterV2Page() {
               <input
                 type="file"
                 accept=".xlsx,.xls,.csv"
-                onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                onChange={(e) => {
+                  setImportFile(e.target.files?.[0] || null);
+                  setImportErrors([]);
+                }}
                 className="block w-full text-sm"
               />
               <div className="text-xs text-gray-500">
                 Selected file: {importFile?.name || "None"}
               </div>
+
+              {importErrors.length > 0 && (
+                <div className="max-h-48 overflow-y-auto rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700 space-y-1">
+                  <div className="font-semibold text-red-800">Row-level Validation Errors:</div>
+                  {importErrors.map((err, i) => (
+                    <div key={i}>• {err}</div>
+                  ))}
+                </div>
+              )}
               <button
                 onClick={importTemplate}
                 disabled={!importFile || importLoading}
