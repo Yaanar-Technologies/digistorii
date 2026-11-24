@@ -148,6 +148,7 @@ export async function middleware(req: NextRequest) {
   // Skip Next.js internal files, static assets, setup, cron routes
   if (
     pathname.startsWith("/_next") ||
+    pathname.startsWith("/uploads") ||
     pathname.startsWith("/setup") ||
     pathname.startsWith("/get-service") ||
     pathname.startsWith("/store-suspended") ||

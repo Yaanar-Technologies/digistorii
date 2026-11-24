@@ -127,6 +127,7 @@ export async function POST(req: NextRequest) {
       email,
       phone,
       name: custName,
+      cust_name: custName,
       company: companySlug,
     };
 

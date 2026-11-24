@@ -4,6 +4,8 @@ require("dotenv").config(); // Fallback to .env if present
 
 const { createServer } = require("http");
 const { parse } = require("url");
+const fs = require("fs");
+const path = require("path");
 const next = require("next");
 const { Server } = require("socket.io");
 
@@ -45,6 +47,44 @@ app.prepare().then(async () => {
 
   const server = createServer((req, res) => {
     const parsedUrl = parse(req.url, true);
+    const { pathname } = parsedUrl;
+
+    if (pathname && pathname.startsWith("/uploads/")) {
+      try {
+        const decodedPath = decodeURIComponent(pathname.replace(/^\/uploads\//, ""));
+        const uploadsBase = path.normalize(path.join(process.cwd(), "public", "uploads"));
+        const filePath = path.normalize(path.join(uploadsBase, decodedPath));
+
+        if (!filePath.startsWith(uploadsBase)) {
+          res.statusCode = 403;
+          res.end("Forbidden");
+          return;
+        }
+
+        if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+          const ext = path.extname(filePath).toLowerCase();
+          const mimeTypes = {
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".webp": "image/webp",
+            ".svg": "image/svg+xml",
+            ".gif": "image/gif",
+            ".pdf": "application/pdf",
+            ".ico": "image/x-icon",
+            ".avif": "image/avif",
+          };
+          res.setHeader("Content-Type", mimeTypes[ext] || "application/octet-stream");
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+          const stream = fs.createReadStream(filePath);
+          stream.pipe(res);
+          return;
+        }
+      } catch (err) {
+        console.error("Error serving uploaded asset in server.js:", err);
+      }
+    }
+
     handle(req, res, parsedUrl);
   });
 

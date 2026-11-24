@@ -74,7 +74,7 @@ export async function POST(
     const orderRes = await client.query(
       `SELECT
          o.id, o.order_no, o.order_status, o.customer_id,
-         ca.name AS recipient_name, ca.address_line1, ca.address_line2, ca.city, ca.state, ca.pincode, ca.country,
+         ca.recipient_name, ca.address_line1, ca.address_line2, ca.city, ca.state, ca.pincode, ca.country,
          COALESCE(ca.phone, c.phone, '0000000000') AS phone,
          COALESCE(c.email, 'order@storefront.local') AS email
        FROM "${schema}".online_orders o

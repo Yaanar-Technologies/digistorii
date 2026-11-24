@@ -1147,10 +1147,11 @@ export async function createEcomSchema(
   `);
 
   // 3. storefront_products table
+  // 3. storefront_products table
   await client.query(`
     CREATE TABLE IF NOT EXISTS "${schema}".storefront_products (
       id SERIAL PRIMARY KEY,
-      company_id INT NOT NULL UNIQUE REFERENCES public.companies(id) ON DELETE CASCADE,
+      company_id INT NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
       variant_id BIGINT NOT NULL REFERENCES "${schema}".product_variants(id) ON DELETE CASCADE,
       is_selected_draft BOOLEAN NOT NULL DEFAULT FALSE,
       is_live BOOLEAN NOT NULL DEFAULT FALSE,
@@ -1159,6 +1160,9 @@ export async function createEcomSchema(
       updated_at TIMESTAMP DEFAULT NOW(),
       UNIQUE(variant_id)
     );
+
+    ALTER TABLE "${schema}".storefront_products
+    DROP CONSTRAINT IF EXISTS storefront_products_company_id_key;
   `);
 
   // 4. ecom_price_overrides table

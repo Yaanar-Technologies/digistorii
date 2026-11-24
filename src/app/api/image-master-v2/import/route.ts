@@ -1106,9 +1106,12 @@ export async function POST(req: NextRequest) {
           const pairCount = Math.max(linkRow.imageIds.length, linkRow.imageUrls.length);
           for (let i = 0; i < pairCount; i += 1) {
             const imageId = linkRow.imageIds[i] ?? null;
-            const imageUrl =
+            const rawImageUrl =
               linkRow.imageUrls[i] || (imageId ? imagePathMap.get(imageId) || "" : "");
-            if (!imageUrl) continue;
+            if (!rawImageUrl) continue;
+            const imageUrl = rawImageUrl.startsWith("/uploads/")
+              ? rawImageUrl
+              : (rawImageUrl.startsWith("uploads/") ? `/${rawImageUrl}` : (rawImageUrl.startsWith("http") ? rawImageUrl : `/uploads/${rawImageUrl.replace(/^\/+/, "")}`));
 
             const dupCheck = imageId
               ? await client.query(

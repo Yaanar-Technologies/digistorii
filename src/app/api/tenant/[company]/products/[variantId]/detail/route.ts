@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { calculateEcomPricing } from "@/lib/ecomDiscount";
 import { getNewArrivalVariantIds } from "@/lib/storefrontProducts";
+import { normalizeImageUrl } from "@/lib/image-master";
 
 export async function GET(
   req: NextRequest,
@@ -106,7 +107,7 @@ export async function GET(
       [productId]
     );
 
-    const allImages = imagesRes.rows.map((r) => r.image_url);
+    const allImages = imagesRes.rows.map((r) => normalizeImageUrl(r.image_url)).filter(Boolean);
 
     // 5. Fetch Sibling Variants with Active Discounts
     const variantsQuery = `
@@ -191,7 +192,8 @@ export async function GET(
       // Find variant-specific images, or fallback to all images
       const variantImages = imagesRes.rows
         .filter((img) => img.variant_id === row.variant_id)
-        .map((img) => img.image_url);
+        .map((img) => normalizeImageUrl(img.image_url))
+        .filter(Boolean);
 
       const images = variantImages.length > 0 ? variantImages : allImages;
 

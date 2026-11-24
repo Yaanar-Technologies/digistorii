@@ -24,13 +24,17 @@ export async function POST(
     const { company } = await params;
     const companySlug = (company || "").trim().toLowerCase();
     const body = await req.json().catch(() => ({}));
-    const name = String(body?.name || "").trim();
+    const name = String(body?.name || body?.cust_name || "").trim();
     const email = String(body?.email || "").trim().toLowerCase();
     const phone = String(body?.phone || "").trim();
     const password = String(body?.password || "").trim();
 
     if (!companySlug) {
       return NextResponse.json({ success: false, message: "Company parameter is required" }, { status: 400 });
+    }
+
+    if (!name) {
+      return NextResponse.json({ success: false, message: "Customer name is required" }, { status: 400 });
     }
 
 
@@ -93,6 +97,7 @@ export async function POST(
       email: email || "",
       phone: cleanPhone,
       name,
+      cust_name: name,
       company: companySlug,
     };
 

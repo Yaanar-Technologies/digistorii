@@ -93,13 +93,18 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
 
   const handleAuthSuccess = (customerData: any) => {
     const activeCompany = getActiveCompany();
+    const resolvedName =
+      (customerData.name && String(customerData.name).trim()) ||
+      (customerData.cust_name && String(customerData.cust_name).trim()) ||
+      "Customer";
+
     const normalized: CustomerProfile = {
       id: customerData.id || customerData.customerId,
-      name: customerData.name || customerData.cust_name || "Customer",
+      name: resolvedName,
       email: customerData.email || "",
       phone: customerData.phone || "",
       cust_code: customerData.cust_code || "",
-      cust_name: customerData.cust_name || customerData.name || "Customer",
+      cust_name: resolvedName,
       channel: customerData.channel || "ecom",
       addresses: customerData.addresses || [],
     };
@@ -195,6 +200,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           company: compSlug,
+          name: name.trim(),
           cust_name: name.trim(),
           phone: phone.trim(),
           email: email.trim().toLowerCase(),

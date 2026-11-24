@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { calculateEcomPricing } from "@/lib/ecomDiscount";
+import { normalizeImageUrl } from "@/lib/image-master";
 
 export async function GET(
   req: NextRequest,
@@ -227,7 +228,7 @@ export async function GET(
         variantId: Number(row.variant_id),
         name: row.product_name,
         category: row.category_path || row.category_name || "General",
-        images: row.image_url ? [row.image_url] : ["https://placehold.co/600x400?text=Image+Not+Available"],
+        images: row.image_url ? [normalizeImageUrl(row.image_url)] : ["https://placehold.co/600x400?text=Image+Not+Available"],
         originalPrice: pricing.originalPrice,
         effectivePrice: pricing.effectivePrice,
         compareAtPrice: pricing.isOnSale ? pricing.originalPrice : undefined,

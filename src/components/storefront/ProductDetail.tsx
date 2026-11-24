@@ -23,6 +23,16 @@ export interface ProductDetailProps {
   onSelectCategory?: (category: string) => void;
 }
 
+function formatImageUrl(url: string | null | undefined): string {
+  if (!url) return "https://placehold.co/600x600?text=No+Image+Available";
+  const trimmed = url.trim();
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith("/uploads/")) return trimmed;
+  if (trimmed.startsWith("uploads/")) return `/${trimmed}`;
+  if (trimmed.startsWith("/")) return trimmed;
+  return `/uploads/${trimmed}`;
+}
+
 export const ProductDetail: React.FC<ProductDetailProps> = ({
   theme,
   product,
@@ -83,11 +93,15 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
   }, [selectedColor, selectedSize, siblings, distinctColors.length, distinctSizes.length]);
 
   // Derived current product specs
-  const images = activeVariant?.images && activeVariant.images.length > 0
+  const rawImages = activeVariant?.images && activeVariant.images.length > 0
     ? activeVariant.images
     : product.images.length > 0
       ? product.images
       : ["https://placehold.co/600x600?text=No+Image+Available"];
+
+  const images = useMemo(() => {
+    return rawImages.map(formatImageUrl);
+  }, [rawImages]);
 
   const uniqueImages = useMemo(() => Array.from(new Set(images)), [images]);
 
@@ -1190,7 +1204,7 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                 >
                   <div className="aspect-square w-full overflow-hidden bg-gray-50 relative">
                     <img
-                      src={rel.images[0] || "https://via.placeholder.com/400"}
+                      src={formatImageUrl(rel.images[0]) || "https://via.placeholder.com/400"}
                       alt={rel.name}
                       className="h-full w-full object-cover object-center group-hover:scale-105 transition-transform duration-300"
                     />

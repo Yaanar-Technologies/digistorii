@@ -36,7 +36,7 @@ export default async function TrackingPage({ params }: TrackingPageProps) {
     const orderQuery = `
       SELECT
         o.id, o.order_no, o.order_status, o.delivery_status, o.total_amount, o.currency, o.created_at,
-        ca.name AS address_name, ca.city, ca.state, ca.pincode,
+        ca.recipient_name AS address_name, ca.city, ca.state, ca.pincode,
         d.courier_partner, d.awb_number, d.tracking_url, d.shipping_label_url,
         d.pickup_scheduled_at, d.dispatched_at, d.picked_up_at, d.out_for_delivery_at,
         d.delivered_at, d.estimated_delivery_at, d.attempt_count, d.failure_reason,

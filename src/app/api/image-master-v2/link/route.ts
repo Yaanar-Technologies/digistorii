@@ -404,7 +404,9 @@ export async function POST(req: NextRequest) {
           item.product_id,
           item.variant_id,
           item.image_id,
-          filePath,
+          filePath.startsWith("/uploads/")
+            ? filePath
+            : (filePath.startsWith("uploads/") ? `/${filePath}` : `/uploads/${filePath.replace(/^\/+/, "")}`),
           null,
           !hasPrimary,
           nextOrder,

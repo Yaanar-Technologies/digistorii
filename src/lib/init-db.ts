@@ -23,9 +23,14 @@ export async function initializeDatabase() {
     console.log("Running DB initialization / migrations...");
     await client.query("BEGIN");
 
-    // Enable UUID extension
-    await client.query(`CREATE EXTENSION IF NOT EXISTS "pgcrypto";`);
+    // Explicitly select public schema for all unqualified objects
+    await client.query("SET LOCAL search_path TO public");
 
+    // Ensure pgcrypto is installed in public schema
+    await client.query(`
+  CREATE EXTENSION IF NOT EXISTS "pgcrypto"
+  WITH SCHEMA public;
+`);
     // ===============================
     // COMPANIES TABLE
     // ===============================
@@ -352,6 +357,16 @@ export async function initializeDatabase() {
           updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
         );
         CREATE INDEX IF NOT EXISTS idx_product_reviews_variant ON "${s}".product_reviews(variant_id, status);
+
+        UPDATE "${s}".product_images
+        SET image_url = '/uploads/' || image_url
+        WHERE image_url IS NOT NULL
+          AND image_url NOT LIKE '/%'
+          AND image_url NOT LIKE 'http%';
+
+        UPDATE "${s}".product_images
+        SET image_url = '/' || image_url
+        WHERE image_url LIKE 'uploads/%';
       `);
 
       await ensureTenantLookupDataSeeded(client, s);
