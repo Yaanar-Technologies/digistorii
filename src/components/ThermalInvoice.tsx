@@ -189,6 +189,20 @@ const ThermalInvoice = forwardRef<HTMLDivElement, Props>(({ header, details, onD
     return_change: Number(p.return_change ?? 0),
   }));
 
+  const totalAmountReceived = useMemo(() => {
+    return payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  }, [payments]);
+
+  const returnChange = useMemo(() => {
+    const grandTotal = Number(header.total_amount || 0);
+    const diff = totalAmountReceived - grandTotal;
+    if (diff > 0.001) return diff;
+    const headerChange = Number(header.return_change || 0);
+    if (headerChange > 0.001) return headerChange;
+    const maxPaymentChange = Math.max(0, ...payments.map((p) => Number(p.return_change || 0)));
+    return maxPaymentChange > 0.001 ? maxPaymentChange : 0;
+  }, [totalAmountReceived, header.total_amount, header.return_change, payments]);
+
   const totals = useMemo(() => {
     const totalQty = details.reduce((sum, row) => sum + Number(row.qty || 0), 0);
     const totalDiscount = details.reduce((sum, row) => sum + Number(row.discount || 0), 0);
@@ -284,6 +298,11 @@ const ThermalInvoice = forwardRef<HTMLDivElement, Props>(({ header, details, onD
         <div style={keyRowStyle}>
           <span style={labelStyle}>Mobile No        :</span>
           <span style={valueStyle}>{header.customer_phone || "-"}</span>
+        </div>
+        {/* SALESMAN SECTION */}
+        <div style={keyRowStyle}>
+          <span style={labelStyle}>Sales Person       :</span>
+          <span style={valueStyle}>{salesmanName}</span>
         </div>
       </div>
 
@@ -418,11 +437,7 @@ const ThermalInvoice = forwardRef<HTMLDivElement, Props>(({ header, details, onD
         </>
       ) : null}
 
-      {/* SALESMAN SECTION */}
-      <div style={keyRowStyle}>
-        <span style={labelStyle}>Salesman        :</span>
-        <span style={valueStyle}>{salesmanName}</span>
-      </div>
+
 
       {/* PAYMENT DETAILS SECTION */}
       {payments.length > 0 && (
@@ -432,29 +447,26 @@ const ThermalInvoice = forwardRef<HTMLDivElement, Props>(({ header, details, onD
             PAYMENT DETAILS
           </div>
 
-          {payments.map((p, idx) => (
-            <React.Fragment key={`payment-${idx}`}>
-              <div style={keyRowStyle}>
+          <div style={{ display: "grid", gap: "1px" }}>
+            {payments.map((p, idx) => (
+              <div key={`payment-${idx}`} style={keyRowStyle}>
                 <span style={labelStyle}>{p.mode_name} :</span>
                 <span style={valueStyle}>{currency(p.amount)}</span>
               </div>
+            ))}
 
-              {Number(p.return_change) > 0 && (
-                <div
-                  style={{
-                    ...keyRowStyle,
-                    marginTop: "2px",
-                    fontWeight: 700,
-                  }}
-                >
-                  <span style={labelStyle}>Change:</span>
-                  <span style={valueStyle}>
-                    {currency(Number(p.return_change))}
-                  </span>
-                </div>
-              )}
-            </React.Fragment>
-          ))}
+            <div style={{ ...keyRowStyle, marginTop: "2px", fontWeight: 700 }}>
+              <span style={labelStyle}>Total Amount Received :</span>
+              <span style={valueStyle}>{currency(totalAmountReceived)}</span>
+            </div>
+
+            {returnChange > 0 && (
+              <div style={{ ...keyRowStyle, fontWeight: 700 }}>
+                <span style={labelStyle}>Return Change :</span>
+                <span style={valueStyle}>{currency(returnChange)}</span>
+              </div>
+            )}
+          </div>
         </>
       )}
 
